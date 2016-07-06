@@ -1,0 +1,21 @@
+#!/usr/bin/node
+var prompt = require("prompt");
+var Imp = require("./implish.js");
+
+prompt.message=""
+
+imp = new Imp();
+
+imp.runTilEmpty = function() {
+  while (!imp.waiting) {
+    imp.scan()
+    imp.apply()}
+  imp.prompt()}
+
+imp.prompt = function() {
+  prompt.get("imp>", function(err, res) {
+    if (err) console.log(err)
+    else imp.addsrc(res["imp>"])
+    imp.runTilEmpty() })}
+
+imp.runTilEmpty()
