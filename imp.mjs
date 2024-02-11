@@ -1,10 +1,10 @@
 #!/usr/bin/node
-var prompt = require("prompt");
-var Imp = require("./implish.js");
+import { Imp } from "./implish.mjs";
+import prompt from "prompt";
 
 prompt.message=""
 
-imp = new Imp();
+let imp = new Imp();
 
 imp.runTilEmpty = function() {
   while (!imp.waiting) {
