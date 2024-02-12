@@ -1,31 +1,7 @@
-// new implish prototype (work in progress)
-
-function ok() { }  // no-op
-
-let T = {      // data types
-  NIL: 'NIL',  // null type
-  INT: 'INT',  // integer
-  STR: 'STR',  // string
-  SYM: 'SYM',  // symbol
-  JSF: 'JSF',  // js function (primitive)
-  IMP: 'IMP',  // implish function
-  TOK: 'TOK',  // implish token
-};
+// Implish reader (parser)
+import { ok, T, SymTable, TreeBuilder } from './imp-core.mjs'
 
 let closer = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
-
-export class TreeBuilder {
-  constructor() { this.here = this.root = []; this.stack = [] }
-  emit(x) { this.here.push(x) }
-  node() { this.stack.push(this.here); this.here = [] }
-  done() { let prev = this.stack.pop(); prev.push(this.here); this.here = prev }}
-
-export class SymTable {
-  constructor() { this.symtab = {} }
-  sym(tok) {
-    if (!this.symtab.hasOwnProperty(tok)) {
-      this.symtab[tok] = Symbol(tok) }
-    return this.symtab[tok] }}
 
 export class ImpReader {
   tree = new TreeBuilder()
