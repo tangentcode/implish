@@ -29,7 +29,7 @@ while b [p]        .: repetition :.
 The following constructs are implemented in terms of the above:
 
 ```implish
-rep [p] until b    .: repeat until .:
+rep [p] until b    .: repeat until :.
 for x xs [p]       .: iterator :.
 ```
 
