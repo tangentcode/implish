@@ -1,21 +1,21 @@
 #!/usr/bin/node
-import { Imp } from "./implish.mjs";
+import { ImpReader } from "./imp-read.mjs";
 import prompt from "prompt";
 
 prompt.message=""
 
-let imp = new Imp();
+let imp = new ImpReader();
 
-imp.runTilEmpty = function() {
-  while (!imp.waiting) {
-    imp.scan()
-    imp.apply()}
-  imp.prompt()}
+imp.echo = function() {
+  if (imp.waiting) { imp.prompt("...") }
+  else {
+    console.log(imp.read())
+    imp.prompt("imp>") }}
 
-imp.prompt = function() {
-  prompt.get("imp>", function(err, res) {
+imp.prompt = function(msg) {
+  prompt.get(msg, function(err, res) {
     if (err) console.log(err)
-    else imp.addsrc(res["imp>"])
-    imp.runTilEmpty() })}
+    else imp.send(res[msg])
+    imp.echo() })}
 
-imp.runTilEmpty()
+imp.prompt("imp>")
