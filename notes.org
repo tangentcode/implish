@@ -1,0 +1,97 @@
+#+title: implish notes (from old leo file)
+
+* language
+** goals
+- bootstrap in js
+- real thing runs on tiny multi-core virtual machine
+
+- high level language, with garbage collection
+- sort of a blend of python, nial, smalltalk, k
+- asynchronous
+- generators
+
+
+narrative, iterative style
+
+
+** data types
+- scalar:
+  - bit
+  - symbol
+  - integers of various sizes
+  - character
+
+- vector
+  - algebraic types
+  - function
+  - dictionary
+  - generator
+  - object/instance
+  - interface
+
+** control flow
+
+- pattern matching
+- method dispatch
+- everything async
+
+- comprehensions?
+- do notation?
+
+* interpreter
+
+** imperative first
+- state [as variable bindings in a namespace]
+- sequence
+- condition
+- repetition [loop]
+
+** k-like meta-syntax
+
+- : for declaration/assignment
+- ; for sequence (plus parens and right to left evaluation)
+- ?[ ] for if/elif
+- ![ ] for while
+
+- .[ ] for application
+- @[ ] for application
+
+- {} , {[names] } for lambda
+
+* generic linter/refactoring tool (??)
+
+** linter
+
+- linter tool
+  - provide a list of names referenced and used in the scope
+  - better yet, list of names *at a cursor position*, or used in a selected region.
+  - note names that are used but not declared
+
+** refactoring
+- parse and map onto the sequence operator
+- really only need to be able to track:
+  - initial definitions/declarations
+  - sequence
+  - mutation
+  - input/output
+  - condition
+  - reference
+
+
+- refactoring tool
+  - expressions should have some kind of side effect unless they're inspected or returned
+  - assume that freestanding f[x] is a function call with side effects (and not useless array indexing)
+    - therefore f itself must be a function and probably defined elsewhere
+
+*** extract function
+so: to extract a function,
+  - highlight the phrase
+  - it should be a valid token tree (forest?)
+  - determine which local names need to be used as parameters
+  - determine which names are modified (outputs)
+    - does language allow multiple return values? multiple assignment? pass by reference?
+    - or bundle various locals into a struct?
+
+to find other code that uses the same pattern:
+  - treat the code as a unification template
+  - scan for matches
