@@ -1,12 +1,11 @@
 #!/usr/bin/node
 import { T } from "./imp-core.mjs";
 import { ImpReader } from "./imp-read.mjs";
-import { ImpWriter } from "./imp-write.mjs";
+import { impShow } from "./imp-show.mjs";
 import { ImpEvaluator } from "./imp-eval.mjs";
 import * as readline from "readline";
 
 let impR = new ImpReader();
-let impW = new ImpWriter();
 let impE = new ImpEvaluator();
 
 let rl = readline.createInterface({
@@ -18,6 +17,6 @@ async function repl() {
     impR.send(line)
     let r = impR.read()
     let e = impE.eval(r)
-    if (e[0] !== T.NIL) console.log(impW.show(e)) }}
+    if (e[0] !== T.NIL) console.log(impShow(e)) }}
 
 repl()

@@ -1,8 +1,9 @@
 import { T, nil, TreeBuilder } from './imp-core.mjs'
-import { show } from './imp-write.mjs'
+import { impShow } from './imp-show.mjs'
 
 let impWords = {
   'nil': nil,
+  'show': [T.JSF, {arity: 1}, x=>[T.STR, {}, impShow(x)] ],
   'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
 }
 
