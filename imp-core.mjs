@@ -3,6 +3,8 @@
 export function ok() { }  // the empty program
 
 export let T = {  // token types
+  TOP: 'TOP',     // top-level sequence (list with no delimiters)
+  SEP: 'SEP',     // separator
   INT: 'INT',     // integer
   STR: 'STR',     // string
   MLS: 'MLS',     // multi-line string

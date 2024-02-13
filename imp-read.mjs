@@ -18,20 +18,25 @@ export class ImpReader {
 
   node(tok) {
     this.tree.node();
-    this.expect.push({tok, close:closer[tok.slice(-1)]});  }
+    let o = tok == ".:" ? tok : tok.slice(-1)
+    this.expect.push({open: tok, close:closer[o]});  }
   done(closeTok) {
     let ex = this.expect.pop()
-    if (closeTok == ex.close) {
+    if (!ex) console.error("unexpected", closeTok)
+    else if (closeTok == ex.close) {
       this.tree.done()
       let that = this.tree.here.pop()
       this.tree.emit([T.LST, ex, that])}
-    else console.error("expected", ex, "got", tok)}
+    else console.error("expected", ex.close, "got", closeTok)}
 
   dump() { console.log(this.tree.root) }
   send(s) { this.buffer.push(s); while (!this.empty) this.scan() }
 
   read() {
-    if (this.ready) { let res = this.tree.root; this.clear(); return res }
+    if (this.ready) {
+      let res = this.tree.root;
+      this.clear();
+      return [T.TOP, {}, res ]}
     else { console.error("not ready to read") }}
 
   scan() { // match and process the next token
@@ -48,16 +53,16 @@ export class ImpReader {
         else { console.error("unmatched input:", src)}}}}
 
   // TODO: nested .: :. should treat everything inside as a single comment
-  // TODO: tag the kind of nested node
   // TODO: handle unterminated strings
-  // TODO: markdown style multi-line strings
   // TODO: strands of juxtaposed numbers should be a single token
   // TODO: floats (?)
   syntax = [
-    [ /^\s+/                 , ok ],
+    [ /^((?![\n])\s)+/s      , ok ],
+    [ /^[;\n]/m              , x => this.emit([T.SEP, {}, x]) ],
     [ /^-?\d+/               , x => this.emit([T.INT, {}, parseInt(x)]) ],
-    [ /^"(\\.|[^"])*"/       , x => this.emit([T.STR, {}, x]) ],
-    [ /^```.*```/s           , x => this.emit([T.MLS, {}, x]) ],
+    [ /^"(\\.|[^"])*"/       , x => this.emit([T.STR, {}, x.slice(1,-1)]) ],
+    // TODO: markdown style multi-line strings
+    // [ /^```.*```/           , x => this.emit([T.MLS, {}, x]) ],
     [ /^(\w*[[({]|\.:)/      , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
     [ /^((?!\]|\)|\})\S)+/   , x => this.emit([T.SYM, {}, this.symtbl.sym(x)]) ]] // catchall, so keep last.
