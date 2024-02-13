@@ -3,6 +3,7 @@ import { impShow } from './imp-show.mjs'
 
 let impWords = {
   'nil': nil,
+  '+'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]+y[2]]],
   'show': [T.JSF, {arity: 1}, x=>[T.STR, {}, impShow(x)] ],
   'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
 }
@@ -42,18 +43,35 @@ class ImpEvaluator {
     else this.wc = this.wordClass(x)
     return this.item = x}
 
+  peek = ()=> {
+    if (this.atEnd()) return {item:null, wc:null}
+    let [item, wc, pos] = [this.item, this.wc, this.pos]
+    this.nextItem()
+    let [peekItem, peekWC] = [this.item, this.wc]
+    // !! why does this give "TypeError: Cannot create property '2' on number '1'" ?!?
+    // [this.item, this.wc, this.pos] = [item, wc, pos]
+    this.item = item; this.wc = wc; this.pos = pos
+    let res = {'item':peekItem, 'wc':peekWC}
+    return res}
+
+  modifyNoun = (x)=> {
+    // if next token is infix operator (dyad), apply it to x and next noun
+    let res = x
+    let p = this.peek()
+    if (p.wc == P.O) {
+      let op = this.nextItem()
+      let arg = this.nextNoun()
+      res = op[2].apply(this, [res, arg]) }
+    return res }
+
   nextNoun = ()=> {
-    // expect a noun
+    // read a noun, after applying chains of infix operators
     let res = this.nextItem()
-    if (this.wc == P.N) return res
-    else if (this.wc == P.O) return res
-    else throw "expected noun, got: " + res
-    // TODO: if next token is infix operator, read next arg
-
-
+    if (this.wc == P.N) res = this.modifyNoun(res)
+    else throw "expected a noun, got: " + res
     // todo: collect multiple numbers or quoted symbols into a vector
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
-  }
+    return res }
 
   wordClass = (x)=> {
     let [xt, xa, xv] = x
@@ -66,6 +84,7 @@ class ImpEvaluator {
       // -- resolved symbols:
       case T.JSF: return P.V
       case T.NIL: return P.N
+      case T.JDY: return P.O
       default: throw "[wordClass] invalid argument:" + x }}
 
   // evaluate a list
@@ -92,8 +111,11 @@ class ImpEvaluator {
           treeb.emit(x[2].apply(this, args))
           break
         case P.N:
+          x = this.modifyNoun(x)
+          // fallthrough
         case P.Q:
-          treeb.emit(x); break
+          treeb.emit(x)
+          break
         default: throw "evalList: invalid word class: " + this.wc
       }}
     this.leave()

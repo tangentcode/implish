@@ -22,6 +22,24 @@
 hello
 #+end_src
 
+* echo + arithmetic
+#+name: add
+#+begin_src
+> echo 2 + 2
+4
+#+end_src
+
+outputing "2 2" would be reasonable here if you don't look ahead for operators. So this test forces you to define operators, and look ahead multiple tokens.
+
+- next -> echo (verb)
+- have verb, so look ahead for adverb/conjunction/
+- peek -> 2 (noun)
+- okay. we will apply verb to noun
+- fetch full noun phrase, by calling "next"
+- next -> 2 (noun)
+- have noun, so look ahead for .method or infix op
+
+
 
 
 * [0/7] upcoming tests
