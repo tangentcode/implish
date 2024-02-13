@@ -1,0 +1,10 @@
+#+title: implish tests
+#+server: https://tangentcode.com/
+#+name: implish
+
+* test
+#+name: hello
+#+begin_src
+> echo "hello"
+hello
+#+end_src

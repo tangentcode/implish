@@ -1,0 +1,11 @@
+{
+  "targets": {
+    "main": {
+      "args": [
+        "node", "imp-cmd.mjs"
+      ],
+      "shell": true
+    }
+  },
+  "test_plan": "imp-tests.org"
+}
