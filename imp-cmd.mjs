@@ -11,8 +11,7 @@ let impE = new ImpEvaluator();
 
 let rl = readline.createInterface({
   input: process.stdin,
-  output: process.stdout,
-  terminal: true /* true allows ^D to exit */ });
+  output: process.stdout});
 
 async function repl() {
   for await (const line of rl) {
