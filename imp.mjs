@@ -1,17 +1,19 @@
 #!/usr/bin/node
 import { ImpReader } from "./imp-read.mjs";
 import { ImpWriter } from "./imp-write.mjs";
+import { ImpEvaluator } from "./imp-eval.mjs";
 import prompt from "prompt";
 
 prompt.message=""
 
 let impR = new ImpReader();
 let impW = new ImpWriter();
+let impE = new ImpEvaluator();
 
 impR.echo = function() {
   if (impR.waiting) { impR.send("\n"); impR.prompt("...") }
   else {
-    console.log(impW.show(impR.read()))
+    console.log(impW.show(impE.eval(impR.read())))
     impR.prompt("imp>") }}
 
 impR.prompt = function(msg) {
