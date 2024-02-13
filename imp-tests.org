@@ -22,12 +22,6 @@
 hello
 #+end_src
 
-* echo + arithmetic
-#+name: add
-#+begin_src
-> echo 2 + 2
-4
-#+end_src
 
 
 * [0/7] upcoming tests

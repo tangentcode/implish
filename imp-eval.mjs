@@ -1,14 +1,31 @@
 import { T, nil, TreeBuilder } from './imp-core.mjs'
+import { show } from './imp-write.mjs'
+
+let impWords = {
+  'nil': nil,
+  'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
+}
 
 export class ImpEvaluator {
+  words = impWords
 
   // evaluate a list
   evalList = (xs)=> {
     let treeb = new TreeBuilder()
     for (let i = 0; i < xs.length; i++) {
-      let [t, a, v] = xs[i]
-      switch (t) {
-        default: treeb.emit(this.eval(xs[i])) }}
+      let x = xs[i], [xt, xa, xv] = x
+      if (xt == T.SYM) {
+          let w = this.words[xv.description]
+          if (w) { let [wt, wa, wv] = w
+            switch(wt) {
+              case T.JSF:
+                let args = this.evalList(xs.slice(i+1, i+1+wa.arity))
+                i += wa.arity
+                treeb.emit(wv.apply(this, args))
+                break
+              default: treeb.emit(w) }}
+          else treeb.emit(this.eval(x))}
+      else treeb.emit(this.eval(x)) }
     return treeb.root}
 
   // evaluate a list but return last expression

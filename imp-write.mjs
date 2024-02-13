@@ -16,3 +16,5 @@ export class ImpWriter {
       case T.SYM: return v.description
       case T.LST: return a.open + showList(v) + a.close
       default: throw "[show] invalid argument:" + x }}}
+
+export let show = (x) => new ImpWriter().show(x)
