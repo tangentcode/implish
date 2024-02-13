@@ -2,7 +2,7 @@
 
 export function ok() { }  // the empty program
 
-export let T = {  // token types
+export let T = {  // types
   TOP: 'TOP',     // top-level sequence (list with no delimiters)
   SEP: 'SEP',     // separator
   INT: 'INT',     // integer
@@ -10,7 +10,10 @@ export let T = {  // token types
   MLS: 'MLS',     // multi-line string
   SYM: 'SYM',     // symbol
   LST: 'LST',     // list
+  NIL: 'NIL',     // empty/unit value
 };
+
+export let nil = [T.NIL, {}, null];  // the empty value
 
 export class SymTable {
   constructor() { this.symtab = {} }

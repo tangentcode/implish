@@ -1,4 +1,5 @@
 #!/usr/bin/node
+import { T as impT } from "./imp-core.mjs";
 import { ImpReader } from "./imp-read.mjs";
 import { ImpWriter } from "./imp-write.mjs";
 import { ImpEvaluator } from "./imp-eval.mjs";
@@ -13,7 +14,9 @@ let impE = new ImpEvaluator();
 impR.echo = function() {
   if (impR.waiting) { impR.send("\n"); impR.prompt("...") }
   else {
-    console.log(impW.show(impE.eval(impR.read())))
+    let r = impR.read()
+    let e = impE.eval(r)
+    if (e[0] !== impT.NIL) console.log(impW.show(e))
     impR.prompt("imp>") }}
 
 impR.prompt = function(msg) {

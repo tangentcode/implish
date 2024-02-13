@@ -1,5 +1,5 @@
 // Implish reader (parser)
-import { ok, T, SymTable, TreeBuilder } from './imp-core.mjs'
+import { T, ok, nil, SymTable, TreeBuilder } from './imp-core.mjs'
 
 let closer = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
 
@@ -65,5 +65,6 @@ export class ImpReader {
     // [ /^```.*```/           , x => this.emit([T.MLS, {}, x]) ],
     [ /^(\w*[[({]|\.:)/      , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
+    [ /^nil/                 , x => this.emit(nil) ],  // TODO: still need token info
     [ /^((?!\]|\)|\})\S)+/   , x => this.emit([T.SYM, {}, this.symtbl.sym(x)]) ]] // catchall, so keep last.
 }
