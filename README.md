@@ -103,7 +103,7 @@ echo tpl "hello, {name}!"
 
 ```implish
 .: fizzbuzz :.
-for i range 100 [
+for i ! 100 [
   if not i mod 15 [wr "FizzBuzz"]
   ef not i mod 5  [wr "Buzz"]
   ef not i mod 3  [wr "Fizz"]
@@ -129,7 +129,7 @@ z: d # ,0 0                         .: 3d array of zeroes in same shape :.
 .: TODO: this line probably needs work too :.
 r: (); do 8  [r,:,z:s''[z] + c]     .: collect "z = s(z) +c' 8 times :.
 
-o: " 12345678"@ +/ 2 < m''' r       .: "color" by how soon point "escapes" :.
+o: " 12345678" @ +/ 2 < m''' r      .: "color" by how soon point "escapes" :.
 
 echo ' + o                          .: transpose and print the output :.
 ```
