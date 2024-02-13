@@ -93,12 +93,12 @@ As stated earlier, implish can run atop various technology stacks and make use o
 ## examples
 
 ```implish
-wrln "hello, world!"
+echo "hello, world!"
 ```
 
 ```implish
 name: input -prompt "what is your name?"
-wrln tpl "hello, {name}!"
+echo tpl "hello, {name}!"
 ```
 
 ```implish
@@ -108,7 +108,7 @@ for i range 100 [
   ef not i mod 5  [wr "Buzz"]
   ef not i mod 3  [wr "Fizz"]
   el [wr i]
-  if i mod 10 [wrln] el [ok]]
+  if i mod 10 [echo] el [ok]]
 ```
 
 ```implish
@@ -131,7 +131,7 @@ r: (); do 8  [r,:,z:s''[z] + c]     .: collect "z = s(z) +c' 8 times :.
 
 o: " 12345678"@ +/ 2 < m''' r       .: "color" by how soon point "escapes" :.
 
-wrln ' + o                          .: transpose and print the output :.
+echo ' + o                          .: transpose and print the output :.
 ```
 
 ## how to try it or get in touch
