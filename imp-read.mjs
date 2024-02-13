@@ -15,10 +15,16 @@ export class ImpReader {
 
   clear() { this.tree = new TreeBuilder() }
   emit(x) { this.tree.emit(x) }
-  node(tok) { this.expect.push(closer[tok]); this.tree.node() }
-  done(tok) {
+
+  node(tok) {
+    this.tree.node();
+    this.expect.push({tok, close:closer[tok.slice(-1)]});  }
+  done(closeTok) {
     let ex = this.expect.pop()
-    if (tok == ex) this.tree.done()
+    if (closeTok == ex.close) {
+      this.tree.done()
+      let that = this.tree.here.pop()
+      this.tree.emit([T.LST, ex, that])}
     else console.error("expected", ex, "got", tok)}
 
   dump() { console.log(this.tree.root) }
@@ -49,10 +55,10 @@ export class ImpReader {
   // TODO: floats (?)
   syntax = [
     [ /^\s+/                 , ok ],
-    [ /^-?\d+/               , x => this.emit([T.INT, parseInt(x)]) ],
-    [ /^"(\\.|[^"])*"/       , x => this.emit([T.STR, x]) ],
-    [ /^```.*```/s           , x => this.emit([T.MLS, x]) ],
-    [ /^([[({]|\.:|\S+\[)/   , x => this.node(x) ],
+    [ /^-?\d+/               , x => this.emit([T.INT, {}, parseInt(x)]) ],
+    [ /^"(\\.|[^"])*"/       , x => this.emit([T.STR, {}, x]) ],
+    [ /^```.*```/s           , x => this.emit([T.MLS, {}, x]) ],
+    [ /^(\w*[[({]|\.:)/      , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
-    [ /^\S+/                 , x => this.emit([T.SYM, this.symtbl.sym(x)]) ]] // catchall, so keep last.
+    [ /^((?!\]|\)|\})\S)+/   , x => this.emit([T.SYM, {}, this.symtbl.sym(x)]) ]] // catchall, so keep last.
 }

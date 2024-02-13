@@ -7,6 +7,7 @@ export let T = {  // token types
   STR: 'STR',     // string
   MLS: 'MLS',     // multi-line string
   SYM: 'SYM',     // symbol
+  LST: 'LST',     // list
 };
 
 export class SymTable {
