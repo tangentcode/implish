@@ -1,9 +1,15 @@
-import { T, nil } from './imp-core.mjs'
+import { T, nil, TreeBuilder } from './imp-core.mjs'
 
 export class ImpEvaluator {
 
   // evaluate a list
-  evalList = (xs)=> xs.map(this.eval)
+  evalList = (xs)=> {
+    let treeb = new TreeBuilder()
+    for (let i = 0; i < xs.length; i++) {
+      let [t, a, v] = xs[i]
+      switch (t) {
+        default: treeb.emit(this.eval(xs[i])) }}
+    return treeb.root}
 
   // evaluate a list but return last expression
   lastEval = (xs)=> {
