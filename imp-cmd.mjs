@@ -13,9 +13,11 @@ let rl = readline.createInterface({
 
 async function repl() {
   for await (const line of rl) {
-    impR.send(line)
-    let r = impR.read()
-    let e = impEval(r)
-    if (e[0] !== T.NIL) console.log(impShow(e)) }}
+    try {
+      impR.send(line)
+      let r = impR.read()
+      let e = impEval(r)
+      if (e[0] !== T.NIL) console.log(impShow(e)) }
+    catch (e) { console.trace(e) }}}
 
 repl()
