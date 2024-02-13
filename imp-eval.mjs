@@ -7,8 +7,13 @@ let impWords = {
   'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
 }
 
-export class ImpEvaluator {
+class ImpEvaluator {
   words = impWords
+  stack = []
+  lst = null
+  pos = 0
+
+  constructor(root) { this.here = this.root = root; this.stack = []; this.pos = 0 }
 
   // evaluate a list
   evalList = (xs)=> {
@@ -47,3 +52,5 @@ export class ImpEvaluator {
       case T.SYM: return x
       case T.LST: return [T.LST, a, this.evalList(v)]
       default: throw "invalid imp value:" + x }}}
+
+export let impEval = (x)=> new ImpEvaluator().eval(x)
