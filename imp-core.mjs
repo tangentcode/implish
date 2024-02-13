@@ -2,14 +2,11 @@
 
 export function ok() { }  // the empty program
 
-export let T = {  // data types
-  NIL: 'NIL',     // null type
+export let T = {  // token types
   INT: 'INT',     // integer
   STR: 'STR',     // string
+  MLS: 'MLS',     // multi-line string
   SYM: 'SYM',     // symbol
-  JSF: 'JSF',     // js function (primitive)
-  IMP: 'IMP',     // implish function
-  TOK: 'TOK',     // implish token
 };
 
 export class SymTable {

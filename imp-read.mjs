@@ -49,11 +49,10 @@ export class ImpReader {
   // TODO: floats (?)
   syntax = [
     [ /^\s+/                 , ok ],
-    [ /^\/.*\n/              , ok ],
     [ /^-?\d+/               , x => this.emit([T.INT, parseInt(x)]) ],
     [ /^"(\\.|[^"])*"/       , x => this.emit([T.STR, x]) ],
-    [ /^`(\w|[.:-])*\b/      , x => this.emit([T.SYM, this.symtbl.sym(x) ]) ],
-    [ /^([[({]|\.:)/         , x => this.node(x) ],
+    [ /^```.*```/s           , x => this.emit([T.MLS, x]) ],
+    [ /^([[({]|\.:|\S+\[)/   , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
-    [ /^\S+/                 , x => this.emit([T.TOK, x]) ]] // catchall, so keep last.
+    [ /^\S+/                 , x => this.emit([T.SYM, this.symtbl.sym(x)]) ]] // catchall, so keep last.
 }
