@@ -2,9 +2,57 @@
 #+server: https://tangentcode.com/
 #+name: implish
 
-* test
+* repl behavior: print everything but nil
+#+name: nil
+#+begin_src
+> [nil]
+[nil]
+> nil
+> 1 `x
+`x
+#+end_src
+
+> 1 2
+1 2
+
+* echo: function call
 #+name: hello
 #+begin_src
 > echo "hello"
 hello
 #+end_src
+
+* echo + arithmetic
+#+name: add
+#+begin_src
+> echo 2 + 2
+4
+#+end_src
+
+
+* [0/7] upcoming tests
+
+** TODO arithmetic
+
+** TODO ambivalent operators
+ex: - x is negate,  x - y is subtraction
+
+** TODO grammar rules / definitions / macros
+
+** TODO binary expressions
+
+: eq =  ne ~: gt >  lt <  ge >: le <:
+: xr ~: an *. or +. nt -.
+: lid / rid ? (li/ri?)
+
+
+
+** TODO
+
+** TODO proofs
+- unification for rewrite rules
+- hehner has two levels (one for expr, one for proofs)
+- really just same op with two precedence levels
+- quoting might fill the gap?
+
+** TODO tokenizer -> xml test?
