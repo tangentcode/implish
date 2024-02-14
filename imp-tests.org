@@ -51,11 +51,11 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 hi
 #+end_src
 
-* TODO verb verb
+* DONE echo show "quoted"
 #+name: echo-show
 #+begin_src
-> echo show "hello"
-"hello"
+> echo show "quoted"
+"quoted"
 #+end_src
 
 * TODO strands

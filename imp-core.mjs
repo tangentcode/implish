@@ -4,8 +4,9 @@ export function ok() { }  // the empty program
 
 export let T = {  // types
   SEP: 'SEP',     // separator
-  // --- values with literal representation
   TOP: 'TOP',     // top-level sequence (list with no delimiters)
+  END: 'END',     // virtual 'end of input' token
+  // --- values with literal representation
   INT: 'INT',     // integer
   STR: 'STR',     // string
   MLS: 'MLS',     // multi-line string
@@ -28,9 +29,12 @@ export let P = {  // parts of speech
   S: 'S',     // setter / like :set-word in red
   M: 'M',     // method / adjective (symbol starting with ".")
   O: 'O',     // operator (infix between nouns)
+  E: 'E',     // end of input
 }
 
 export let nil = [T.NIL, {}, null];  // the empty value
+export let end = [T.END, {}, null];  // the virtual end token
+export let jsf = (f,a)=> [T.JSF, {arity:a}, f]
 
 export class SymTable {
   constructor() { this.symtab = {} }

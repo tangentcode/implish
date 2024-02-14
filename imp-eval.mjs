@@ -1,5 +1,7 @@
-import { T, P, nil, TreeBuilder } from './imp-core.mjs'
+import { T, P, nil, end, TreeBuilder } from './imp-core.mjs'
+import * as imp from './imp-core.mjs'
 import { impShow } from './imp-show.mjs'
+import * as assert from "assert"
 
 let impWords = {
   'nil': nil,
@@ -14,23 +16,24 @@ let impWords = {
 class ImpEvaluator {
   words = impWords
   stack = []
-  item = {}
-  wc = null
-  lst = null
-  pos = 0
+
+  item = []; wc = null; pos = 0; wcs = [];
 
   constructor(root) {
     this.root = root
     this.here = this.root
     this.stack = []; this.pos = 0 }
 
-  enter = (xs)=> this.stack.push([this.here, this.pos], this.pos=0, this.here=xs[2])
-  leave = (xs)=> {[this.here, this.pos] = this.stack.pop()}
+  enter = (xs)=> {
+    this.stack.push([this.here, this.pos, this.wcs])
+    this.pos=0; this.here=xs[2]; this.wcs=[]}
+
+  leave = (xs)=> {[this.here, this.pos, this.wcs] = this.stack.pop()}
   atEnd = ()=> this.pos >= this.here.length
 
   /// sets this.item and this.wc
   nextItem = ()=> {
-    let x = this.here[this.pos++]
+    let x = (this.pos >= this.here.length) ? end : this.here[this.pos++]
     let [t, a, v] = x
     if (t == T.SYM) {
       switch (v.description[0]) {
@@ -44,6 +47,7 @@ class ImpEvaluator {
             if (w) x = w, this.wc = this.wordClass(w)
             else throw "undefined word: " + v.description }}}}
     else this.wc = this.wordClass(x)
+    this.wcs.push(this.wc)
     return this.item = x}
 
   peek = ()=> {
@@ -79,6 +83,7 @@ class ImpEvaluator {
     let [xt, xa, xv] = x
     switch (xt) {
       case T.TOP: return P.N
+      case T.END: return P.E
       case T.INT: return P.N
       case T.STR: return P.N
       case T.MLS: return P.N
@@ -89,32 +94,59 @@ class ImpEvaluator {
       case T.JDY: return P.O
       default: throw "[wordClass] invalid argument:" + x }}
 
+  // keep the peeked-at item
+  keep = (p)=> { this.item=p.item; this.wc=p.wc; this.pos++ }
+
+  modifyVerb = (v0) => {
+    let p, res = v0
+    while ([P.V, P.A, P.P].includes((p = this.peek()).wc)) {
+      this.keep(p)
+      switch (p.wc) {
+        case P.V: // TODO: composition (v u)
+          assert.ok(res[1].arity==1, "oh no")
+          let u = res[2]
+          let v = p.item[2]
+          res = imp.jsf((x)=>u(v(x)), 1)
+          break
+        case P.A: // TODO: adverb (v/)
+        case P.P: // TODO: preposition (v -arg)
+        case P.C: // TODO: conjunction (v &. u)
+      }
+    }
+    return res
+  }
+
   // evaluate a list
   evalList = (xs)=> {
+    // walk from left to right, building up values to emit
+    let tmp = [],  done = false, tb = new TreeBuilder()
     this.enter(xs)
-    let treeb = new TreeBuilder()
-    while (!this.atEnd()) {
+    while (!done) {
       // skip separators
-      do { this.nextItem() } while (this.item[0] == T.SEP && !this.atEnd())
-      if (this.item[0] == T.SEP) break
+      do {this.nextItem() } while (this.item[0] == T.SEP && !this.atEnd())
+      if (this.atEnd()) done = true
       let x = this.item
+      // console.log({wcs: this.wcs, x})
       switch (this.wc) {
-        case P.V: // verb
+      case P.V: // verb
+          x = this.modifyVerb(x)
           let args = []
-          // todo: look ahead for adverbs/prepositions
           for (let i = 0; i < x[1].arity; i++) { args.push(this.nextNoun()) }
-          treeb.emit(x[2].apply(this, args))
+          tb.emit(x[2].apply(this, args))
           break
         case P.N:
           x = this.modifyNoun(x)
-          // fallthrough
+          tb.emit(x)
+          break
         case P.Q:
-          treeb.emit(x)
+          tb.emit(x)
+          break
+        case P.E:
           break
         default: throw "evalList: invalid word class: " + this.wc
       }}
     this.leave()
-    return treeb.root}
+    return tb.root}
 
   // evaluate a list but return last expression
   lastEval = (xs)=> {
