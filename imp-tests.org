@@ -2,7 +2,7 @@
 #+server: https://tangentcode.com/
 #+name: implish
 
-* repl behavior: print everything but nil
+* DONE repl behavior: print everything but nil
 #+name: nil
 #+begin_src
 > [nil]
@@ -12,17 +12,14 @@
 `x
 #+end_src
 
-> 1 2
-1 2
-
-* echo: function call
+* DONE echo: function call
 #+name: hello
 #+begin_src
 > echo "hello"
 hello
 #+end_src
 
-* echo + arithmetic
+* DONE echo + arithmetic
 #+name: add
 #+begin_src
 > echo 2 + 2
@@ -42,24 +39,50 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 
 
 
-* [0/7] upcoming tests
+* TODO ignore comments
+#+name: echo-comment
+#+begin_src
+> echo .: this is a comment :. "hi"
+hi
+#+end_src
 
-** TODO arithmetic
+* TODO verb verb
+#+name: echo-show
+#+begin_src
+> echo show "hello"
+"hello"
+#+end_src
+
+* TODO strands
+#+name: strands
+#+begin_src
+> 1 2 3 4
+1 2 3 4
+#+end_src
+
+
+* TODO vector math
+#+name: strand-math
+#+begin_src
+> 1 + ! 4
+1 2 3 4
+> 1 + 1 2 3 4
+2 3 4 5
+#+end_src
+
+
+* [0/7] upcoming tests
 
 ** TODO ambivalent operators
 ex: - x is negate,  x - y is subtraction
+x + y is addition,  + x is transpose or complex conjugate
 
 ** TODO grammar rules / definitions / macros
 
 ** TODO binary expressions
-
 : eq =  ne ~: gt >  lt <  ge >: le <:
 : xr ~: an *. or +. nt -.
 : lid / rid ? (li/ri?)
-
-
-
-** TODO
 
 ** TODO proofs
 - unification for rewrite rules
