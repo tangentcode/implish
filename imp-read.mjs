@@ -26,7 +26,7 @@ export class ImpReader {
     else if (closeTok == ex.close) {
       this.tree.done()
       let that = this.tree.here.pop()
-      this.tree.emit([T.LST, ex, that])}
+      if (closeTok !== ':.') this.tree.emit([T.LST, ex, that])}
     else console.error("expected", ex.close, "got", closeTok)}
 
   dump() { console.log(this.tree.root) }

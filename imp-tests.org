@@ -44,8 +44,7 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 14
 #+end_src
 
-
-* TODO ignore comments
+* DONE ignore comments
 #+name: echo-comment
 #+begin_src
 > echo .: this is a comment :. "hi"
