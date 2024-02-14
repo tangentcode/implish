@@ -5,6 +5,8 @@ let impWords = {
   'nil': nil,
   '+'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]+y[2]]],
   '-'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]-y[2]]],
+  '*'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]*y[2]]],
+  '%'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]/y[2]]],
   'show': [T.JSF, {arity: 1}, x=>[T.STR, {}, impShow(x)] ],
   'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
 }
