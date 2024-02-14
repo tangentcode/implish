@@ -4,6 +4,7 @@ import { impShow } from './imp-show.mjs'
 let impWords = {
   'nil': nil,
   '+'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]+y[2]]],
+  '-'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]-y[2]]],
   'show': [T.JSF, {arity: 1}, x=>[T.STR, {}, impShow(x)] ],
   'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
 }
@@ -97,13 +98,6 @@ class ImpEvaluator {
       if (this.item[0] == T.SEP) break
       let x = this.item
       switch (this.wc) {
-        /*
-          V0 -> look ahead for optional arguments
-          V0 -> execute V (V0 = verb with arity 0)
-          Vx N -> N is first argument
-          V A ->
-
-        */
         case P.V: // verb
           let args = []
           // todo: look ahead for adverbs/prepositions
