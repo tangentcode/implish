@@ -12,14 +12,14 @@
 `x
 #+end_src
 
-* DONE echo: function call
+* DONE echo "hello"
 #+name: hello
 #+begin_src
 > echo "hello"
 hello
 #+end_src
 
-* DONE echo + arithmetic
+* DONE echo 2 + 2
 #+name: add
 #+begin_src
 > echo 2 + 2
@@ -37,6 +37,12 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 - have noun, so look ahead for .method or infix op
 
 
+* DONE arithmetic (left to right eval)
+#+name: arithmetic
+#+begin_src
+> echo 1 + 2 * 3 + 5
+14
+#+end_src
 
 
 * TODO ignore comments

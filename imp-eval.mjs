@@ -59,11 +59,10 @@ class ImpEvaluator {
 
   modifyNoun = (x)=> {
     // if next token is infix operator (dyad), apply it to x and next noun
-    let res = x
-    let p = this.peek()
-    if (p.wc == P.O) {
+    let p, res = x
+    while ((p = this.peek()).wc == P.O) {
       let op = this.nextItem()
-      let arg = this.nextNoun()
+      let arg = this.nextItem()
       res = op[2].apply(this, [res, arg]) }
     return res }
 
