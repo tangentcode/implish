@@ -31,7 +31,10 @@ export class ImpReader {
     else console.error("expected", ex.close, "got", closeTok)}
 
   dump() { console.log(this.tree.root) }
-  send(s) { this.buffer.push(s); while (!this.empty) this.scan() }
+  send(s) {
+    this.buffer.push(s);
+    while (!this.empty) this.scan();
+    return this }
 
   read() {
     if (this.ready) {
@@ -64,7 +67,10 @@ export class ImpReader {
     [ /^"(\\.|[^"])*"/       , x => this.emit(imp.str(x.slice(1,-1))) ],
     // TODO: markdown style multi-line strings
     // [ /^```.*```/           , x => this.emit(imp.mls(x)) ],
-    [ /^(\w*[[({]|\.:)/      , x => this.node(x) ],
+    [ /^(((?![[({])\S)*[[({]|\.:)/      , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
     [ /^((?![\])}])\S)+/     , x => this.emit(imp.sym(this.symtbl.sym(x))) ]] // catchall, so keep last.
 }
+
+// impStr -> impData
+export let read = (impStr) => new ImpReader().send(impStr[2]).read()

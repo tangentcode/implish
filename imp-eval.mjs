@@ -1,6 +1,7 @@
 import { T, P, nil, end, TreeBuilder } from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 import { impShow } from './imp-show.mjs'
+import { read } from './imp-read.mjs'
 import * as assert from "assert"
 
 let impWords = {
@@ -9,9 +10,52 @@ let impWords = {
   '-'   : imp.jdy((x,y)=>imp.int(x[2]-y[2])),
   '*'   : imp.jdy((x,y)=>imp.int(x[2]*y[2])),
   '%'   : imp.jdy((x,y)=>imp.int(Math.floor(x[2]/y[2]))),
+  'read': imp.jsf(x=>read(x), 1),
+  'xml' : imp.jsf(x=>imp.str(toXml(x)), 1),
+  'look': imp.jsf(x=>imp.str(impWords[x[2]]??"nil"), 1),
+  'eval': imp.jsf(x=>eval(x), 1),
+  'part': imp.jsf(x=>imp.str(wordClass(x)), 1),
   'show': imp.jsf(x=>imp.str(impShow(x)), 1),
   'echo': imp.jsf(x=>(console.log(x[2]), nil), 1),
 }
+
+function xmlTag(tag, attrs, content) {
+  let attrStr = Object.entries(attrs).map(([k,v])=>`${k}="${v}"`).join(' ')
+  if (content) return `<${tag} ${attrStr}>${content}</${tag}>`
+  else return `<${tag} ${attrStr}/>`
+}
+function toXml(impv) {
+  let [t, a, v] = impv
+  switch (t) {
+    case T.SEP:
+    case T.INT:
+    case T.STR:
+      return xmlTag(t.toLowerCase(),{v})
+    case T.NIL: return '<nil/>'
+    case T.SYM: return `${v.description}`
+
+    case T.TOP:
+    case T.LST:
+      return xmlTag(t.toLowerCase(), a,
+        '\n  ' + v.map(toXml).join('\n  ') + '\n')
+    default: }
+}
+
+
+function wordClass(x) {
+    let [xt, xa, xv] = x
+    switch (xt) {
+      case T.TOP: return P.N
+      case T.END: return P.E
+      case T.INT: return P.N
+      case T.STR: return P.N
+      case T.MLS: return P.N
+      case T.LST: return P.N
+      // -- resolved symbols:
+      case T.JSF: return P.V
+      case T.NIL: return P.N
+      case T.JDY: return P.O
+      default: throw "[wordClass] invalid argument:" + x }}
 
 class ImpEvaluator {
   words = impWords
@@ -79,20 +123,7 @@ class ImpEvaluator {
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
     return res }
 
-  wordClass = (x)=> {
-    let [xt, xa, xv] = x
-    switch (xt) {
-      case T.TOP: return P.N
-      case T.END: return P.E
-      case T.INT: return P.N
-      case T.STR: return P.N
-      case T.MLS: return P.N
-      case T.LST: return P.N
-      // -- resolved symbols:
-      case T.JSF: return P.V
-      case T.NIL: return P.N
-      case T.JDY: return P.O
-      default: throw "[wordClass] invalid argument:" + x }}
+  wordClass = (x)=> wordClass(x)
 
   // keep the peeked-at item
   keep = (p)=> { this.item=p.item; this.wc=p.wc; this.pos++ }
