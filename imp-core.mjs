@@ -34,7 +34,6 @@ export let P = {  // parts of speech
 
 export let nil = [T.NIL, {}, null];  // the empty value
 export let end = [T.END, {}, null];  // the virtual end token
-export let jsf = (f,a)=> [T.JSF, {arity:a}, f]
 
 export class SymTable {
   constructor() { this.symtab = {} }
@@ -47,3 +46,15 @@ export class TreeBuilder {
   emit(x) { this.here.push(x) }
   node() { this.stack.push(this.here); this.here = [] }
   done() { let prev = this.stack.pop(); prev.push(this.here); this.here = prev }}
+
+export function lst(atr, items) {
+  if (atr===undefined) atr = {}
+  if (items===undefined) items = []
+  return [T.LST, atr, items] }
+export function int(x) { return [T.INT, {}, x] }
+export function str(x) { return [T.STR, {}, x] }
+export function sym(x) { return [T.SYM, {}, x] }
+export function sep(x) { return [T.SEP, {}, x] }
+export let jsf = (f,a)=> [T.JSF, {arity:a}, f]
+export let jdy = (f)=> [T.JDY, {}, f]
+// export function mls(x) { return [T.MLS, {}, x] }

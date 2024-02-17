@@ -5,12 +5,12 @@ import * as assert from "assert"
 
 let impWords = {
   'nil': nil,
-  '+'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]+y[2]]],
-  '-'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]-y[2]]],
-  '*'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]*y[2]]],
-  '%'   : [T.JDY, {}, (x,y)=>[T.INT, {}, x[2]/y[2]]],
-  'show': [T.JSF, {arity: 1}, x=>[T.STR, {}, impShow(x)] ],
-  'echo': [T.JSF, {arity: 1}, x=>(console.log(x[2]), nil) ],
+  '+'   : imp.jdy((x,y)=>imp.int(x[2]+y[2])),
+  '-'   : imp.jdy((x,y)=>imp.int(x[2]-y[2])),
+  '*'   : imp.jdy((x,y)=>imp.int(x[2]*y[2])),
+  '%'   : imp.jdy((x,y)=>imp.int(Math.floor(x[2]/y[2]))),
+  'show': imp.jsf(x=>imp.str(impShow(x)), 1),
+  'echo': imp.jsf(x=>(console.log(x[2]), nil), 1),
 }
 
 class ImpEvaluator {
@@ -163,7 +163,7 @@ class ImpEvaluator {
       case T.STR: return x
       case T.MLS: return x
       case T.SYM: return x
-      case T.LST: return [T.LST, a, this.evalList(x)]
+      case T.LST: return imp.lst(a, this.evalList(x))
       default: throw "invalid imp value:" + x }}}
 
 export let impEval = (x)=> new ImpEvaluator(x).eval()
