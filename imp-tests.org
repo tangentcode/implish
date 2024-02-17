@@ -72,20 +72,35 @@ hello
 4
 #+end_src
 
-* TODO +[2;3]
+* DONE +[2;3]
 #+name: projection.op
 #+begin_src
 > +[2;3]
 5
 #+end_src
 
-* TODO echo[+[2;3]]
+* DONE echo[+[2;3]]
 #+name: projection.nested
 #+begin_src
 > echo[+[2;3]]
 5
 #+end_src
 
+
+
+* DONE echo xmls [1 2; "three"; four]
+#+name: xmls
+#+begin_src imp
+> echo xmls [1 2; "three"; four]
+<imp:lst open="[" close="]">
+  <imp:int v="1"/>
+  <imp:int v="2"/>
+  <imp:sep v=";"/>
+  <imp:str v="three"/>
+  <imp:sep v=";"/>
+  <imp:sym v="four"/>
+</imp:lst>
+#+end_src
 
 
 * TODO strands

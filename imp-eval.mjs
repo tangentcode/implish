@@ -11,7 +11,7 @@ let impWords = {
   '*'   : imp.jdy((x,y)=>imp.int(x[2]*y[2])),
   '%'   : imp.jdy((x,y)=>imp.int(Math.floor(x[2]/y[2]))),
   'read': imp.jsf(x=>read(x), 1),
-  'xml' : imp.jsf(x=>imp.str(toXml(x)), 1),
+  'xmls': imp.jsf(x=>imp.str(toXml(x)), 1),
   'look': imp.jsf(x=>imp.str(impWords[x[2]]??"nil"), 1),
   'eval': imp.jsf(x=>eval(x), 1),
   'part': imp.jsf(x=>imp.str(wordClass(x)), 1),
@@ -30,13 +30,12 @@ function toXml(impv) {
     case T.SEP:
     case T.INT:
     case T.STR:
-      return xmlTag(t.toLowerCase(),{v})
+      return xmlTag('imp:'+t.toLowerCase(),{v})
     case T.NIL: return '<nil/>'
-    case T.SYM: return `${v.description}`
-
+    case T.SYM: return xmlTag('imp:sym', {v:`${v.description}`})
     case T.TOP:
     case T.LST:
-      return xmlTag(t.toLowerCase(), a,
+      return xmlTag('imp:'+t.toLowerCase(), a,
         '\n  ' + v.map(toXml).join('\n  ') + '\n')
     default: }
 }
