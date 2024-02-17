@@ -35,13 +35,13 @@ class ImpEvaluator {
   nextItem = ()=> {
     let x = (this.pos >= this.here.length) ? end : this.here[this.pos++]
     let [t, a, v] = x
-    if (t == T.SYM) {
+    if (t === T.SYM) {
       switch (v.description[0]) {
         case '`': this.wc = P.Q; break // TODO: literal word
         case '.': this.wc = P.M; break // TODO: method
         case ':': this.wc = P.G; break // getter
         default: {
-          if (v.description[-1] == ':') this.wc = P.S
+          if (v.description[-1] === ':') this.wc = P.S
           else { // normal symbol, so look it up
             let w = this.words[v.description]
             if (w) x = w, this.wc = this.wordClass(w)
@@ -64,7 +64,7 @@ class ImpEvaluator {
   modifyNoun = (x)=> {
     // if next token is infix operator (dyad), apply it to x and next noun
     let p, res = x
-    while ((p = this.peek()).wc == P.O) {
+    while ((p = this.peek()).wc === P.O) {
       let op = this.nextItem()
       let arg = this.nextItem()
       res = op[2].apply(this, [res, arg]) }
@@ -73,7 +73,7 @@ class ImpEvaluator {
   nextNoun = ()=> {
     // read a noun, after applying chains of infix operators
     let res = this.nextItem()
-    if (this.wc == P.N) res = this.modifyNoun(res)
+    if (this.wc === P.N) res = this.modifyNoun(res)
     else throw "expected a noun, got: " + res
     // todo: collect multiple numbers or quoted symbols into a vector
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
@@ -103,7 +103,7 @@ class ImpEvaluator {
       this.keep(p)
       switch (p.wc) {
         case P.V: // TODO: composition (v u)
-          assert.ok(res[1].arity==1, "oh no")
+          assert.ok(res[1].arity===1, "oh no")
           let u = res[2]
           let v = p.item[2]
           res = imp.jsf((x)=>u(v(x)), 1)
@@ -123,7 +123,7 @@ class ImpEvaluator {
     this.enter(xs)
     while (!done) {
       // skip separators
-      do {this.nextItem() } while (this.item[0] == T.SEP && !this.atEnd())
+      do {this.nextItem() } while (this.item[0] === T.SEP && !this.atEnd())
       if (this.atEnd()) done = true
       let x = this.item
       // console.log({wcs: this.wcs, x})
@@ -153,6 +153,20 @@ class ImpEvaluator {
     let res = this.evalList(xs)
     return res.length ? res.pop() : nil }
 
+  // project a function
+  project = (sym, xs)=> {
+    console.log("projecting: ", sym, xs)
+    let f = this.words[sym]
+    if (!f) throw "[project]: undefined word: " + sym
+    let args = [], arg = imp.lst()
+    for (let x of xs) {
+      if (x[0] === T.SEP) { args.push(arg); arg = imp.lst() }
+      else arg.push(x)}
+    args.push(arg)
+
+    if (f) return f[2].apply(this, args.map(this.lastEval))
+    else throw "undefined word: " + sym }
+
   // evaluate an expression
   eval = ()=> {
     let x = this.here, [t, a, v] = x
@@ -164,6 +178,14 @@ class ImpEvaluator {
       case T.MLS: return x
       case T.SYM: return x
       case T.LST: return imp.lst(a, this.evalList(x))
-      default: throw "invalid imp value:" + x }}}
+        console.log("opener is: ", a.open, "and closer is: ", a.close)
+        let m = a.open.match(/^(.+)([[({])$/)
+        if (m) { let sym = m[1]; switch (m[2]) {
+          case '[': return this.project(sym, this.evalList(x))
+          // case '(': TODO
+          // case '{': TODO
+          default: return imp.lst(a, this.evalList(x))}}
+        else return imp.lst(a, this.evalList(x))
+      default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
 export let impEval = (x)=> new ImpEvaluator(x).eval()
