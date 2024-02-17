@@ -126,7 +126,6 @@ class ImpEvaluator {
       do {this.nextItem() } while (this.item[0] === T.SEP && !this.atEnd())
       if (this.atEnd()) done = true
       let x = this.item
-      // console.log({wcs: this.wcs, x})
       switch (this.wc) {
       case P.V: // verb
           x = this.modifyVerb(x)
@@ -135,6 +134,9 @@ class ImpEvaluator {
           tb.emit(x[2].apply(this, args))
           break
         case P.N:
+          // process.stderr.write(`noun: ${impShow(x)}\n`)
+          // if x[0] === T.LST {}
+          x = this.eval(x)
           x = this.modifyNoun(x)
           tb.emit(x)
           break
@@ -155,30 +157,28 @@ class ImpEvaluator {
 
   // project a function
   project = (sym, xs)=> {
-    console.log("projecting: ", sym, xs)
     let f = this.words[sym]
     if (!f) throw "[project]: undefined word: " + sym
     let args = [], arg = imp.lst()
     for (let x of xs) {
       if (x[0] === T.SEP) { args.push(arg); arg = imp.lst() }
-      else arg.push(x)}
+      else imp.push(arg,x)}
     args.push(arg)
-
-    if (f) return f[2].apply(this, args.map(this.lastEval))
-    else throw "undefined word: " + sym }
+    let res = f[2].apply(this, args.map(this.lastEval))
+    return res}
 
   // evaluate an expression
-  eval = ()=> {
-    let x = this.here, [t, a, v] = x
+  eval = (x)=> {
+    let [t, a, v] = x
     switch (t) {
       case T.TOP: return this.lastEval(x)
       case T.SEP: return nil
+      case T.NIL: return x
       case T.INT: return x
       case T.STR: return x
       case T.MLS: return x
       case T.SYM: return x
-      case T.LST: return imp.lst(a, this.evalList(x))
-        console.log("opener is: ", a.open, "and closer is: ", a.close)
+      case T.LST:
         let m = a.open.match(/^(.+)([[({])$/)
         if (m) { let sym = m[1]; switch (m[2]) {
           case '[': return this.project(sym, this.evalList(x))
@@ -188,4 +188,4 @@ class ImpEvaluator {
         else return imp.lst(a, this.evalList(x))
       default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
-export let impEval = (x)=> new ImpEvaluator(x).eval()
+export let impEval = (x)=> new ImpEvaluator(x).eval(x)

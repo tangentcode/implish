@@ -48,9 +48,11 @@ export class TreeBuilder {
   done() { let prev = this.stack.pop(); prev.push(this.here); this.here = prev }}
 
 export function lst(atr, items) {
-  if (atr===undefined) atr = {}
+  if (atr===undefined) atr = {open:'<<', close:'>>'}
   if (items===undefined) items = []
   return [T.LST, atr, items] }
+export function push(xs, x) { xs[2].push(x); return xs }
+
 export function int(x) { return [T.INT, {}, x] }
 export function str(x) { return [T.STR, {}, x] }
 export function sym(x) { return [T.SYM, {}, x] }
