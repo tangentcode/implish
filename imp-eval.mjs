@@ -212,7 +212,7 @@ class ImpEvaluator {
       case T.LST:
         let m = a.open.match(/^(.+)([[({])$/)
         if (m) { let sym = m[1]; switch (m[2]) {
-          case '[': return this.project(sym, this.evalList(x))
+          case '[': return this.project(sym, v)
           // case '(': TODO
           // case '{': TODO
           default: return imp.lst(a, this.evalList(x))}}

@@ -66,11 +66,26 @@ hello
 #+end_src
 
 * DONE echo[2 + 2]
-#+name: add.projection
+#+name: projection.with-op
 #+begin_src
 > echo[2 + 2]
 4
 #+end_src
+
+* TODO +[2;3]
+#+name: projection.op
+#+begin_src
+> +[2;3]
+5
+#+end_src
+
+* TODO echo[+[2;3]]
+#+name: projection.nested
+#+begin_src
+> echo[+[2;3]]
+5
+#+end_src
+
 
 
 * TODO strands
