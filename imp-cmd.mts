@@ -16,8 +16,9 @@ async function repl() {
     try {
       impR.send(line)
       let r = impR.read()
-      let e = impEval(r)
-      if (e[0] !== ImpT.NIL) console.log(impShow(e)) }
+      if (r) {
+        let e = impEval(r)
+        if (e[0] !== ImpT.NIL) console.log(impShow(e)) }}
     catch (e) { console.trace(e) }}}
 
 await repl()

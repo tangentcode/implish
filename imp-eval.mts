@@ -11,7 +11,7 @@ let impWords: Record<string, ImpVal<any>> = {
   '*'   : imp.jdy((x,y)=>imp.int(x[2]*y[2])),
   '%'   : imp.jdy((x,y)=>imp.int(Math.floor(x[2]/y[2]))),
   'read': imp.jsf(x=>read(x), 1),
-  'xmls': imp.jsf(x=>imp.str(toXml(x)), 1),
+  'xmls': imp.jsf(x=>imp.str(toXml(x) as string), 1),
   'look': imp.jsf(x=>imp.str(impShow(impWords[x[2]] ?? nil)), 1),
   'eval': imp.jsf(x=>eval(x), 1),
   'part': imp.jsf(x=>imp.str(wordClass(x)), 1),
@@ -62,8 +62,8 @@ class ImpEvaluator {
   here: ImpVal<any>[]
   stack: [ImpVal<any>[], number, ImpP[]][] = []
 
-  item: ImpVal<any> | null = null
-  wc: ImpP | null = null
+  item: ImpVal<any> | undefined = undefined
+  wc: ImpP | undefined = undefined
   pos: number = 0
   wcs: ImpP[] = [];
 
@@ -74,7 +74,11 @@ class ImpEvaluator {
     this.stack.push([this.here, this.pos, this.wcs])
     this.pos=0; this.here=xs[2]; this.wcs=[]}
 
-  leave = (): void => {[this.here, this.pos, this.wcs] = this.stack.pop()}
+  leave = (): void => {
+    const popped = this.stack.pop();
+    if (!popped) throw new Error("leave without matching enter");
+    [this.here, this.pos, this.wcs] = popped;
+  }
   atEnd = (): boolean => this.pos >= this.here.length
 
   /// sets this.item and this.wc
@@ -87,7 +91,7 @@ class ImpEvaluator {
         case '.': this.wc = ImpP.M; break // TODO: method
         case ':': this.wc = ImpP.G; break // getter
         default: {
-          if (v.description[-1] === ':') this.wc = ImpP.S
+          if (v.description.endsWith(':')) this.wc = ImpP.S
           else { // normal symbol, so look it up
             let w = this.words[v.description]
             if (w) x = w, this.wc = this.wordClass(w)
@@ -96,20 +100,21 @@ class ImpEvaluator {
     this.wcs.push(this.wc)
     return this.item = x}
 
-  peek = (): {item: ImpVal<any> | null, wc: ImpP | null} => {
-    if (this.atEnd()) return {item:null, wc:null}
+  peek = (): {item: ImpVal<any>, wc: ImpP}|null => {
+    if (this.atEnd()) return null
     let [item, wc, pos] = [this.item, this.wc, this.pos]
     this.nextItem()
     let [peekItem, peekWC] = [this.item, this.wc]
     // !! why does this give "TypeError: Cannot create property '2' on number '1'" ?!?
     // [this.item, this.wc, this.pos] = [item, wc, pos]
     this.item = item; this.wc = wc; this.pos = pos
-    return {'item': peekItem, 'wc': peekWC}}
+    if (!peekItem || !peekWC) return null
+    return {item: peekItem, wc: peekWC}}
 
   modifyNoun = (x: ImpVal<any>): ImpVal<any> => {
     // if next token is infix operator (dyad), apply it to x and next noun
-    let p, res = x
-    while ((p = this.peek()).wc === ImpP.O) {
+    let res = x
+    while (this.peek()?.wc === ImpP.O) {
       let op = this.nextItem()
       let arg = this.nextItem()
       res = op[2].apply(this, [res, arg]) }
@@ -127,11 +132,14 @@ class ImpEvaluator {
   wordClass = (x: ImpVal<any>): ImpP => wordClass(x)
 
   // keep the peeked-at item
-  keep = (p: {item: ImpVal<any> , wc: ImpP}): void => { this.item=p.item; this.wc=p.wc; this.pos++ }
+  keep = (p: {item: ImpVal<any>, wc: ImpP}): void => { this.item = p.item; this.wc = p.wc; this.pos++ }
 
   modifyVerb = (v0: ImpVal<any>): ImpVal<any> => {
     let p, res = v0
-    while ([ImpP.V, ImpP.A, ImpP.P].includes((p = this.peek()).wc)) {
+    while (true) {
+      p = this.peek()
+      if (!p) break
+      if (![ImpP.V, ImpP.A, ImpP.P].includes(p.wc)) break
       this.keep(p)
       switch (p.wc) {
         case ImpP.V: // TODO: composition (v u)
@@ -155,9 +163,9 @@ class ImpEvaluator {
     this.enter(xs)
     while (!done) {
       // skip separators
-      do {this.nextItem() } while (this.item[0] === ImpT.SEP && !this.atEnd())
+      do {this.nextItem() } while (this.item && this.item[0] === ImpT.SEP && !this.atEnd())
       if (this.atEnd()) done = true
-      let x = this.item
+      let x = this.item!
       switch (this.wc) {
       case ImpP.V: // verb
           x = this.modifyVerb(x)
@@ -185,7 +193,7 @@ class ImpEvaluator {
   // evaluate a list but return last expression
   lastEval = (xs:ImpVal<any>): ImpVal<any> => {
     let res = this.evalList(xs)
-    return res.length ? res.pop() : nil }
+    return res.length ? res.pop()! : nil }
 
   // project a function
   project = (sym:string, xs: ImpVal<any>[]): ImpVal<any> => {
@@ -219,4 +227,4 @@ class ImpEvaluator {
         else return imp.lst(a, this.evalList(x))
       default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
-export let impEval = (x: ImpVal<any>): ImpVal<any> => new ImpEvaluator(x).eval(x)
+export let impEval = (x: ImpVal<any>): ImpVal<any> => new ImpEvaluator(x[2]).eval(x)

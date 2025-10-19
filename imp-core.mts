@@ -36,10 +36,10 @@ export const nil:ImpVal<null> = [ImpT.NIL, {}, null];  // the empty value
 export const end:ImpVal<null> = [ImpT.END, {}, null];  // the virtual end token
 
 export class SymTable {
-  symTab = {}
-  sym(s:string) {
-    if (!this.symTab.hasOwnProperty(s)) this.symTab[s] = Symbol(s)
-    return this.symTab[s] }}
+  symTab: Record<string, symbol> = {}
+  sym(s:string): symbol {
+    if (!(s in this.symTab)) this.symTab[s] = Symbol(s)
+    return this.symTab[s]! }}
 
 export type Node<T> = T | Node<T>[]
 export class TreeBuilder<T> {
@@ -48,7 +48,7 @@ export class TreeBuilder<T> {
   stack: Node<T>[][] = []
   emit(x:T) { this.here.push(x) }
   node() { this.stack.push(this.here); this.here = [] }
-  done() { let prev = this.stack.pop(); prev.push(this.here); this.here = prev }}
+  done() { let prev = this.stack.pop(); if (prev) { prev.push(this.here); this.here = prev } else { throw new Error("done called without node") } }}
 
 export type ImpAttrs = Record<string,any>
 export type ImpVal<T> = [ImpT, ImpAttrs, T]
@@ -60,7 +60,7 @@ export function push<T>(xs:ImpVal<T[]>, x:T) { xs[2].push(x); return xs }
 
 export function int(x:number):ImpVal<number> { return [ImpT.INT, {}, x] }
 export function str(x:string):ImpVal<string> { return [ImpT.STR, {}, x] }
-export function sym(x:string):ImpVal<string> { return [ImpT.SYM, {}, x] }
+export function sym(x:symbol):ImpVal<symbol> { return [ImpT.SYM, {}, x] }
 export function sep(x:string):ImpVal<string> { return [ImpT.SEP, {}, x] }
 export function mls(x:string):ImpVal<string> { return [ImpT.MLS, {}, x] }
 export type JSF = (...args: any[]) => any

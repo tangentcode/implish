@@ -1,10 +1,10 @@
-import { ImpT } from './imp-core.mjs'
+import { ImpT, ImpVal } from './imp-core.mjs'
 
 export class ImpWriter {
 
   // return a string representation
-  show = (x)=> {
-    let showList = (xs)=> xs.map(this.show).join(' ')
+  show: (x: ImpVal<any>) => string = (x) => {
+    let showList: (xs: ImpVal<any>[]) => string = (xs) => xs.map(this.show).join(' ')
     let [t, a, v] = x
     switch (t) {
       case ImpT.TOP: return showList(v)
@@ -17,4 +17,4 @@ export class ImpWriter {
       case ImpT.LST: return a.open + showList(v) + a.close
       default: throw "[show] invalid argument:" + x }}}
 
-export let impShow = (x) => new ImpWriter().show(x)
+export let impShow = (x: ImpVal<any>) => new ImpWriter().show(x)

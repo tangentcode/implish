@@ -1,5 +1,5 @@
 // Implish reader (parser)
-import { type ImpVal, ImpT, ok, SymTable, TreeBuilder } from './imp-core.mjs'
+import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, nil} from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
 let closer: Record<string, string> = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
@@ -42,18 +42,18 @@ export class ImpReader {
       let res = this.tree.root;
       this.clear();
       return [ImpT.TOP, {}, res ]}
-    else { console.error("not ready to read") }}
+    else { throw new Error("not ready to read") }}
 
   scan(): void { // match and process the next token
     if (!this.empty) {
       let src = this.buffer.shift()
       if (src) {
-        let m:RegExpExecArray|null, rx:RegExp, rule:TokenRule
+        let m:RegExpExecArray|null=null, rx:RegExp, rule:TokenRule|null=null
         for ([rx, rule] of this.syntax) if ((m=rx.exec(src))) break
         // assert(m) because of catchall, but TODO: handle string fragments
         if (m) {
           let tok = m[0], rest = src.slice(tok.length)
-          if (tok) rule(tok)
+          if (tok && rule) rule(tok)
           if (rest) this.buffer.unshift(rest)}
         else { console.error("unmatched input:", src)}}}}
 
@@ -75,4 +75,4 @@ export class ImpReader {
 
 // impStr -> impData
 export let read: (impStr: ImpVal<string>) => ImpVal<any>
-  = (impStr) => new ImpReader().send(impStr[2]).read()
+  = (impStr) => new ImpReader().send(impStr[2]).read() ?? nil
