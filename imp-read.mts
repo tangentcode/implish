@@ -1,5 +1,5 @@
 // Implish reader (parser)
-import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, nil} from './imp-core.mjs'
+import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop} from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
 let closer: Record<string, string> = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
@@ -37,12 +37,12 @@ export class ImpReader {
     while (!this.empty) this.scan();
     return this }
 
-  read(): ImpVal<any> | undefined {
+  read(): ImpTop | ImpErr {
     if (this.ready) {
       let res = this.tree.root;
       this.clear();
-      return [ImpT.TOP, {}, res ]}
-    else { throw new Error("not ready to read") }}
+      return ImpC.top(res)}
+    else return ImpC.err("failed to read")}
 
   scan(): void { // match and process the next token
     if (!this.empty) {
@@ -63,16 +63,16 @@ export class ImpReader {
   // TODO: floats (?)
   syntax: Array<[RegExp, TokenRule]> = [
     [ /^((?!\n)\s)+/s, ok ], // ignore whitespace
-    [ /^[;|\n]/m             , x => this.emit(imp.sep(x)) ],
-    [ /^-?\d+/               , x => this.emit(imp.int(parseInt(x))) ],
-    [ /^"(\\.|[^"])*"/       , x => this.emit(imp.str(x.slice(1,-1))) ],
+    [ /^[;|\n]/m             , x => this.emit(ImpC.sep(x)) ],
+    [ /^-?\d+/               , x => this.emit(ImpC.int(parseInt(x))) ],
+    [ /^"(\\.|[^"])*"/       , x => this.emit(ImpC.str(x.slice(1,-1))) ],
     // TODO: markdown style multi-line strings
     // [ /^```.*```/           , x => this.emit(imp.mls(x)) ],
     [ /^(((?![[({])\S)*[[({]|\.:)/      , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
-    [ /^((?![\])}])\S)+/     , x => this.emit(imp.sym(this.symtbl.sym(x))) ]] // catchall, so keep last.
+    [ /^((?![\])}])\S)+/     , x => this.emit(ImpC.sym(this.symtbl.sym(x))) ]] // catchall, so keep last.
 }
 
 // impStr -> impData
-export let read: (impStr: ImpVal<string>) => ImpVal<any>
-  = (impStr) => new ImpReader().send(impStr[2]).read() ?? nil
+export let read: (impStr: ImpStr) => ImpVal
+  = (impStr) => new ImpReader().send(impStr[2]).read() ?? NIL

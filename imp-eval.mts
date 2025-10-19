@@ -1,47 +1,55 @@
 import * as imp from './imp-core.mjs'
-import {end, ImpAttrs, ImpP, ImpT, ImpVal, nil, TreeBuilder} from './imp-core.mjs'
+import {
+  END,
+  ImpLstA,
+  ImpP,
+  ImpT,
+  ImpVal,
+  ImpQ,
+  NIL,
+  TreeBuilder,
+  ImpJdy,
+  JDY,
+  JSF,
+  ImpJsf,
+  ImpStr, ImpC, ImpTop, ImpErr, ImpLst
+} from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
 import {read} from './imp-read.mjs'
 import * as assert from "assert"
 
-let impWords: Record<string, ImpVal<any>> = {
-  'nil': nil,
-  '+'   : imp.jdy((x,y)=>imp.int(x[2]+y[2])),
-  '-'   : imp.jdy((x,y)=>imp.int(x[2]-y[2])),
-  '*'   : imp.jdy((x,y)=>imp.int(x[2]*y[2])),
-  '%'   : imp.jdy((x,y)=>imp.int(Math.floor(x[2]/y[2]))),
-  'read': imp.jsf(x=>read(x), 1),
-  'xmls': imp.jsf(x=>imp.str(toXml(x) as string), 1),
-  'look': imp.jsf(x=>imp.str(impShow(impWords[x[2]] ?? nil)), 1),
-  'eval': imp.jsf(x=>eval(x), 1),
-  'part': imp.jsf(x=>imp.str(wordClass(x)), 1),
-  'show': imp.jsf(x=>imp.str(impShow(x)), 1),
-  'echo': imp.jsf(x=>(console.log(x[2]), nil), 1),
+let impWords: Record<string, ImpVal> = {
+  'nil': NIL,
+  '+'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) + (y[2] as number))),
+  '-'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) - (y[2] as number))),
+  '*'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) * (y[2] as number))),
+  '%'   : imp.jdy((x,y)=>ImpC.int(Math.floor((x[2] as number ) / (y[2] as number)))),
+  'read': imp.jsf(x=>read(x as ImpStr), 1),
+  'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
+  'look': imp.jsf(x=>ImpC.str(impShow(impWords[(x[2] as string)] ?? NIL)), 1),
+  'eval': imp.jsf(x=>eval(x[2] as string), 1),
+  'part': imp.jsf(x=>ImpC.str(wordClass(x)), 1),
+  'show': imp.jsf(x=>ImpC.str(impShow(x)), 1),
+  'echo': imp.jsf(x=>(console.log(x[2]), NIL), 1),
 }
 
-function xmlTag(tag:string, attrs:ImpAttrs, content?:string) {
+function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
   let attrStr = Object.entries(attrs).map(([k,v])=>`${k}="${v}"`).join(' ')
   if (content) return `<${tag} ${attrStr}>${content}</${tag}>`
   else return `<${tag} ${attrStr}/>`
 }
-function toXml(impv:ImpVal<any>) {
-  let [t, a, v] = impv
-  switch (t) {
-    case ImpT.SEP:
-    case ImpT.INT:
-    case ImpT.STR:
-      return xmlTag('imp:'+t.toLowerCase(),{v})
-    case ImpT.NIL: return '<nil/>'
-    case ImpT.SYM: return xmlTag('imp:sym', {v:`${v.description}`})
-    case ImpT.TOP:
-    case ImpT.LST:
-      return xmlTag('imp:'+t.toLowerCase(), a,
-        '\n  ' + v.map(toXml).join('\n  ') + '\n')
-    default: }
-}
 
+// Type-safe toXml using utility object for syntactic sugar
+function toXml(x: ImpVal): string {
+  if (x[0] === ImpT.NIL) return '<nil/>';
+  if (ImpQ.isSym(x)) return xmlTag('imp:sym', {v: `${x[2].description}`})
+  if (ImpQ.isLst(x) || x[0] === ImpT.TOP) {
+    return xmlTag('imp:' + x[0].toLowerCase(), x[1]??{},
+      '\n  ' + x[2].map(toXml).join('\n  ') + '\n')}
+  // For other types (SEP, INT, STR, MLS, JSF, JDY, END), treat as simple values
+  return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2]??'').toString()})}
 
-function wordClass(x:ImpVal<any>) {
+function wordClass(x:ImpVal) {
     let [xt, _xa, _xv] = x
     switch (xt) {
       case ImpT.TOP: return ImpP.N
@@ -57,20 +65,20 @@ function wordClass(x:ImpVal<any>) {
       default: throw "[wordClass] invalid argument:" + x }}
 
 class ImpEvaluator {
-  words: Record<string, ImpVal<any>> = impWords
-  root: ImpVal<any>[]
-  here: ImpVal<any>[]
-  stack: [ImpVal<any>[], number, ImpP[]][] = []
+  words: Record<string, ImpVal> = impWords
+  root: ImpVal[]
+  here: ImpVal[]
+  stack: [ImpVal[], number, ImpP[]][] = []
 
-  item: ImpVal<any> | undefined = undefined
+  item: ImpVal | undefined = undefined
   wc: ImpP | undefined = undefined
   pos: number = 0
   wcs: ImpP[] = [];
 
-  constructor(root: ImpVal<any>[]) {
+  constructor(root: ImpVal[]) {
     this.here = this.root = root }
 
-  enter = (xs:ImpVal<any>): void => {
+  enter = (xs:ImpLst|ImpTop): void => {
     this.stack.push([this.here, this.pos, this.wcs])
     this.pos=0; this.here=xs[2]; this.wcs=[]}
 
@@ -82,25 +90,24 @@ class ImpEvaluator {
   atEnd = (): boolean => this.pos >= this.here.length
 
   /// sets this.item and this.wc
-  nextItem = (): ImpVal<any> => {
-    let x = (this.pos >= this.here.length) ? end : this.here[this.pos++]
-    let [t, _a, v] = x
-    if (t === ImpT.SYM) {
-      switch (v.description[0]) {
+  nextItem = (): ImpVal => {
+    let x = (this.pos >= this.here.length) ? END : this.here[this.pos++]
+    if (ImpQ.isSym(x)) { let v = x[2]
+      switch (v.description![0]) {
         case '`': this.wc = ImpP.Q; break // TODO: literal word
         case '.': this.wc = ImpP.M; break // TODO: method
         case ':': this.wc = ImpP.G; break // getter
         default: {
-          if (v.description.endsWith(':')) this.wc = ImpP.S
+          if (v.description!.endsWith(':')) this.wc = ImpP.S
           else { // normal symbol, so look it up
-            let w = this.words[v.description]
+            let w = this.words[v.description!]
             if (w) x = w, this.wc = this.wordClass(w)
             else throw "undefined word: " + v.description }}}}
     else this.wc = this.wordClass(x)
     this.wcs.push(this.wc)
     return this.item = x}
 
-  peek = (): {item: ImpVal<any>, wc: ImpP}|null => {
+  peek = (): {item: ImpVal, wc: ImpP}|null => {
     if (this.atEnd()) return null
     let [item, wc, pos] = [this.item, this.wc, this.pos]
     this.nextItem()
@@ -111,16 +118,16 @@ class ImpEvaluator {
     if (!peekItem || !peekWC) return null
     return {item: peekItem, wc: peekWC}}
 
-  modifyNoun = (x: ImpVal<any>): ImpVal<any> => {
+  modifyNoun = (x: ImpVal): ImpVal => {
     // if next token is infix operator (dyad), apply it to x and next noun
     let res = x
     while (this.peek()?.wc === ImpP.O) {
-      let op = this.nextItem()
+      let op = this.nextItem() as ImpJdy
       let arg = this.nextItem()
       res = op[2].apply(this, [res, arg]) }
     return res }
 
-  nextNoun = (): ImpVal<any> => {
+  nextNoun = (): ImpVal => {
     // read a noun, after applying chains of infix operators
     let res = this.nextItem()
     if (this.wc === ImpP.N) res = this.modifyNoun(res)
@@ -129,12 +136,12 @@ class ImpEvaluator {
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
     return res }
 
-  wordClass = (x: ImpVal<any>): ImpP => wordClass(x)
+  wordClass = (x: ImpVal): ImpP => wordClass(x)
 
   // keep the peeked-at item
-  keep = (p: {item: ImpVal<any>, wc: ImpP}): void => { this.item = p.item; this.wc = p.wc; this.pos++ }
+  keep = (p: {item: ImpVal, wc: ImpP}): void => { this.item = p.item; this.wc = p.wc; this.pos++ }
 
-  modifyVerb = (v0: ImpVal<any>): ImpVal<any> => {
+  modifyVerb = (v0: ImpJsf): ImpJsf => {
     let p, res = v0
     while (true) {
       p = this.peek()
@@ -143,9 +150,9 @@ class ImpEvaluator {
       this.keep(p)
       switch (p.wc) {
         case ImpP.V: // TODO: composition (v u)
-          assert.ok(res[1].arity===1, "oh no")
-          let u = res[2]
-          let v = p.item[2]
+          assert.ok(res[1].arity as number ===1, "oh no")
+          let u = res[2] as JSF
+          let v = p.item[2] as JSF
           res = imp.jsf((x)=>u(v(x)), 1)
           break
         case ImpP.A: // TODO: adverb (v/)
@@ -157,9 +164,9 @@ class ImpEvaluator {
   }
 
   // evaluate a list
-  evalList = (xs:ImpVal<any>): ImpVal<any>[] => {
+  evalList = (xs:ImpLst|ImpTop): ImpVal[] => {
     // walk from left to right, building up values to emit
-    let done = false, tb: TreeBuilder<ImpVal<any>> = new TreeBuilder()
+    let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     this.enter(xs)
     while (!done) {
       // skip separators
@@ -168,7 +175,7 @@ class ImpEvaluator {
       let x = this.item!
       switch (this.wc) {
       case ImpP.V: // verb
-          x = this.modifyVerb(x)
+          x = this.modifyVerb(x as ImpJsf)
           let args = []
           for (let i = 0; i < x[1].arity; i++) { args.push(this.nextNoun()) }
           tb.emit(x[2].apply(this, args))
@@ -188,16 +195,16 @@ class ImpEvaluator {
         default: throw "evalList: invalid word class: " + this.wc
       }}
     this.leave()
-    return tb.root as ImpVal<any>[]}
+    return tb.root as ImpVal[]}
 
   // evaluate a list but return last expression
-  lastEval = (xs:ImpVal<any>): ImpVal<any> => {
+  lastEval = (xs:ImpLst|ImpTop): ImpVal => {
     let res = this.evalList(xs)
-    return res.length ? res.pop()! : nil }
+    return res.length ? res.pop()! : NIL }
 
   // project a function
-  project = (sym:string, xs: ImpVal<any>[]): ImpVal<any> => {
-    let f = this.words[sym]
+  project = (sym:string, xs: ImpVal[]): ImpVal => {
+    let f: imp.ImpJsf | undefined = this.words[sym] as ImpJsf
     if (!f) throw "[project]: undefined word: " + sym
     let args = [], arg = imp.lst()
     for (let x of xs) {
@@ -207,18 +214,18 @@ class ImpEvaluator {
     return f[2].apply(this, args.map(this.lastEval))}
 
   // evaluate an expression
-  eval = (x: ImpVal<any>): ImpVal<any> => {
-    let [t, a, v] = x
-    switch (t) {
+  eval = (x: ImpVal): ImpVal => {
+    switch (x[0]) {
       case ImpT.TOP: return this.lastEval(x)
-      case ImpT.SEP: return nil
+      case ImpT.SEP: return NIL
       case ImpT.NIL: return x
       case ImpT.INT: return x
       case ImpT.STR: return x
       case ImpT.MLS: return x
       case ImpT.SYM: return x
       case ImpT.LST:
-        let m = a.open.match(/^(.+)([[({])$/)
+        let [_, a, v] = x
+        let m = (a.open||'[').match(/^(.+)([[({])$/)
         if (m) { let sym = m[1]; switch (m[2]) {
           case '[': return this.project(sym, v)
           // case '(': TODO
@@ -227,4 +234,5 @@ class ImpEvaluator {
         else return imp.lst(a, this.evalList(x))
       default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
-export let impEval = (x: ImpVal<any>): ImpVal<any> => new ImpEvaluator(x[2]).eval(x)
+export let impEval = (x: ImpTop | ImpErr): ImpVal =>
+  ImpQ.isTop(x) ? new ImpEvaluator(x[2]).eval(x) : x

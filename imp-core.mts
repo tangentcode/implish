@@ -3,8 +3,9 @@
 export function ok() { }  // the empty program
 
 export enum ImpT {
-  SEP = 'SEP',     // separator
   TOP = 'TOP',     // top-level sequence (list with no delimiters)
+  ERR = 'ERR',     // an error value
+  SEP = 'SEP',     // separator
   END = 'END',     // virtual 'end of input' token
   // --- values with literal representation
   INT = 'INT',     // integer
@@ -16,6 +17,51 @@ export enum ImpT {
   NIL = 'NIL',     // empty/unit value
   JSF = 'JSF',     // javascript function
   JDY = 'JDY',     // javascript dyad (infix operator)
+}
+
+export type ImpLstA = { open:string, close:string }
+export type ImpJsfA = {arity:number}
+
+// Individual types for each ImpVal variant
+export type ImpTop = [ImpT.TOP, null, ImpVal[]]
+export type ImpErr = [ImpT.ERR, null, string]
+export type ImpSep = [ImpT.SEP, null, string]
+export type ImpEnd = [ImpT.END, null, null]
+export type ImpInt = [ImpT.INT, null, number]
+export type ImpStr = [ImpT.STR, null, string]
+export type ImpMls = [ImpT.MLS, null, string]
+export type ImpSym = [ImpT.SYM, null, symbol]
+export type ImpLst = [ImpT.LST, ImpLstA, ImpVal[]]
+export type ImpNil = [ImpT.NIL, null, null]
+export type ImpJsf = [ImpT.JSF, ImpJsfA, JSF]
+export type ImpJdy = [ImpT.JDY, {}, JDY]
+
+// Main discriminated union type (equivalent to union of individual types above)
+export type ImpVal
+  = ImpTop | ImpErr | ImpSep | ImpEnd
+  | ImpInt | ImpStr | ImpMls | ImpSym | ImpLst | ImpNil
+  | ImpJsf | ImpJdy
+
+// Syntactic sugar: utility object with methods on ImpVal
+export const ImpQ = {
+  isTop(x: ImpVal): x is ImpTop { return x[0] === ImpT.TOP },
+  isSym(x: ImpVal): x is ImpSym { return x[0] === ImpT.SYM },
+  isLst(x: ImpVal): x is ImpLst { return x[0] === ImpT.LST },
+};
+
+/** Constructor to lift js types up into Implish **/
+export const ImpC = {
+  any(x:any):ImpVal {
+    if (typeof x === 'string') return ImpC.str(x)
+    if (typeof x === 'number') return ImpC.int(Math.floor(x))
+    throw new Error(`nyi ImpC.any(${x})`)},
+  top(x:ImpVal[]):ImpTop { return [ImpT.TOP, null, x]},
+  err(x:string):ImpErr { return [ImpT.ERR, null, x]},
+  int(x:number):ImpInt { return [ImpT.INT, null, x]},
+  str(x:string):ImpStr { return [ImpT.STR, null, x]},
+  sym(x:symbol):ImpSym { return [ImpT.SYM, null, x]},
+  sep(x:string):ImpSep { return [ImpT.SEP, null, x]},
+  mls(x:string):ImpMls { return [ImpT.MLS, null, x]},
 }
 
 export enum ImpP {  // parts of speech
@@ -32,8 +78,8 @@ export enum ImpP {  // parts of speech
   E = 'E',     // end of input
 }
 
-export const nil:ImpVal<null> = [ImpT.NIL, {}, null];  // the empty value
-export const end:ImpVal<null> = [ImpT.END, {}, null];  // the virtual end token
+export const NIL:ImpVal = [ImpT.NIL, null, null];  // the empty value
+export const END:ImpVal = [ImpT.END, null, null];  // the virtual end token
 
 export class SymTable {
   symTab: Record<string, symbol> = {}
@@ -50,20 +96,17 @@ export class TreeBuilder<T> {
   node() { this.stack.push(this.here); this.here = [] }
   done() { let prev = this.stack.pop(); if (prev) { prev.push(this.here); this.here = prev } else { throw new Error("done called without node") } }}
 
-export type ImpAttrs = Record<string,any>
-export type ImpVal<T> = [ImpT, ImpAttrs, T]
-export function lst(atr?:ImpAttrs, items?:any[]): ImpVal<any> {
+export function lst(atr?:ImpLstA, items?:any[]): ImpLst {
   if (atr===undefined) atr = {open:'<<', close:'>>'}
   if (items===undefined) items = []
   return [ImpT.LST, atr, items] }
-export function push<T>(xs:ImpVal<T[]>, x:T) { xs[2].push(x); return xs }
+export function push(xs: ImpLst, x: ImpVal): ImpVal {
+  xs[2].push(x)
+  return xs }
 
-export function int(x:number):ImpVal<number> { return [ImpT.INT, {}, x] }
-export function str(x:string):ImpVal<string> { return [ImpT.STR, {}, x] }
-export function sym(x:symbol):ImpVal<symbol> { return [ImpT.SYM, {}, x] }
-export function sep(x:string):ImpVal<string> { return [ImpT.SEP, {}, x] }
-export function mls(x:string):ImpVal<string> { return [ImpT.MLS, {}, x] }
-export type JSF = (...args: any[]) => any
-export type JDY = (left: any, right: any) => any
-export let jsf: (f: JSF, a: number) => ImpVal<JSF> = (f, a) => [ImpT.JSF, {arity: a}, f]
-export let jdy: (f: JDY) => ImpVal<JDY> = (f) => [ImpT.JDY, {}, f]
+export type JSF = (...args: ImpVal[]) => ImpVal
+export type JDY = (left: ImpVal, right: ImpVal) => ImpVal
+export let jsf: (f: JSF, a: number) => ImpJsf =
+  (f, a) => [ImpT.JSF, {arity: a}, f]
+export let jdy: (f: JDY) => ImpVal =
+  (f) => [ImpT.JDY, {}, f]
