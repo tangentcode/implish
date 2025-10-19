@@ -1,5 +1,5 @@
 // Implish reader (parser)
-import { T, ok, SymTable, TreeBuilder } from './imp-core.mjs'
+import { ImpT as ImpT, ok, SymTable, TreeBuilder } from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
 let closer = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
@@ -40,7 +40,7 @@ export class ImpReader {
     if (this.ready) {
       let res = this.tree.root;
       this.clear();
-      return [T.TOP, {}, res ]}
+      return [ImpT.TOP, {}, res ]}
     else { console.error("not ready to read") }}
 
   scan() { // match and process the next token

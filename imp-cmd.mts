@@ -1,5 +1,5 @@
 #!/usr/bin/node
-import { T } from "./imp-core.mjs";
+import { ImpT } from "./imp-core.mjs";
 import { ImpReader } from "./imp-read.mjs";
 import { impShow } from "./imp-show.mjs";
 import { impEval } from "./imp-eval.mjs";
@@ -17,7 +17,7 @@ async function repl() {
       impR.send(line)
       let r = impR.read()
       let e = impEval(r)
-      if (e[0] !== T.NIL) console.log(impShow(e)) }
+      if (e[0] !== ImpT.NIL) console.log(impShow(e)) }
     catch (e) { console.trace(e) }}}
 
 await repl()

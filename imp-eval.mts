@@ -1,4 +1,4 @@
-import { T, P, nil, end, TreeBuilder } from './imp-core.mjs'
+import { ImpT, ImpP, nil, end, TreeBuilder } from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 import { impShow } from './imp-show.mjs'
 import { read } from './imp-read.mjs'
@@ -27,14 +27,14 @@ function xmlTag(tag, attrs, content) {
 function toXml(impv) {
   let [t, a, v] = impv
   switch (t) {
-    case T.SEP:
-    case T.INT:
-    case T.STR:
+    case ImpT.SEP:
+    case ImpT.INT:
+    case ImpT.STR:
       return xmlTag('imp:'+t.toLowerCase(),{v})
-    case T.NIL: return '<nil/>'
-    case T.SYM: return xmlTag('imp:sym', {v:`${v.description}`})
-    case T.TOP:
-    case T.LST:
+    case ImpT.NIL: return '<nil/>'
+    case ImpT.SYM: return xmlTag('imp:sym', {v:`${v.description}`})
+    case ImpT.TOP:
+    case ImpT.LST:
       return xmlTag('imp:'+t.toLowerCase(), a,
         '\n  ' + v.map(toXml).join('\n  ') + '\n')
     default: }
@@ -44,16 +44,16 @@ function toXml(impv) {
 function wordClass(x) {
     let [xt, xa, xv] = x
     switch (xt) {
-      case T.TOP: return P.N
-      case T.END: return P.E
-      case T.INT: return P.N
-      case T.STR: return P.N
-      case T.MLS: return P.N
-      case T.LST: return P.N
+      case ImpT.TOP: return ImpP.N
+      case ImpT.END: return ImpP.E
+      case ImpT.INT: return ImpP.N
+      case ImpT.STR: return ImpP.N
+      case ImpT.MLS: return ImpP.N
+      case ImpT.LST: return ImpP.N
       // -- resolved symbols:
-      case T.JSF: return P.V
-      case T.NIL: return P.N
-      case T.JDY: return P.O
+      case ImpT.JSF: return ImpP.V
+      case ImpT.NIL: return ImpP.N
+      case ImpT.JDY: return ImpP.O
       default: throw "[wordClass] invalid argument:" + x }}
 
 class ImpEvaluator {
@@ -78,13 +78,13 @@ class ImpEvaluator {
   nextItem = ()=> {
     let x = (this.pos >= this.here.length) ? end : this.here[this.pos++]
     let [t, a, v] = x
-    if (t === T.SYM) {
+    if (t === ImpT.SYM) {
       switch (v.description[0]) {
-        case '`': this.wc = P.Q; break // TODO: literal word
-        case '.': this.wc = P.M; break // TODO: method
-        case ':': this.wc = P.G; break // getter
+        case '`': this.wc = ImpP.Q; break // TODO: literal word
+        case '.': this.wc = ImpP.M; break // TODO: method
+        case ':': this.wc = ImpP.G; break // getter
         default: {
-          if (v.description[-1] === ':') this.wc = P.S
+          if (v.description[-1] === ':') this.wc = ImpP.S
           else { // normal symbol, so look it up
             let w = this.words[v.description]
             if (w) x = w, this.wc = this.wordClass(w)
@@ -107,7 +107,7 @@ class ImpEvaluator {
   modifyNoun = (x)=> {
     // if next token is infix operator (dyad), apply it to x and next noun
     let p, res = x
-    while ((p = this.peek()).wc === P.O) {
+    while ((p = this.peek()).wc === ImpP.O) {
       let op = this.nextItem()
       let arg = this.nextItem()
       res = op[2].apply(this, [res, arg]) }
@@ -116,7 +116,7 @@ class ImpEvaluator {
   nextNoun = ()=> {
     // read a noun, after applying chains of infix operators
     let res = this.nextItem()
-    if (this.wc === P.N) res = this.modifyNoun(res)
+    if (this.wc === ImpP.N) res = this.modifyNoun(res)
     else throw "expected a noun, got: " + res
     // todo: collect multiple numbers or quoted symbols into a vector
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
@@ -129,18 +129,18 @@ class ImpEvaluator {
 
   modifyVerb = (v0) => {
     let p, res = v0
-    while ([P.V, P.A, P.P].includes((p = this.peek()).wc)) {
+    while ([ImpP.V, ImpP.A, ImpP.P].includes((p = this.peek()).wc)) {
       this.keep(p)
       switch (p.wc) {
-        case P.V: // TODO: composition (v u)
+        case ImpP.V: // TODO: composition (v u)
           assert.ok(res[1].arity===1, "oh no")
           let u = res[2]
           let v = p.item[2]
           res = imp.jsf((x)=>u(v(x)), 1)
           break
-        case P.A: // TODO: adverb (v/)
-        case P.P: // TODO: preposition (v -arg)
-        case P.C: // TODO: conjunction (v &. u)
+        case ImpP.A: // TODO: adverb (v/)
+        case ImpP.P: // TODO: preposition (v -arg)
+        case ImpP.C: // TODO: conjunction (v &. u)
       }
     }
     return res
@@ -153,27 +153,27 @@ class ImpEvaluator {
     this.enter(xs)
     while (!done) {
       // skip separators
-      do {this.nextItem() } while (this.item[0] === T.SEP && !this.atEnd())
+      do {this.nextItem() } while (this.item[0] === ImpT.SEP && !this.atEnd())
       if (this.atEnd()) done = true
       let x = this.item
       switch (this.wc) {
-      case P.V: // verb
+      case ImpP.V: // verb
           x = this.modifyVerb(x)
           let args = []
           for (let i = 0; i < x[1].arity; i++) { args.push(this.nextNoun()) }
           tb.emit(x[2].apply(this, args))
           break
-        case P.N:
+        case ImpP.N:
           // process.stderr.write(`noun: ${impShow(x)}\n`)
           // if x[0] === T.LST {}
           x = this.eval(x)
           x = this.modifyNoun(x)
           tb.emit(x)
           break
-        case P.Q:
+        case ImpP.Q:
           tb.emit(x)
           break
-        case P.E:
+        case ImpP.E:
           break
         default: throw "evalList: invalid word class: " + this.wc
       }}
@@ -191,7 +191,7 @@ class ImpEvaluator {
     if (!f) throw "[project]: undefined word: " + sym
     let args = [], arg = imp.lst()
     for (let x of xs) {
-      if (x[0] === T.SEP) { args.push(arg); arg = imp.lst() }
+      if (x[0] === ImpT.SEP) { args.push(arg); arg = imp.lst() }
       else imp.push(arg,x)}
     args.push(arg)
     let res = f[2].apply(this, args.map(this.lastEval))
@@ -201,14 +201,14 @@ class ImpEvaluator {
   eval = (x)=> {
     let [t, a, v] = x
     switch (t) {
-      case T.TOP: return this.lastEval(x)
-      case T.SEP: return nil
-      case T.NIL: return x
-      case T.INT: return x
-      case T.STR: return x
-      case T.MLS: return x
-      case T.SYM: return x
-      case T.LST:
+      case ImpT.TOP: return this.lastEval(x)
+      case ImpT.SEP: return nil
+      case ImpT.NIL: return x
+      case ImpT.INT: return x
+      case ImpT.STR: return x
+      case ImpT.MLS: return x
+      case ImpT.SYM: return x
+      case ImpT.LST:
         let m = a.open.match(/^(.+)([[({])$/)
         if (m) { let sym = m[1]; switch (m[2]) {
           case '[': return this.project(sym, v)
