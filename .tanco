@@ -2,7 +2,7 @@
   "targets": {
     "main": {
       "args": [
-        "node", "imp-cmd.mjs"
+        "node", "dist/imp-cmd.mjs"
       ],
       "shell": true
     }
