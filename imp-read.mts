@@ -1,27 +1,28 @@
 // Implish reader (parser)
-import { ImpT as ImpT, ok, SymTable, TreeBuilder } from './imp-core.mjs'
+import { type ImpVal, ImpT, ok, SymTable, TreeBuilder } from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
-let closer = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
+let closer: Record<string, string> = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
+type TokenRule = (token:string) => void
 
 export class ImpReader {
-  tree = new TreeBuilder()
+  tree: TreeBuilder<any> = new TreeBuilder()
   symtbl = new SymTable() // global table for symbols
-  buffer = []           // input buffer (list of strings)
-  expect = []           // expected closing tokens
+  buffer: string[] = []           // input buffer (list of strings)
+  expect: Array<{open: string, close: string}> = []           // expected closing tokens
 
   get empty() { return this.buffer.length===0 }
   get waiting() { return this.expect.length>0 }
   get ready() { return this.empty && !this.waiting }
 
-  clear() { this.tree = new TreeBuilder() }
-  emit(x) { this.tree.emit(x) }
+  clear(): void { this.tree = new TreeBuilder() }
+  emit(x: any): void { this.tree.emit(x) }
 
-  node(tok) {
+  node(tok: string): void {
     this.tree.node();
     let o = tok === ".:" ? tok : tok.slice(-1)
     this.expect.push({open: tok, close:closer[o]});  }
-  done(closeTok) {
+  done(closeTok: string): void {
     let ex = this.expect.pop()
     if (!ex) console.error("unexpected", closeTok)
     else if (closeTok === ex.close) {
@@ -30,24 +31,24 @@ export class ImpReader {
       if (closeTok !== ':.') this.tree.emit(imp.lst(ex, that))}
     else console.error("expected", ex.close, "got", closeTok)}
 
-  dump() { console.log(this.tree.root) }
-  send(s) {
+  dump(): void { console.log(this.tree.root) }
+  send(s: string): ImpReader {
     this.buffer.push(s);
     while (!this.empty) this.scan();
     return this }
 
-  read() {
+  read(): ImpVal<any> | undefined {
     if (this.ready) {
       let res = this.tree.root;
       this.clear();
       return [ImpT.TOP, {}, res ]}
     else { console.error("not ready to read") }}
 
-  scan() { // match and process the next token
+  scan(): void { // match and process the next token
     if (!this.empty) {
       let src = this.buffer.shift()
       if (src) {
-        let m, rx, rule
+        let m:RegExpExecArray|null, rx:RegExp, rule:TokenRule
         for ([rx, rule] of this.syntax) if ((m=rx.exec(src))) break
         // assert(m) because of catchall, but TODO: handle string fragments
         if (m) {
@@ -60,7 +61,7 @@ export class ImpReader {
   // TODO: handle unterminated strings
   // TODO: strands of juxtaposed numbers should be a single token
   // TODO: floats (?)
-  syntax = [
+  syntax: Array<[RegExp, TokenRule]> = [
     [ /^((?!\n)\s)+/s, ok ], // ignore whitespace
     [ /^[;|\n]/m             , x => this.emit(imp.sep(x)) ],
     [ /^-?\d+/               , x => this.emit(imp.int(parseInt(x))) ],
@@ -73,4 +74,5 @@ export class ImpReader {
 }
 
 // impStr -> impData
-export let read = (impStr) => new ImpReader().send(impStr[2]).read()
+export let read: (impStr: ImpVal<string>) => ImpVal<any>
+  = (impStr) => new ImpReader().send(impStr[2]).read()

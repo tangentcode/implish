@@ -41,7 +41,7 @@ export class SymTable {
     if (!this.symTab.hasOwnProperty(s)) this.symTab[s] = Symbol(s)
     return this.symTab[s] }}
 
-type Node<T> = T | Node<T>[]
+export type Node<T> = T | Node<T>[]
 export class TreeBuilder<T> {
   root: Node<T>[] = []
   here: Node<T>[] = this.root
@@ -50,8 +50,8 @@ export class TreeBuilder<T> {
   node() { this.stack.push(this.here); this.here = [] }
   done() { let prev = this.stack.pop(); prev.push(this.here); this.here = prev }}
 
-type ImpAttrs = Record<string,any>
-type ImpVal<T> = [ImpT, ImpAttrs, T]
+export type ImpAttrs = Record<string,any>
+export type ImpVal<T> = [ImpT, ImpAttrs, T]
 export function lst(atr:ImpAttrs, items:any[]): ImpVal<any> {
   if (atr===undefined) atr = {open:'<<', close:'>>'}
   if (items===undefined) items = []
