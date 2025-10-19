@@ -20,4 +20,4 @@ async function repl() {
       if (e[0] !== T.NIL) console.log(impShow(e)) }
     catch (e) { console.trace(e) }}}
 
-repl()
+await repl()
