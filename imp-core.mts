@@ -32,8 +32,8 @@ export enum ImpP {  // parts of speech
   E = 'E',     // end of input
 }
 
-export let nil = [ImpT.NIL, {}, null];  // the empty value
-export let end = [ImpT.END, {}, null];  // the virtual end token
+export const nil:ImpVal<null> = [ImpT.NIL, {}, null];  // the empty value
+export const end:ImpVal<null> = [ImpT.END, {}, null];  // the virtual end token
 
 export class SymTable {
   symTab = {}
@@ -52,7 +52,7 @@ export class TreeBuilder<T> {
 
 export type ImpAttrs = Record<string,any>
 export type ImpVal<T> = [ImpT, ImpAttrs, T]
-export function lst(atr:ImpAttrs, items:any[]): ImpVal<any> {
+export function lst(atr?:ImpAttrs, items?:any[]): ImpVal<any> {
   if (atr===undefined) atr = {open:'<<', close:'>>'}
   if (items===undefined) items = []
   return [ImpT.LST, atr, items] }

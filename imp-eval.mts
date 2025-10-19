@@ -1,10 +1,10 @@
-import { ImpT, ImpP, nil, end, TreeBuilder } from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
-import { impShow } from './imp-show.mjs'
-import { read } from './imp-read.mjs'
+import {end, ImpAttrs, ImpP, ImpT, ImpVal, nil, TreeBuilder} from './imp-core.mjs'
+import {impShow} from './imp-show.mjs'
+import {read} from './imp-read.mjs'
 import * as assert from "assert"
 
-let impWords = {
+let impWords: Record<string, ImpVal<any>> = {
   'nil': nil,
   '+'   : imp.jdy((x,y)=>imp.int(x[2]+y[2])),
   '-'   : imp.jdy((x,y)=>imp.int(x[2]-y[2])),
@@ -12,19 +12,19 @@ let impWords = {
   '%'   : imp.jdy((x,y)=>imp.int(Math.floor(x[2]/y[2]))),
   'read': imp.jsf(x=>read(x), 1),
   'xmls': imp.jsf(x=>imp.str(toXml(x)), 1),
-  'look': imp.jsf(x=>imp.str(impWords[x[2]]??"nil"), 1),
+  'look': imp.jsf(x=>imp.str(impShow(impWords[x[2]] ?? nil)), 1),
   'eval': imp.jsf(x=>eval(x), 1),
   'part': imp.jsf(x=>imp.str(wordClass(x)), 1),
   'show': imp.jsf(x=>imp.str(impShow(x)), 1),
   'echo': imp.jsf(x=>(console.log(x[2]), nil), 1),
 }
 
-function xmlTag(tag, attrs, content) {
+function xmlTag(tag:string, attrs:ImpAttrs, content?:string) {
   let attrStr = Object.entries(attrs).map(([k,v])=>`${k}="${v}"`).join(' ')
   if (content) return `<${tag} ${attrStr}>${content}</${tag}>`
   else return `<${tag} ${attrStr}/>`
 }
-function toXml(impv) {
+function toXml(impv:ImpVal<any>) {
   let [t, a, v] = impv
   switch (t) {
     case ImpT.SEP:
@@ -41,8 +41,8 @@ function toXml(impv) {
 }
 
 
-function wordClass(x) {
-    let [xt, xa, xv] = x
+function wordClass(x:ImpVal<any>) {
+    let [xt, _xa, _xv] = x
     switch (xt) {
       case ImpT.TOP: return ImpP.N
       case ImpT.END: return ImpP.E
@@ -57,27 +57,30 @@ function wordClass(x) {
       default: throw "[wordClass] invalid argument:" + x }}
 
 class ImpEvaluator {
-  words = impWords
-  stack = []
+  words: Record<string, ImpVal<any>> = impWords
+  root: ImpVal<any>[]
+  here: ImpVal<any>[]
+  stack: [ImpVal<any>[], number, ImpP[]][] = []
 
-  item = []; wc = null; pos = 0; wcs = [];
+  item: ImpVal<any> | null = null
+  wc: ImpP | null = null
+  pos: number = 0
+  wcs: ImpP[] = [];
 
-  constructor(root) {
-    this.root = root
-    this.here = this.root
-    this.stack = []; this.pos = 0 }
+  constructor(root: ImpVal<any>[]) {
+    this.here = this.root = root }
 
-  enter = (xs)=> {
+  enter = (xs:ImpVal<any>): void => {
     this.stack.push([this.here, this.pos, this.wcs])
     this.pos=0; this.here=xs[2]; this.wcs=[]}
 
-  leave = (xs)=> {[this.here, this.pos, this.wcs] = this.stack.pop()}
-  atEnd = ()=> this.pos >= this.here.length
+  leave = (): void => {[this.here, this.pos, this.wcs] = this.stack.pop()}
+  atEnd = (): boolean => this.pos >= this.here.length
 
   /// sets this.item and this.wc
-  nextItem = ()=> {
+  nextItem = (): ImpVal<any> => {
     let x = (this.pos >= this.here.length) ? end : this.here[this.pos++]
-    let [t, a, v] = x
+    let [t, _a, v] = x
     if (t === ImpT.SYM) {
       switch (v.description[0]) {
         case '`': this.wc = ImpP.Q; break // TODO: literal word
@@ -93,7 +96,7 @@ class ImpEvaluator {
     this.wcs.push(this.wc)
     return this.item = x}
 
-  peek = ()=> {
+  peek = (): {item: ImpVal<any> | null, wc: ImpP | null} => {
     if (this.atEnd()) return {item:null, wc:null}
     let [item, wc, pos] = [this.item, this.wc, this.pos]
     this.nextItem()
@@ -101,10 +104,9 @@ class ImpEvaluator {
     // !! why does this give "TypeError: Cannot create property '2' on number '1'" ?!?
     // [this.item, this.wc, this.pos] = [item, wc, pos]
     this.item = item; this.wc = wc; this.pos = pos
-    let res = {'item':peekItem, 'wc':peekWC}
-    return res}
+    return {'item': peekItem, 'wc': peekWC}}
 
-  modifyNoun = (x)=> {
+  modifyNoun = (x: ImpVal<any>): ImpVal<any> => {
     // if next token is infix operator (dyad), apply it to x and next noun
     let p, res = x
     while ((p = this.peek()).wc === ImpP.O) {
@@ -113,7 +115,7 @@ class ImpEvaluator {
       res = op[2].apply(this, [res, arg]) }
     return res }
 
-  nextNoun = ()=> {
+  nextNoun = (): ImpVal<any> => {
     // read a noun, after applying chains of infix operators
     let res = this.nextItem()
     if (this.wc === ImpP.N) res = this.modifyNoun(res)
@@ -122,12 +124,12 @@ class ImpEvaluator {
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
     return res }
 
-  wordClass = (x)=> wordClass(x)
+  wordClass = (x: ImpVal<any>): ImpP => wordClass(x)
 
   // keep the peeked-at item
-  keep = (p)=> { this.item=p.item; this.wc=p.wc; this.pos++ }
+  keep = (p: {item: ImpVal<any> , wc: ImpP}): void => { this.item=p.item; this.wc=p.wc; this.pos++ }
 
-  modifyVerb = (v0) => {
+  modifyVerb = (v0: ImpVal<any>): ImpVal<any> => {
     let p, res = v0
     while ([ImpP.V, ImpP.A, ImpP.P].includes((p = this.peek()).wc)) {
       this.keep(p)
@@ -147,9 +149,9 @@ class ImpEvaluator {
   }
 
   // evaluate a list
-  evalList = (xs)=> {
+  evalList = (xs:ImpVal<any>): ImpVal<any>[] => {
     // walk from left to right, building up values to emit
-    let tmp = [],  done = false, tb = new TreeBuilder()
+    let done = false, tb: TreeBuilder<ImpVal<any>> = new TreeBuilder()
     this.enter(xs)
     while (!done) {
       // skip separators
@@ -178,15 +180,15 @@ class ImpEvaluator {
         default: throw "evalList: invalid word class: " + this.wc
       }}
     this.leave()
-    return tb.root}
+    return tb.root as ImpVal<any>[]}
 
   // evaluate a list but return last expression
-  lastEval = (xs)=> {
+  lastEval = (xs:ImpVal<any>): ImpVal<any> => {
     let res = this.evalList(xs)
     return res.length ? res.pop() : nil }
 
   // project a function
-  project = (sym, xs)=> {
+  project = (sym:string, xs: ImpVal<any>[]): ImpVal<any> => {
     let f = this.words[sym]
     if (!f) throw "[project]: undefined word: " + sym
     let args = [], arg = imp.lst()
@@ -194,11 +196,10 @@ class ImpEvaluator {
       if (x[0] === ImpT.SEP) { args.push(arg); arg = imp.lst() }
       else imp.push(arg,x)}
     args.push(arg)
-    let res = f[2].apply(this, args.map(this.lastEval))
-    return res}
+    return f[2].apply(this, args.map(this.lastEval))}
 
   // evaluate an expression
-  eval = (x)=> {
+  eval = (x: ImpVal<any>): ImpVal<any> => {
     let [t, a, v] = x
     switch (t) {
       case ImpT.TOP: return this.lastEval(x)
@@ -218,4 +219,4 @@ class ImpEvaluator {
         else return imp.lst(a, this.evalList(x))
       default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
-export let impEval = (x)=> new ImpEvaluator(x).eval(x)
+export let impEval = (x: ImpVal<any>): ImpVal<any> => new ImpEvaluator(x).eval(x)
