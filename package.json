@@ -1,0 +1,28 @@
+{
+  "name": "implish",
+  "version": "0.0.1",
+  "description": "A small programming language.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tangentstorm/implish.git"
+  },
+  "author": "tangentstorm <michal.wallace@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tangentstorm/implish/issues"
+  },
+  "homepage": "https://github.com/tangentstorm/implish#readme",
+  "dependencies": {
+    "ohm-js": "^17.1.0",
+    "prompt": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.8.1"
+  }
+}
