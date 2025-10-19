@@ -2,7 +2,7 @@
   "targets": {
     "main": {
       "args": [
-        "node", "dist/imp-cmd.mjs"
+        "node", "--enable-source-maps", "dist/imp-cmd.mjs"
       ],
       "shell": true
     }
