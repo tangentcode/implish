@@ -19,8 +19,6 @@
   },
   "homepage": "https://github.com/tangentstorm/implish#readme",
   "dependencies": {
-    "ohm-js": "^17.1.0",
-    "prompt": "^1.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.8.1"
