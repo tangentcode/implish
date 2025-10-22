@@ -83,7 +83,9 @@ export class ImpReader {
     [ /^![^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.MSG2)) ], // message2: !foo (strip !)
     [ /^[^\s\[\](){}:;!]+!/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(0,-1)), SymT.TYP)) ], // type: foo! (strip !)
     [ /^#[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.ISH)) ], // issue: #foo (strip #)
-    [ /^%[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.PATH)) ], // path: %foo/bar (strip %)
+    [ /^%[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.FILE)) ], // file: %foo/bar (strip %)
+    // Path must come after all prefix patterns but before catchall - matches foo/bar style
+    [ /^[^\s\[\](){}:;!%@#'.`]+\/[^\s\[\](){}:;!]+/, x => this.emit(ImpC.sym(this.symtbl.sym(x), SymT.PATH)) ], // path: foo/bar/baz
     [ /^\/[^\s\[\](){}:;!]+/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.REFN)) ], // refinement: /foo (strip /)
     [ /^'[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.LIT)) ], // lit-word: 'foo (strip ')
     [ /^:[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.GET)) ], // get-word: :foo (strip :)

@@ -28,7 +28,8 @@ export class ImpWriter {
           case SymT.LIT:  return "'" + name
           case SymT.REFN: return '/' + name
           case SymT.ISH:  return '#' + name
-          case SymT.PATH: return '%' + name
+          case SymT.PATH: return name  // path keeps full string (foo/bar)
+          case SymT.FILE: return '%' + name
           case SymT.URL:  return name  // URL keeps full string
           case SymT.BQT:  return '`' + name
           case SymT.TYP:  return name + '!'

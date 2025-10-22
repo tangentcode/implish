@@ -113,13 +113,14 @@ hello
 </imp:lst>
 #+end_src
 
-* DONE word type round-tripping: refinement and path
-#+name: word-types-refn-path
+* DONE word type round-tripping: refinement, path, and file
+#+name: word-types-refn-path-file
 #+begin_src imp
-> echo xmls [/refn %path]
+> echo xmls [/refn foo/bar %file/path]
 <imp:lst open="[" close="]">
   <imp:sym k="refn" v="refn"/>
-  <imp:sym k="path" v="path"/>
+  <imp:sym k="path" v="foo/bar"/>
+  <imp:sym k="file" v="file/path"/>
 </imp:lst>
 #+end_src
 

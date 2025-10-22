@@ -27,15 +27,16 @@ export enum SymT {
   LIT  = 3,    // lit-word: 'foo
   REFN = 4,    // refinement: /foo
   ISH  = 5,    // issue: #foo (hashtag)
-  PATH = 6,    // path (file): %foo/bar
-  URL  = 7,    // url: http://foo
-  BQT  = 8,    // backtick: `foo
-  TYP  = 9,    // type: foo!
-  ANN  = 10,   // annotation: @foo
-  MSG  = 11,   // message: .foo
-  KW   = 12,   // keyword: .foo:
-  MSG2 = 13,   // message2: !foo
-  KW2  = 14,   // keyword2: !foo:
+  PATH = 6,    // path: foo/bar (nested lookup)
+  FILE = 7,    // file: %foo/bar
+  URL  = 8,    // url: http://foo
+  BQT  = 9,    // backtick: `foo
+  TYP  = 10,   // type: foo!
+  ANN  = 11,   // annotation: @foo
+  MSG  = 12,   // message: .foo
+  KW   = 13,   // keyword: .foo:
+  MSG2 = 14,   // message2: !foo
+  KW2  = 15,   // keyword2: !foo:
 }
 
 export type ImpSymA = { kind: SymT }
