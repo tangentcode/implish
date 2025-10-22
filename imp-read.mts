@@ -64,6 +64,8 @@ export class ImpReader {
   syntax: Array<[RegExp, TokenRule]> = [
     [ /^((?!\n)\s)+/s, ok ], // ignore whitespace
     [ /^[;|\n]/m             , x => this.emit(ImpC.sep(x)) ],
+    [ /^-?\d+\.\d+([eE][+-]?\d+)?/, x => this.emit(ImpC.num(parseFloat(x))) ], // decimal with optional scientific notation
+    [ /^-?\d+[eE][+-]?\d+/   , x => this.emit(ImpC.num(parseFloat(x))) ], // integer with scientific notation
     [ /^-?\d+/               , x => this.emit(ImpC.int(parseInt(x))) ],
     [ /^"(\\.|[^"])*"/       , x => this.emit(ImpC.str(x.slice(1,-1))) ],
     // TODO: markdown style multi-line strings

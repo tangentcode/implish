@@ -15,6 +15,7 @@ export class ImpWriter {
       case ImpT.ERR: return `?${q(x[2])}`
       case ImpT.SEP: return x[2]
       case ImpT.INT: return x[2].toString()
+      case ImpT.NUM: return x[2].toString()
       case ImpT.STR: return JSON.stringify(x[2])
       case ImpT.NIL: return 'nil'
       case ImpT.MLS: return '```\n' + x[2] + '```\n'

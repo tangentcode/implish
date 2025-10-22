@@ -9,6 +9,7 @@ export enum ImpT {
   END = 'END',     // virtual 'end of input' token
   // --- values with literal representation
   INT = 'INT',     // integer
+  NUM = 'NUM',     // number (float/decimal/scientific notation)
   STR = 'STR',     // string
   MLS = 'MLS',     // multi-line string
   SYM = 'SYM',     // symbol
@@ -28,6 +29,7 @@ export type ImpErr = [ImpT.ERR, null, string]
 export type ImpSep = [ImpT.SEP, null, string]
 export type ImpEnd = [ImpT.END, null, null]
 export type ImpInt = [ImpT.INT, null, number]
+export type ImpNum = [ImpT.NUM, null, number]
 export type ImpStr = [ImpT.STR, null, string]
 export type ImpMls = [ImpT.MLS, null, string]
 export type ImpSym = [ImpT.SYM, null, symbol]
@@ -39,7 +41,7 @@ export type ImpJdy = [ImpT.JDY, {}, JDY]
 // Main discriminated union type (equivalent to union of individual types above)
 export type ImpVal
   = ImpTop | ImpErr | ImpSep | ImpEnd
-  | ImpInt | ImpStr | ImpMls | ImpSym | ImpLst | ImpNil
+  | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst | ImpNil
   | ImpJsf | ImpJdy
 
 // Syntactic sugar: utility object with methods on ImpVal
@@ -58,6 +60,7 @@ export const ImpC = {
   top(x:ImpVal[]):ImpTop { return [ImpT.TOP, null, x]},
   err(x:string):ImpErr { return [ImpT.ERR, null, x]},
   int(x:number):ImpInt { return [ImpT.INT, null, x]},
+  num(x:number):ImpNum { return [ImpT.NUM, null, x]},
   str(x:string):ImpStr { return [ImpT.STR, null, x]},
   sym(x:symbol):ImpSym { return [ImpT.SYM, null, x]},
   sep(x:string):ImpSep { return [ImpT.SEP, null, x]},

@@ -55,6 +55,7 @@ function wordClass(x:ImpVal) {
       case ImpT.TOP: return ImpP.N
       case ImpT.END: return ImpP.E
       case ImpT.INT: return ImpP.N
+      case ImpT.NUM: return ImpP.N
       case ImpT.STR: return ImpP.N
       case ImpT.MLS: return ImpP.N
       case ImpT.LST: return ImpP.N
@@ -220,6 +221,7 @@ class ImpEvaluator {
       case ImpT.SEP: return NIL
       case ImpT.NIL: return x
       case ImpT.INT: return x
+      case ImpT.NUM: return x
       case ImpT.STR: return x
       case ImpT.MLS: return x
       case ImpT.SYM: return x
