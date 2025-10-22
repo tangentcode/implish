@@ -219,10 +219,10 @@ NOTE: Can't test #abc in tanco because # starts a comment
 2 + 3
 #+end_src
 
-* DONE read: read file
-#+name: read-file
+* DONE rd: read file
+#+name: rd-file
 #+begin_src imp
-> echo read %hello.txt
+> echo rd %hello.txt
 test content
 #+end_src
 
