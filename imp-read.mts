@@ -161,6 +161,6 @@ export class ImpReader {
   // TODO: floats (?)
 }
 
-// impStr -> impData
-export let read: (impStr: ImpStr) => ImpVal
+// impStr -> impData (parse string into tree)
+export let load: (impStr: ImpStr) => ImpVal
   = (impStr) => new ImpReader().send(impStr[2]).read() ?? NIL

@@ -16,8 +16,43 @@ import {
   ImpStr, ImpC, ImpTop, ImpErr, ImpLst
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
-import {read} from './imp-read.mjs'
+import {load} from './imp-read.mjs'
 import * as assert from "assert"
+import * as fs from "fs"
+import * as https from "https"
+import * as http from "http"
+
+// Helper: read file or URL content as string (synchronous for files)
+function readContent(x: ImpVal): string {
+  // Check if it's a FILE symbol
+  if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
+    let filepath = x[2].description!
+    try {
+      return fs.readFileSync(filepath, 'utf8')
+    } catch (e: any) {
+      throw `Failed to read file: ${filepath} - ${e.message}`
+    }
+  }
+  // Check if it's a URL symbol
+  else if (ImpQ.isSym(x) && x[1].kind === SymT.URL) {
+    let url = x[2].description!
+    // For URLs, we need async which doesn't fit the current architecture
+    // For now, throw an error suggesting to use an async version later
+    throw 'URL fetching not yet supported (requires async evaluator)'
+  }
+  // String fallback (treat as filepath)
+  else if (x[0] === ImpT.STR) {
+    let filepath = x[2] as string
+    try {
+      return fs.readFileSync(filepath, 'utf8')
+    } catch (e: any) {
+      throw `Failed to read file: ${filepath} - ${e.message}`
+    }
+  }
+  else {
+    throw 'read expects a %file, URL, or string filepath'
+  }
+}
 
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
@@ -25,7 +60,8 @@ export let impWords: Record<string, ImpVal> = {
   '-'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) - (y[2] as number))),
   '*'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) * (y[2] as number))),
   '%'   : imp.jdy((x,y)=>ImpC.int(Math.floor((x[2] as number ) / (y[2] as number)))),
-  'read': imp.jsf(x=>read(x as ImpStr), 1),
+  'read': imp.jsf(x=>ImpC.str(readContent(x)), 1),
+  'load': imp.jsf(x=>load(x as ImpStr), 1),
   'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
   'look': imp.jsf(x=>ImpC.str(impShow(impWords[(x[2] as string)] ?? NIL)), 1),
   'eval': imp.jsf(x=>eval(x[2] as string), 1),

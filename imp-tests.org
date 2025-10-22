@@ -212,6 +212,20 @@ NOTE: Can't test #abc in tanco because # starts a comment
 42
 #+end_src
 
+* DONE load: parse string
+#+name: load-string
+#+begin_src imp
+> load "2 + 3"
+2 + 3
+#+end_src
+
+* DONE read: read file
+#+name: read-file
+#+begin_src imp
+> echo read %hello.txt
+test content
+#+end_src
+
 * [0/7] upcoming tests
 
 ** TODO ambivalent operators
