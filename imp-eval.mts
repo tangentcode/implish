@@ -19,7 +19,7 @@ import {impShow} from './imp-show.mjs'
 import {read} from './imp-read.mjs'
 import * as assert from "assert"
 
-let impWords: Record<string, ImpVal> = {
+export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
   '+'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) + (y[2] as number))),
   '-'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) - (y[2] as number))),
