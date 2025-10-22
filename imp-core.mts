@@ -20,6 +20,25 @@ export enum ImpT {
   JDY = 'JDY',     // javascript dyad (infix operator)
 }
 
+export enum SymT {
+  RAW  = 0,    // plain symbol: foo
+  SET  = 1,    // set-word: foo:
+  GET  = 2,    // get-word: :foo
+  LIT  = 3,    // lit-word: 'foo
+  REFN = 4,    // refinement: /foo
+  ISH  = 5,    // issue: #foo (hashtag)
+  PATH = 6,    // path (file): %foo/bar
+  URL  = 7,    // url: http://foo
+  BQT  = 8,    // backtick: `foo
+  TYP  = 9,    // type: foo!
+  ANN  = 10,   // annotation: @foo
+  MSG  = 11,   // message: .foo
+  KW   = 12,   // keyword: .foo:
+  MSG2 = 13,   // message2: !foo
+  KW2  = 14,   // keyword2: !foo:
+}
+
+export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
 export type ImpJsfA = {arity:number}
 
@@ -32,7 +51,7 @@ export type ImpInt = [ImpT.INT, null, number]
 export type ImpNum = [ImpT.NUM, null, number]
 export type ImpStr = [ImpT.STR, null, string]
 export type ImpMls = [ImpT.MLS, null, string]
-export type ImpSym = [ImpT.SYM, null, symbol]
+export type ImpSym = [ImpT.SYM, ImpSymA, symbol]
 export type ImpLst = [ImpT.LST, ImpLstA, ImpVal[]]
 export type ImpNil = [ImpT.NIL, null, null]
 export type ImpJsf = [ImpT.JSF, ImpJsfA, JSF]
@@ -62,7 +81,7 @@ export const ImpC = {
   int(x:number):ImpInt { return [ImpT.INT, null, x]},
   num(x:number):ImpNum { return [ImpT.NUM, null, x]},
   str(x:string):ImpStr { return [ImpT.STR, null, x]},
-  sym(x:symbol):ImpSym { return [ImpT.SYM, null, x]},
+  sym(x:symbol, kind:SymT = SymT.RAW):ImpSym { return [ImpT.SYM, {kind}, x]},
   sep(x:string):ImpSep { return [ImpT.SEP, null, x]},
   mls(x:string):ImpMls { return [ImpT.MLS, null, x]},
 }

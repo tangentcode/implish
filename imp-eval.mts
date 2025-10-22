@@ -7,6 +7,7 @@ import {
   ImpVal,
   ImpQ,
   NIL,
+  SymT,
   TreeBuilder,
   ImpJdy,
   JDY,
@@ -42,7 +43,16 @@ function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
 // Type-safe toXml using utility object for syntactic sugar
 function toXml(x: ImpVal): string {
   if (x[0] === ImpT.NIL) return '<nil/>';
-  if (ImpQ.isSym(x)) return xmlTag('imp:sym', {v: `${x[2].description}`})
+  if (ImpQ.isSym(x)) {
+    const attrs: Record<string, string> = {}
+    // Only add 'k' attribute if not RAW (add first for consistent ordering)
+    if (x[1].kind !== SymT.RAW) {
+      const kindNames = ['raw', 'set', 'get', 'lit', 'refn', 'ish', 'path', 'url', 'bqt', 'typ', 'ann', 'msg', 'kw', 'msg2', 'kw2']
+      attrs.k = kindNames[x[1].kind]
+    }
+    attrs.v = `${x[2].description}`
+    return xmlTag('imp:sym', attrs)
+  }
   if (ImpQ.isLst(x) || x[0] === ImpT.TOP) {
     return xmlTag('imp:' + x[0].toLowerCase(), x[1]??{},
       '\n  ' + x[2].map(toXml).join('\n  ') + '\n')}
@@ -93,17 +103,27 @@ class ImpEvaluator {
   /// sets this.item and this.wc
   nextItem = (): ImpVal => {
     let x = (this.pos >= this.here.length) ? END : this.here[this.pos++]
-    if (ImpQ.isSym(x)) { let v = x[2]
-      switch (v.description![0]) {
-        case '`': this.wc = ImpP.Q; break // TODO: literal word
-        case '.': this.wc = ImpP.M; break // TODO: method
-        case ':': this.wc = ImpP.G; break // getter
-        default: {
-          if (v.description!.endsWith(':')) this.wc = ImpP.S
-          else { // normal symbol, so look it up
-            let w = this.words[v.description!]
-            if (w) x = w, this.wc = this.wordClass(w)
-            else throw "undefined word: " + v.description }}}}
+    if (ImpQ.isSym(x)) {
+      // Check symbol kind - only RAW symbols are looked up
+      switch (x[1].kind) {
+        case SymT.RAW: {
+          // Normal symbol, so look it up
+          let w = this.words[x[2].description!]
+          if (w) x = w, this.wc = this.wordClass(w)
+          else throw "undefined word: " + x[2].description
+          break
+        }
+        case SymT.SET:  this.wc = ImpP.S; break  // set-word
+        case SymT.GET:  this.wc = ImpP.G; break  // get-word
+        case SymT.LIT:  this.wc = ImpP.Q; break  // lit-word (quote)
+        case SymT.BQT:  this.wc = ImpP.Q; break  // backtick (quote)
+        case SymT.MSG:  this.wc = ImpP.M; break  // message
+        case SymT.KW:   this.wc = ImpP.M; break  // keyword (treat as message)
+        case SymT.MSG2: this.wc = ImpP.M; break  // message2
+        case SymT.KW2:  this.wc = ImpP.M; break  // keyword2 (treat as message)
+        default: this.wc = ImpP.N; break  // other types are nouns
+      }
+    }
     else this.wc = this.wordClass(x)
     this.wcs.push(this.wc)
     return this.item = x}

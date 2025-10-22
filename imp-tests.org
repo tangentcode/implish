@@ -102,24 +102,74 @@ hello
 </imp:lst>
 #+end_src
 
-
-* TODO strands
-#+name: strands
-#+begin_src
-> 1 2 3 4
-1 2 3 4
+* DONE word type round-tripping: basic types
+#+name: word-types-basic
+#+begin_src imp
+> echo xmls ['foo :bar baz:]
+<imp:lst open="[" close="]">
+  <imp:sym k="lit" v="foo"/>
+  <imp:sym k="get" v="bar"/>
+  <imp:sym k="set" v="baz"/>
+</imp:lst>
 #+end_src
 
-
-* TODO vector math
-#+name: strand-math
-#+begin_src
-> 1 + ! 4
-1 2 3 4
-> 1 + 1 2 3 4
-2 3 4 5
+* DONE word type round-tripping: refinement and path
+#+name: word-types-refn-path
+#+begin_src imp
+> echo xmls [/refn %path]
+<imp:lst open="[" close="]">
+  <imp:sym k="refn" v="refn"/>
+  <imp:sym k="path" v="path"/>
+</imp:lst>
 #+end_src
 
+* TODO word type round-tripping: issue
+NOTE: Can't test #abc in tanco because # starts a comment
+#+name: word-types-ish
+#+begin_src imp
+# > xmls [#abc]
+# [#abc]
+#+end_src
+
+* DONE word type round-tripping: URL
+#+name: word-types-url
+#+begin_src imp
+> echo xmls [http://example.com]
+<imp:lst open="[" close="]">
+  <imp:sym k="url" v="http://example.com"/>
+</imp:lst>
+#+end_src
+
+* DONE new symbol types: backtick and type
+#+name: word-types-new1
+#+begin_src imp
+> echo xmls [`foo bar!]
+<imp:lst open="[" close="]">
+  <imp:sym k="bqt" v="foo"/>
+  <imp:sym k="typ" v="bar"/>
+</imp:lst>
+#+end_src
+
+* DONE new symbol types: annotation and messages
+#+name: word-types-new2
+#+begin_src imp
+> echo xmls [@note .msg .kw:]
+<imp:lst open="[" close="]">
+  <imp:sym k="ann" v="note"/>
+  <imp:sym k="msg" v="msg"/>
+  <imp:sym k="kw" v="kw"/>
+</imp:lst>
+#+end_src
+
+* DONE new symbol types: message2 and keyword2
+#+name: word-types-new3
+#+begin_src imp
+> echo xmls [!msg2 !kw2:]
+<imp:lst open="[" close="]">
+  <imp:sym k="msg2" v="msg2"/>
+  <imp:sym k="kw2" v="kw2"/>
+</imp:lst>
+#+end_src
 
 * [0/7] upcoming tests
 

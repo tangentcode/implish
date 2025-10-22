@@ -1,5 +1,5 @@
 // Implish reader (parser)
-import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop} from './imp-core.mjs'
+import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop, SymT} from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
 let closer: Record<string, string> = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
@@ -72,6 +72,24 @@ export class ImpReader {
     // [ /^```.*```/           , x => this.emit(imp.mls(x)) ],
     [ /^(((?![[({])\S)*[[({]|\.:)/      , x => this.node(x) ],
     [ /^(]|:\.|[)}])/        , x => this.done(x) ],
+    // Word type variations (must come before catchall)
+    // NOTE: Order matters! More specific patterns must come before less specific ones
+    [ /^https?:\/\/[^\s\[\](){}]+/ , x => this.emit(ImpC.sym(this.symtbl.sym(x), SymT.URL)) ], // url: http://foo (allows : for ports)
+    // Keyword patterns (with :) must come before simple message patterns
+    [ /^\.[^\s\[\](){}:;!]+:/      , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1,-1)), SymT.KW)) ], // keyword: .foo: (strip . and :)
+    [ /^![^\s\[\](){}:;!]+:/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1,-1)), SymT.KW2)) ], // keyword2: !foo: (strip ! and :)
+    [ /^[^\s\[\](){}:;!]+:/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(0,-1)), SymT.SET)) ], // set-word: foo: (must come after keyword patterns)
+    // ! prefix patterns must come before ! suffix pattern
+    [ /^![^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.MSG2)) ], // message2: !foo (strip !)
+    [ /^[^\s\[\](){}:;!]+!/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(0,-1)), SymT.TYP)) ], // type: foo! (strip !)
+    [ /^#[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.ISH)) ], // issue: #foo (strip #)
+    [ /^%[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.PATH)) ], // path: %foo/bar (strip %)
+    [ /^\/[^\s\[\](){}:;!]+/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.REFN)) ], // refinement: /foo (strip /)
+    [ /^'[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.LIT)) ], // lit-word: 'foo (strip ')
+    [ /^:[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.GET)) ], // get-word: :foo (strip :)
+    [ /^`[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.BQT)) ], // backtick: `foo (strip `)
+    [ /^@[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.ANN)) ], // annotation: @foo (strip @)
+    [ /^\.[^\s\[\](){}:;!]+/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.MSG)) ], // message: .foo (strip .)
     [ /^((?![\])}])\S)+/     , x => this.emit(ImpC.sym(this.symtbl.sym(x))) ]] // catchall, so keep last.
 }
 
