@@ -5,6 +5,48 @@ import * as imp from './imp-core.mjs'
 let closer: Record<string, string> = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
 type TokenRule = (token:string) => void
 
+// Token types for the lexer
+export const TokT = {
+  WS: 'ws', SEP: 'sep', NUM: 'num', INT: 'int', STR: 'str',
+  NODE: 'node', DONE: 'done',
+  URL: 'url', KW: 'kw', KW2: 'kw2', SET: 'set',
+  MSG2: 'msg2', TYP: 'typ', ISH: 'ish', FILE: 'file',
+  PATH: 'path', REFN: 'refn', LIT: 'lit', GET: 'get',
+  BQT: 'bqt', ANN: 'ann', MSG: 'msg', RAW: 'raw'
+} as const
+
+export type TrimSpec = [number, number] | null
+
+// Lexer table: [tokenType, regex, trimSpec]
+// trimSpec is [charsFromStart, charsFromEnd] to strip when creating symbol
+export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
+  [TokT.WS,   /^((?!\n)\s)+/s,                        null],
+  [TokT.SEP,  /^[;|\n]/m,                             null],
+  [TokT.NUM,  /^-?\d+\.\d+([eE][+-]?\d+)?/,          null], // decimal with optional scientific notation
+  [TokT.NUM,  /^-?\d+[eE][+-]?\d+/,                  null], // integer with scientific notation
+  [TokT.INT,  /^-?\d+/,                               null],
+  [TokT.STR,  /^"(\\.|[^"])*"/,                       [1, 1]],
+  [TokT.NODE, /^(((?![[({])\S)*[[({]|\.:)/,          null],
+  [TokT.DONE, /^(]|:\.|[)}])/,                       null],
+  // Symbol types (order matters - more specific before less specific)
+  [TokT.URL,  /^https?:\/\/[^\s\[\](){}]+/,          [0, 0]], // url: http://foo (no trim, keep full URL)
+  [TokT.KW,   /^\.[^\s\[\](){}:;!]+:/,               [1, 1]], // keyword: .foo: (strip . and :)
+  [TokT.KW2,  /^![^\s\[\](){}:;!]+:/,                [1, 1]], // keyword2: !foo: (strip ! and :)
+  [TokT.SET,  /^[^\s\[\](){}:;!]+:/,                 [0, 1]], // set-word: foo: (strip :)
+  [TokT.MSG2, /^![^\s\[\](){}:;!]+/,                 [1, 0]], // message2: !foo (strip !)
+  [TokT.TYP,  /^[^\s\[\](){}:;!]+!/,                 [0, 1]], // type: foo! (strip !)
+  [TokT.ISH,  /^#[^\s\[\](){}:;!]+/,                 [1, 0]], // issue: #foo (strip #)
+  [TokT.FILE, /^%[^\s\[\](){}:;!]+/,                 [1, 0]], // file: %foo/bar (strip %)
+  [TokT.PATH, /^[^\s\[\](){}:;!%@#'.`]+\/[^\s\[\](){}:;!]+/, [0, 0]], // path: foo/bar/baz (no trim)
+  [TokT.REFN, /^\/[^\s\[\](){}:;!]+/,                [1, 0]], // refinement: /foo (strip /)
+  [TokT.LIT,  /^'[^\s\[\](){}:;!]+/,                 [1, 0]], // lit-word: 'foo (strip ')
+  [TokT.GET,  /^:[^\s\[\](){}:;!]+/,                 [1, 0]], // get-word: :foo (strip :)
+  [TokT.BQT,  /^`[^\s\[\](){}:;!]+/,                 [1, 0]], // backtick: `foo (strip `)
+  [TokT.ANN,  /^@[^\s\[\](){}:;!]+/,                 [1, 0]], // annotation: @foo (strip @)
+  [TokT.MSG,  /^\.[^\s\[\](){}:;!]+/,                [1, 0]], // message: .foo (strip .)
+  [TokT.RAW,  /^((?![\])}])\S)+/,                    [0, 0]], // catchall (keep last)
+]
+
 export class ImpReader {
   tree: TreeBuilder<any> = new TreeBuilder()
   symtbl = new SymTable() // global table for symbols
@@ -44,55 +86,79 @@ export class ImpReader {
       return ImpC.top(res)}
     else return ImpC.err("failed to read")}
 
+  // Helper: create a symbol with trimming
+  mkSym(tok: string, trim: TrimSpec, kind: SymT): void {
+    if (!trim) {
+      this.emit(ImpC.sym(this.symtbl.sym(tok), kind))
+    } else {
+      let [start, end] = trim
+      let value = end > 0 ? tok.slice(start, -end) : tok.slice(start)
+      this.emit(ImpC.sym(this.symtbl.sym(value), kind))
+    }
+  }
+
+  // Rule dictionary: maps token types to handler functions
+  rules: Record<string, (tok: string, trim: TrimSpec) => void> = {
+    [TokT.WS]:   () => {},  // ignore whitespace
+    [TokT.SEP]:  (tok) => this.emit(ImpC.sep(tok)),
+    [TokT.NUM]:  (tok) => this.emit(ImpC.num(parseFloat(tok))),
+    [TokT.INT]:  (tok) => this.emit(ImpC.int(parseInt(tok))),
+    [TokT.STR]:  (tok, trim) => this.emit(ImpC.str(trim ? tok.slice(trim[0], -trim[1]) : tok)),
+    [TokT.NODE]: (tok) => this.node(tok),
+    [TokT.DONE]: (tok) => this.done(tok),
+    // Symbol types
+    [TokT.URL]:  (tok, trim) => this.mkSym(tok, trim, SymT.URL),
+    [TokT.KW]:   (tok, trim) => this.mkSym(tok, trim, SymT.KW),
+    [TokT.KW2]:  (tok, trim) => this.mkSym(tok, trim, SymT.KW2),
+    [TokT.SET]:  (tok, trim) => this.mkSym(tok, trim, SymT.SET),
+    [TokT.MSG2]: (tok, trim) => this.mkSym(tok, trim, SymT.MSG2),
+    [TokT.TYP]:  (tok, trim) => this.mkSym(tok, trim, SymT.TYP),
+    [TokT.ISH]:  (tok, trim) => this.mkSym(tok, trim, SymT.ISH),
+    [TokT.FILE]: (tok, trim) => this.mkSym(tok, trim, SymT.FILE),
+    [TokT.PATH]: (tok, trim) => this.mkSym(tok, trim, SymT.PATH),
+    [TokT.REFN]: (tok, trim) => this.mkSym(tok, trim, SymT.REFN),
+    [TokT.LIT]:  (tok, trim) => this.mkSym(tok, trim, SymT.LIT),
+    [TokT.GET]:  (tok, trim) => this.mkSym(tok, trim, SymT.GET),
+    [TokT.BQT]:  (tok, trim) => this.mkSym(tok, trim, SymT.BQT),
+    [TokT.ANN]:  (tok, trim) => this.mkSym(tok, trim, SymT.ANN),
+    [TokT.MSG]:  (tok, trim) => this.mkSym(tok, trim, SymT.MSG),
+    [TokT.RAW]:  (tok, trim) => this.mkSym(tok, trim, SymT.RAW),
+  }
+
   scan(): void { // match and process the next token
     if (!this.empty) {
       let src = this.buffer.shift()
       if (src) {
-        let m:RegExpExecArray|null=null, rx:RegExp, rule:TokenRule|null=null
-        for ([rx, rule] of this.syntax) if ((m=rx.exec(src))) break
-        // assert(m) because of catchall, but TODO: handle string fragments
-        if (m) {
+        let m: RegExpExecArray | null = null
+        let tokType: string | null = null
+        let trim: TrimSpec = null
+
+        // Find matching token in lexer table
+        for (let [tt, rx, tr] of lexerTable) {
+          if ((m = rx.exec(src))) {
+            tokType = tt
+            trim = tr
+            break
+          }
+        }
+
+        // Process the matched token
+        if (m && tokType) {
           let tok = m[0], rest = src.slice(tok.length)
-          if (tok && rule) rule(tok)
-          if (rest) this.buffer.unshift(rest)}
-        else { console.error("unmatched input:", src)}}}}
+          let rule = this.rules[tokType]
+          if (rule) rule(tok, trim)
+          if (rest) this.buffer.unshift(rest)
+        } else {
+          console.error("unmatched input:", src)
+        }
+      }
+    }
+  }
 
   // TODO: nested .: :. should treat everything inside as a single comment
   // TODO: handle unterminated strings
   // TODO: strands of juxtaposed numbers should be a single token
   // TODO: floats (?)
-  syntax: Array<[RegExp, TokenRule]> = [
-    [ /^((?!\n)\s)+/s, ok ], // ignore whitespace
-    [ /^[;|\n]/m             , x => this.emit(ImpC.sep(x)) ],
-    [ /^-?\d+\.\d+([eE][+-]?\d+)?/, x => this.emit(ImpC.num(parseFloat(x))) ], // decimal with optional scientific notation
-    [ /^-?\d+[eE][+-]?\d+/   , x => this.emit(ImpC.num(parseFloat(x))) ], // integer with scientific notation
-    [ /^-?\d+/               , x => this.emit(ImpC.int(parseInt(x))) ],
-    [ /^"(\\.|[^"])*"/       , x => this.emit(ImpC.str(x.slice(1,-1))) ],
-    // TODO: markdown style multi-line strings
-    // [ /^```.*```/           , x => this.emit(imp.mls(x)) ],
-    [ /^(((?![[({])\S)*[[({]|\.:)/      , x => this.node(x) ],
-    [ /^(]|:\.|[)}])/        , x => this.done(x) ],
-    // Word type variations (must come before catchall)
-    // NOTE: Order matters! More specific patterns must come before less specific ones
-    [ /^https?:\/\/[^\s\[\](){}]+/ , x => this.emit(ImpC.sym(this.symtbl.sym(x), SymT.URL)) ], // url: http://foo (allows : for ports)
-    // Keyword patterns (with :) must come before simple message patterns
-    [ /^\.[^\s\[\](){}:;!]+:/      , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1,-1)), SymT.KW)) ], // keyword: .foo: (strip . and :)
-    [ /^![^\s\[\](){}:;!]+:/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1,-1)), SymT.KW2)) ], // keyword2: !foo: (strip ! and :)
-    [ /^[^\s\[\](){}:;!]+:/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(0,-1)), SymT.SET)) ], // set-word: foo: (must come after keyword patterns)
-    // ! prefix patterns must come before ! suffix pattern
-    [ /^![^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.MSG2)) ], // message2: !foo (strip !)
-    [ /^[^\s\[\](){}:;!]+!/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(0,-1)), SymT.TYP)) ], // type: foo! (strip !)
-    [ /^#[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.ISH)) ], // issue: #foo (strip #)
-    [ /^%[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.FILE)) ], // file: %foo/bar (strip %)
-    // Path must come after all prefix patterns but before catchall - matches foo/bar style
-    [ /^[^\s\[\](){}:;!%@#'.`]+\/[^\s\[\](){}:;!]+/, x => this.emit(ImpC.sym(this.symtbl.sym(x), SymT.PATH)) ], // path: foo/bar/baz
-    [ /^\/[^\s\[\](){}:;!]+/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.REFN)) ], // refinement: /foo (strip /)
-    [ /^'[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.LIT)) ], // lit-word: 'foo (strip ')
-    [ /^:[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.GET)) ], // get-word: :foo (strip :)
-    [ /^`[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.BQT)) ], // backtick: `foo (strip `)
-    [ /^@[^\s\[\](){}:;!]+/        , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.ANN)) ], // annotation: @foo (strip @)
-    [ /^\.[^\s\[\](){}:;!]+/       , x => this.emit(ImpC.sym(this.symtbl.sym(x.slice(1)), SymT.MSG)) ], // message: .foo (strip .)
-    [ /^((?![\])}])\S)+/     , x => this.emit(ImpC.sym(this.symtbl.sym(x))) ]] // catchall, so keep last.
 }
 
 // impStr -> impData
