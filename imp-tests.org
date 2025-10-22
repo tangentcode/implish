@@ -171,6 +171,46 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
+* DONE assignment: basic
+#+name: assignment-basic
+#+begin_src imp
+> x: 42
+42
+> x
+42
+#+end_src
+
+* DONE assignment: with expression
+#+name: assignment-expr
+#+begin_src imp
+> y: 2 + 3
+5
+> y
+5
+#+end_src
+
+* DONE assignment: use assigned value
+#+name: assignment-use
+#+begin_src imp
+> a: 10
+10
+> b: a + 5
+15
+> b
+15
+#+end_src
+
+* DONE assignment: chained
+#+name: assignment-chained
+#+begin_src imp
+> x: y: 42
+42
+> x
+42
+> y
+42
+#+end_src
+
 * [0/7] upcoming tests
 
 ** TODO ambivalent operators

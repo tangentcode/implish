@@ -148,6 +148,33 @@ class ImpEvaluator {
       res = op[2].apply(this, [res, arg]) }
     return res }
 
+  // Handle assignment - recursively processes chained assignments
+  doAssign = (sym: ImpVal): ImpVal => {
+    if (!ImpQ.isSym(sym)) throw "set-word must be a symbol"
+    let varName = sym[2].description!
+    let nextX = this.nextItem()
+    let value: ImpVal
+    // Handle based on word class
+    if (this.wc === ImpP.S) {
+      // Another set-word - recurse (enables a: b: 123)
+      value = this.doAssign(nextX)
+    } else if (this.wc === ImpP.N) {
+      value = this.eval(nextX)
+      value = this.modifyNoun(value)
+    } else if (this.wc === ImpP.V) {
+      nextX = this.modifyVerb(nextX as ImpJsf)
+      let args = []
+      for (let i = 0; i < nextX[1].arity; i++) { args.push(this.nextNoun()) }
+      value = nextX[2].apply(this, args)
+    } else if (this.wc === ImpP.Q) {
+      value = nextX
+    } else {
+      throw "invalid expression after set-word"
+    }
+    this.words[varName] = value
+    return value
+  }
+
   nextNoun = (): ImpVal => {
     // read a noun, after applying chains of infix operators
     let res = this.nextItem()
@@ -210,6 +237,9 @@ class ImpEvaluator {
           break
         case ImpP.Q:
           tb.emit(x)
+          break
+        case ImpP.S: // set-word (assignment)
+          tb.emit(this.doAssign(x))
           break
         case ImpP.E:
           break
