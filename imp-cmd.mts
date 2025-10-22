@@ -54,11 +54,36 @@ function completeFilePath(token: string): [string[], string] {
   // Strip the % prefix
   let partialPath = token.slice(1)
 
-  // Determine directory and filename prefix
+  // Special case for Windows: %/ lists drives
+  if (process.platform === 'win32' && partialPath === '/') {
+    return completeWindowsDrives()
+  }
+
+  // Special case for Windows: %/d/ means d:/ drive
+  let windowsDriveMatch = process.platform === 'win32'
+    ? partialPath.match(/^\/([a-zA-Z])(\/|$)(.*)/)
+    : null
+
   let dir = '.'
   let prefix = partialPath
+  let pathPrefix = ''  // For reconstructing the final path
 
-  if (partialPath.includes('/') || partialPath.includes('\\')) {
+  if (windowsDriveMatch) {
+    // Convert %/d/path to d:/path for filesystem operations
+    let driveLetter = windowsDriveMatch[1]
+    let rest = windowsDriveMatch[3] || ''
+    let realPath = driveLetter + ':/' + rest
+
+    if (rest.includes('/') || rest.includes('\\')) {
+      let lastSep = Math.max(rest.lastIndexOf('/'), rest.lastIndexOf('\\'))
+      dir = driveLetter + ':/' + rest.slice(0, lastSep)
+      prefix = rest.slice(lastSep + 1)
+    } else {
+      dir = driveLetter + ':/'
+      prefix = rest
+    }
+    pathPrefix = '/' + driveLetter + '/'
+  } else if (partialPath.includes('/') || partialPath.includes('\\')) {
     let lastSep = Math.max(partialPath.lastIndexOf('/'), partialPath.lastIndexOf('\\'))
     dir = partialPath.slice(0, lastSep) || '.'
     prefix = partialPath.slice(lastSep + 1)
@@ -70,8 +95,21 @@ function completeFilePath(token: string): [string[], string] {
     let matches = entries
       .filter(e => e.name.startsWith(prefix))
       .map(e => {
-        // Always use forward slashes, even on Windows
-        let fullPath = dir === '.' ? e.name : dir + '/' + e.name
+        let fullPath: string
+
+        if (windowsDriveMatch) {
+          // For Windows drive paths, reconstruct as %/d/path
+          let driveLetter = windowsDriveMatch[1]
+          let rest = windowsDriveMatch[3] || ''
+          let dirPart = rest.includes('/')
+            ? rest.slice(0, rest.lastIndexOf('/') + 1)
+            : ''
+          fullPath = '/' + driveLetter + '/' + dirPart + e.name
+        } else {
+          // Regular paths
+          fullPath = dir === '.' ? e.name : dir + '/' + e.name
+        }
+
         // Add trailing / for directories
         if (e.isDirectory()) fullPath += '/'
         return '%' + fullPath
@@ -82,6 +120,23 @@ function completeFilePath(token: string): [string[], string] {
     // Directory doesn't exist or can't be read
     return [[], token]
   }
+}
+
+// List Windows drives as %/c/, %/d/, etc.
+function completeWindowsDrives(): [string[], string] {
+  let drives = []
+  // Check common drive letters A-Z
+  for (let i = 65; i <= 90; i++) {
+    let letter = String.fromCharCode(i).toLowerCase()
+    try {
+      // Try to access the drive - if it exists, it won't throw
+      fs.accessSync(letter + ':/')
+      drives.push('%/' + letter + '/')
+    } catch (e) {
+      // Drive doesn't exist or isn't accessible
+    }
+  }
+  return [drives, '%/']
 }
 
 // Complete word names from the current scope

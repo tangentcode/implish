@@ -27,6 +27,15 @@ async function readContent(x: ImpVal): Promise<string> {
   // Check if it's a FILE symbol
   if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
     let filepath = x[2].description!
+
+    // On Windows, convert %/d/path to d:/path
+    if (process.platform === 'win32') {
+      let driveMatch = filepath.match(/^\/([a-zA-Z])\/(.*)/)
+      if (driveMatch) {
+        filepath = driveMatch[1] + ':/' + driveMatch[2]
+      }
+    }
+
     try {
       return fs.readFileSync(filepath, 'utf8')
     } catch (e: any) {
