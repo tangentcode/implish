@@ -22,8 +22,8 @@ import * as fs from "fs"
 import * as https from "https"
 import * as http from "http"
 
-// Helper: read file or URL content as string (synchronous for files)
-function readContent(x: ImpVal): string {
+// Helper: read file or URL content as string (async)
+async function readContent(x: ImpVal): Promise<string> {
   // Check if it's a FILE symbol
   if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
     let filepath = x[2].description!
@@ -36,9 +36,14 @@ function readContent(x: ImpVal): string {
   // Check if it's a URL symbol
   else if (ImpQ.isSym(x) && x[1].kind === SymT.URL) {
     let url = x[2].description!
-    // For URLs, we need async which doesn't fit the current architecture
-    // For now, throw an error suggesting to use an async version later
-    throw 'URL fetching not yet supported (requires async evaluator)'
+    return new Promise((resolve, reject) => {
+      let protocol = url.startsWith('https:') ? https : http
+      protocol.get(url, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => resolve(data))
+      }).on('error', (e) => reject(`Failed to fetch URL: ${url} - ${e.message}`))
+    })
   }
   // String fallback (treat as filepath)
   else if (x[0] === ImpT.STR) {
@@ -60,7 +65,7 @@ export let impWords: Record<string, ImpVal> = {
   '-'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) - (y[2] as number))),
   '*'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) * (y[2] as number))),
   '%'   : imp.jdy((x,y)=>ImpC.int(Math.floor((x[2] as number ) / (y[2] as number)))),
-  'read': imp.jsf(x=>ImpC.str(readContent(x)), 1),
+  'read': imp.jsf(async x=>ImpC.str(await readContent(x)), 1),
   'load': imp.jsf(x=>load(x as ImpStr), 1),
   'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
   'look': imp.jsf(x=>ImpC.str(impShow(impWords[(x[2] as string)] ?? NIL)), 1),
@@ -175,17 +180,17 @@ class ImpEvaluator {
     if (!peekItem || !peekWC) return null
     return {item: peekItem, wc: peekWC}}
 
-  modifyNoun = (x: ImpVal): ImpVal => {
+  modifyNoun = async (x: ImpVal): Promise<ImpVal> => {
     // if next token is infix operator (dyad), apply it to x and next noun
     let res = x
     while (this.peek()?.wc === ImpP.O) {
       let op = this.nextItem() as ImpJdy
       let arg = this.nextItem()
-      res = op[2].apply(this, [res, arg]) }
+      res = await op[2].apply(this, [res, arg]) }
     return res }
 
   // Handle assignment - recursively processes chained assignments
-  doAssign = (sym: ImpVal): ImpVal => {
+  doAssign = async (sym: ImpVal): Promise<ImpVal> => {
     if (!ImpQ.isSym(sym)) throw "set-word must be a symbol"
     let varName = sym[2].description!
     let nextX = this.nextItem()
@@ -193,15 +198,15 @@ class ImpEvaluator {
     // Handle based on word class
     if (this.wc === ImpP.S) {
       // Another set-word - recurse (enables a: b: 123)
-      value = this.doAssign(nextX)
+      value = await this.doAssign(nextX)
     } else if (this.wc === ImpP.N) {
-      value = this.eval(nextX)
-      value = this.modifyNoun(value)
+      value = await this.eval(nextX)
+      value = await this.modifyNoun(value)
     } else if (this.wc === ImpP.V) {
       nextX = this.modifyVerb(nextX as ImpJsf)
       let args = []
-      for (let i = 0; i < nextX[1].arity; i++) { args.push(this.nextNoun()) }
-      value = nextX[2].apply(this, args)
+      for (let i = 0; i < nextX[1].arity; i++) { args.push(await this.nextNoun()) }
+      value = await nextX[2].apply(this, args)
     } else if (this.wc === ImpP.Q) {
       value = nextX
     } else {
@@ -211,10 +216,10 @@ class ImpEvaluator {
     return value
   }
 
-  nextNoun = (): ImpVal => {
+  nextNoun = async (): Promise<ImpVal> => {
     // read a noun, after applying chains of infix operators
     let res = this.nextItem()
-    if (this.wc === ImpP.N) res = this.modifyNoun(res)
+    if (this.wc === ImpP.N) res = await this.modifyNoun(res)
     else throw "expected a noun, got: " + res
     // todo: collect multiple numbers or quoted symbols into a vector
     // todo: if it's a symbol that starts with ., that's also infix (it's a method)
@@ -233,11 +238,19 @@ class ImpEvaluator {
       if (![ImpP.V, ImpP.A, ImpP.P].includes(p.wc)) break
       this.keep(p)
       switch (p.wc) {
-        case ImpP.V: // TODO: composition (v u)
+        case ImpP.V: // composition (v u) - handle async
           assert.ok(res[1].arity as number ===1, "oh no")
           let u = res[2] as JSF
           let v = p.item[2] as JSF
-          res = imp.jsf((x)=>u(v(x)), 1)
+          res = imp.jsf(async (x) => {
+            let vResult = v(x)
+            // If v returns a Promise, await it
+            if (vResult instanceof Promise) vResult = await vResult
+            let uResult = u(vResult)
+            // If u returns a Promise, await it
+            if (uResult instanceof Promise) uResult = await uResult
+            return uResult
+          }, 1)
           break
         case ImpP.A: // TODO: adverb (v/)
         case ImpP.P: // TODO: preposition (v -arg)
@@ -248,7 +261,7 @@ class ImpEvaluator {
   }
 
   // evaluate a list
-  evalList = (xs:ImpLst|ImpTop): ImpVal[] => {
+  evalList = async (xs:ImpLst|ImpTop): Promise<ImpVal[]> => {
     // walk from left to right, building up values to emit
     let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     this.enter(xs)
@@ -261,21 +274,21 @@ class ImpEvaluator {
       case ImpP.V: // verb
           x = this.modifyVerb(x as ImpJsf)
           let args = []
-          for (let i = 0; i < x[1].arity; i++) { args.push(this.nextNoun()) }
-          tb.emit(x[2].apply(this, args))
+          for (let i = 0; i < x[1].arity; i++) { args.push(await this.nextNoun()) }
+          tb.emit(await x[2].apply(this, args))
           break
         case ImpP.N:
           // process.stderr.write(`noun: ${impShow(x)}\n`)
           // if x[0] === T.LST {}
-          x = this.eval(x)
-          x = this.modifyNoun(x)
+          x = await this.eval(x)
+          x = await this.modifyNoun(x)
           tb.emit(x)
           break
         case ImpP.Q:
           tb.emit(x)
           break
         case ImpP.S: // set-word (assignment)
-          tb.emit(this.doAssign(x))
+          tb.emit(await this.doAssign(x))
           break
         case ImpP.E:
           break
@@ -285,12 +298,12 @@ class ImpEvaluator {
     return tb.root as ImpVal[]}
 
   // evaluate a list but return last expression
-  lastEval = (xs:ImpLst|ImpTop): ImpVal => {
-    let res = this.evalList(xs)
+  lastEval = async (xs:ImpLst|ImpTop): Promise<ImpVal> => {
+    let res = await this.evalList(xs)
     return res.length ? res.pop()! : NIL }
 
   // project a function
-  project = (sym:string, xs: ImpVal[]): ImpVal => {
+  project = async (sym:string, xs: ImpVal[]): Promise<ImpVal> => {
     let f: imp.ImpJsf | undefined = this.words[sym] as ImpJsf
     if (!f) throw "[project]: undefined word: " + sym
     let args = [], arg = imp.lst()
@@ -298,12 +311,17 @@ class ImpEvaluator {
       if (x[0] === ImpT.SEP) { args.push(arg); arg = imp.lst() }
       else imp.push(arg,x)}
     args.push(arg)
-    return f[2].apply(this, args.map(this.lastEval))}
+    // Need to evaluate all args first, then apply
+    let evaluatedArgs = []
+    for (let a of args) {
+      evaluatedArgs.push(await this.lastEval(a))
+    }
+    return await f[2].apply(this, evaluatedArgs)}
 
   // evaluate an expression
-  eval = (x: ImpVal): ImpVal => {
+  eval = async (x: ImpVal): Promise<ImpVal> => {
     switch (x[0]) {
-      case ImpT.TOP: return this.lastEval(x)
+      case ImpT.TOP: return await this.lastEval(x)
       case ImpT.SEP: return NIL
       case ImpT.NIL: return x
       case ImpT.INT: return x
@@ -315,12 +333,12 @@ class ImpEvaluator {
         let [_, a, v] = x
         let m = (a.open||'[').match(/^(.+)([[({])$/)
         if (m) { let sym = m[1]; switch (m[2]) {
-          case '[': return this.project(sym, v)
+          case '[': return await this.project(sym, v)
           // case '(': TODO
           // case '{': TODO
-          default: return imp.lst(a, this.evalList(x))}}
-        else return imp.lst(a, this.evalList(x))
+          default: return imp.lst(a, await this.evalList(x))}}
+        else return imp.lst(a, await this.evalList(x))
       default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
-export let impEval = (x: ImpTop | ImpErr): ImpVal =>
-  ImpQ.isTop(x) ? new ImpEvaluator(x[2]).eval(x) : x
+export let impEval = async (x: ImpTop | ImpErr): Promise<ImpVal> =>
+  ImpQ.isTop(x) ? await new ImpEvaluator(x[2]).eval(x) : x

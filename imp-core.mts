@@ -127,7 +127,7 @@ export function push(xs: ImpLst, x: ImpVal): ImpVal {
   xs[2].push(x)
   return xs }
 
-export type JSF = (...args: ImpVal[]) => ImpVal
+export type JSF = (...args: ImpVal[]) => ImpVal | Promise<ImpVal>
 export type JDY = (left: ImpVal, right: ImpVal) => ImpVal
 export let jsf: (f: JSF, a: number) => ImpJsf =
   (f, a) => [ImpT.JSF, {arity: a}, f]
