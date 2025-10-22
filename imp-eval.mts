@@ -97,7 +97,7 @@ function toXml(x: ImpVal): string {
     const attrs: Record<string, string> = {}
     // Only add 'k' attribute if not RAW (add first for consistent ordering)
     if (x[1].kind !== SymT.RAW) {
-      const kindNames = ['raw', 'set', 'get', 'lit', 'refn', 'ish', 'path', 'file', 'url', 'bqt', 'typ', 'ann', 'msg', 'kw', 'msg2', 'kw2']
+      const kindNames = ['raw', 'set', 'get', 'lit', 'refn', 'ish', 'path', 'file', 'url', 'bqt', 'typ', 'ann', 'msg', 'kw', 'msg2', 'kw2', 'err']
       attrs.k = kindNames[x[1].kind]
     }
     attrs.v = `${x[2].description}`

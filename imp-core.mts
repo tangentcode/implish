@@ -37,6 +37,7 @@ export enum SymT {
   KW   = 13,   // keyword: .foo:
   MSG2 = 14,   // message2: !foo
   KW2  = 15,   // keyword2: !foo:
+  ERR  = 16,   // error: ?foo
 }
 
 export type ImpSymA = { kind: SymT }

@@ -172,6 +172,15 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
+* DONE new symbol type: error
+#+name: word-types-err
+#+begin_src imp
+> echo xmls [?error]
+<imp:lst open="[" close="]">
+  <imp:sym k="err" v="error"/>
+</imp:lst>
+#+end_src
+
 * DONE assignment: basic
 #+name: assignment-basic
 #+begin_src imp

@@ -38,6 +38,7 @@ export class ImpWriter {
           case SymT.KW:   return '.' + name + ':'
           case SymT.MSG2: return '!' + name
           case SymT.KW2:  return '!' + name + ':'
+          case SymT.ERR:  return '?' + name
           default: return name
         }
       }
