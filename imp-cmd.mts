@@ -1,12 +1,12 @@
 #!/usr/bin/node
 import { ImpT } from "./imp-core.mjs";
-import { ImpReader, lexerTable, TokT } from "./imp-read.mjs";
+import { ImpLoader, lexerTable, TokT } from "./imp-load.mjs";
 import { impShow } from "./imp-show.mjs";
 import { impEval, impWords } from "./imp-eval.mjs";
 import * as readline from "readline";
 import * as fs from "fs";
 
-let impR = new ImpReader();
+let il = new ImpLoader();
 
 // Tab completion for file paths and word names
 function completer(line: string): [string[], string] {
@@ -66,13 +66,11 @@ function completeFilePath(token: string): [string[], string] {
 
   let dir = '.'
   let prefix = partialPath
-  let pathPrefix = ''  // For reconstructing the final path
 
   if (windowsDriveMatch) {
     // Convert %/d/path to d:/path for filesystem operations
     let driveLetter = windowsDriveMatch[1]
     let rest = windowsDriveMatch[3] || ''
-    let realPath = driveLetter + ':/' + rest
 
     if (rest.includes('/') || rest.includes('\\')) {
       let lastSep = Math.max(rest.lastIndexOf('/'), rest.lastIndexOf('\\'))
@@ -82,7 +80,6 @@ function completeFilePath(token: string): [string[], string] {
       dir = driveLetter + ':/'
       prefix = rest
     }
-    pathPrefix = '/' + driveLetter + '/'
   } else if (partialPath.includes('/') || partialPath.includes('\\')) {
     let lastSep = Math.max(partialPath.lastIndexOf('/'), partialPath.lastIndexOf('\\'))
     dir = partialPath.slice(0, lastSep) || '.'
@@ -158,8 +155,8 @@ let rl = readline.createInterface({
 async function repl() {
   for await (const line of rl) {
     try {
-      impR.send(line)
-      let r = impR.read()
+      il.send(line)
+      let r = il.read()
       if (r) {
         let e = await impEval(r)
         if (e[0] !== ImpT.NIL) console.log(impShow(e)) }}

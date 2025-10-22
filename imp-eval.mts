@@ -16,7 +16,7 @@ import {
   ImpStr, ImpC, ImpTop, ImpErr, ImpLst
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
-import {load} from './imp-read.mjs'
+import {load} from './imp-load.mjs'
 import * as assert from "assert"
 import * as fs from "fs"
 import * as https from "https"

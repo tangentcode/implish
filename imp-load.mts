@@ -1,4 +1,6 @@
-// Implish reader (parser)
+/** Implish loader (parser)
+ * Converts strings to implish token-trees.
+ */
 import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop, SymT} from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
@@ -48,7 +50,7 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.RAW,  /^((?![\])}])\S)+/,                    [0, 0]], // catchall (keep last)
 ]
 
-export class ImpReader {
+export class ImpLoader {
   tree: TreeBuilder<any> = new TreeBuilder()
   symtbl = new SymTable() // global table for symbols
   buffer: string[] = []           // input buffer (list of strings)
@@ -75,7 +77,7 @@ export class ImpReader {
     else console.error("expected", ex.close, "got", closeTok)}
 
   dump(): void { console.log(this.tree.root) }
-  send(s: string): ImpReader {
+  send(s: string): ImpLoader {
     this.buffer.push(s);
     while (!this.empty) this.scan();
     return this }
@@ -165,4 +167,4 @@ export class ImpReader {
 
 // impStr -> impData (parse string into tree)
 export let load: (impStr: ImpStr) => ImpVal
-  = (impStr) => new ImpReader().send(impStr[2]).read() ?? NIL
+  = (impStr) => new ImpLoader().send(impStr[2]).read() ?? NIL
