@@ -181,6 +181,17 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
+* DONE backtick tokenization: no spaces needed
+#+name: backtick-tokenization
+#+begin_src imp
+> echo xmls [`foo`bar`baz]
+<imp:lst open="[" close="]">
+  <imp:sym k="bqt" v="foo"/>
+  <imp:sym k="bqt" v="bar"/>
+  <imp:sym k="bqt" v="baz"/>
+</imp:lst>
+#+end_src
+
 * DONE assignment: basic
 #+name: assignment-basic
 #+begin_src imp
