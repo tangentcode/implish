@@ -253,6 +253,19 @@ NOTE: Can't test #abc in tanco because # starts a comment
 42
 #+end_src
 
+* DONE assignment: in operator context
+#+name: assignment-in-operator
+#+begin_src imp
+> 1 + a: 2 3 4
+3 4 5
+> a
+2 3 4
+> 5 * b: 3
+15
+> b
+3
+#+end_src
+
 * DONE load: parse string
 #+name: load-string
 #+begin_src imp

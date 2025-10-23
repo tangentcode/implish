@@ -381,7 +381,20 @@ class ImpEvaluator {
   // Helper to collect a strand (number or symbol vector)
   collectStrand = async (): Promise<ImpVal> => {
     let res = this.nextItem()
-    if (this.wc !== ImpP.N && this.wc !== ImpP.Q) throw "expected a noun, got: " + res
+    // Handle different word classes
+    if (this.wc === ImpP.S) {
+      // Assignment - evaluate and return the assigned value
+      return await this.doAssign(res)
+    } else if (this.wc === ImpP.G) {
+      // Get-word - look up and evaluate the variable
+      if (!ImpQ.isSym(res)) throw "get-word must be a symbol"
+      let varName = res[2].description!
+      let value = this.words[varName]
+      if (!value) throw "undefined word: " + varName
+      return await this.eval(value)
+    } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
+      throw "expected a noun, got: " + impShow(res)
+    }
     return await this.extendStrand(res, false)
   }
 
