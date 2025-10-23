@@ -305,6 +305,52 @@ test content
 [one two three]
 #+end_src
 
+* DONE strands: integer vector
+#+name: strand-ints
+#+begin_src imp
+> 1 2 3
+1 2 3
+> echo 1 2 3 4 5
+1 2 3 4 5
+#+end_src
+
+* DONE strands: single integer is not a strand
+#+name: strand-single
+#+begin_src imp
+> 42
+42
+#+end_src
+
+* DONE strands: backtick symbol vector
+#+name: strand-syms
+#+begin_src imp
+> `a `b `c
+`a `b `c
+> echo `foo `bar `baz
+`foo `bar `baz
+#+end_src
+
+* DONE strands: scalar plus vector
+#+name: strand-scalar-vector
+#+begin_src imp
+> 1 + 0 1 2
+1 2 3
+#+end_src
+
+* DONE strands: separated by operators
+#+name: strand-ops
+#+begin_src imp
+> 1 2 + 3 4
+4 6
+#+end_src
+
+* DONE strands: in projection
+#+name: strand-projection
+#+begin_src imp
+> echo[1 2 3]
+1 2 3
+#+end_src
+
 * [0/7] upcoming tests
 
 ** TODO ambivalent operators

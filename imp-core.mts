@@ -14,6 +14,10 @@ export enum ImpT {
   MLS = 'MLS',     // multi-line string
   SYM = 'SYM',     // symbol
   LST = 'LST',     // list
+  // --- vector types (strands)
+  INTs = 'INTs',   // vector of integers
+  NUMs = 'NUMs',   // vector of numbers
+  SYMs = 'SYMs',   // vector of symbols (backtick style only)
   // ---- internal / refined types (require eval() to produce)
   NIL = 'NIL',     // empty/unit value
   JSF = 'JSF',     // javascript function
@@ -56,6 +60,9 @@ export type ImpStr = [ImpT.STR, null, string]
 export type ImpMls = [ImpT.MLS, null, string]
 export type ImpSym = [ImpT.SYM, ImpSymA, symbol]
 export type ImpLst = [ImpT.LST, ImpLstA, ImpVal[]]
+export type ImpInts = [ImpT.INTs, null, number[]]
+export type ImpNums = [ImpT.NUMs, null, number[]]
+export type ImpSyms = [ImpT.SYMs, null, symbol[]]
 export type ImpNil = [ImpT.NIL, null, null]
 export type ImpJsf = [ImpT.JSF, ImpJsfA, JSF]
 export type ImpJdy = [ImpT.JDY, {}, JDY]
@@ -63,7 +70,8 @@ export type ImpJdy = [ImpT.JDY, {}, JDY]
 // Main discriminated union type (equivalent to union of individual types above)
 export type ImpVal
   = ImpTop | ImpErr | ImpSep | ImpEnd
-  | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst | ImpNil
+  | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst
+  | ImpInts | ImpNums | ImpSyms | ImpNil
   | ImpJsf | ImpJdy
 
 // Syntactic sugar: utility object with methods on ImpVal
@@ -87,6 +95,9 @@ export const ImpC = {
   sym(x:symbol, kind:SymT = SymT.RAW):ImpSym { return [ImpT.SYM, {kind}, x]},
   sep(x:string):ImpSep { return [ImpT.SEP, null, x]},
   mls(x:string):ImpMls { return [ImpT.MLS, null, x]},
+  ints(x:number[]):ImpInts { return [ImpT.INTs, null, x]},
+  nums(x:number[]):ImpNums { return [ImpT.NUMs, null, x]},
+  syms(x:symbol[]):ImpSyms { return [ImpT.SYMs, null, x]},
 }
 
 export enum ImpP {  // parts of speech

@@ -19,6 +19,9 @@ export class ImpWriter {
       case ImpT.STR: return JSON.stringify(x[2])
       case ImpT.NIL: return 'nil'
       case ImpT.MLS: return '```\n' + x[2] + '```\n'
+      case ImpT.INTs: return (x[2] as number[]).join(' ')
+      case ImpT.NUMs: return (x[2] as number[]).join(' ')
+      case ImpT.SYMs: return (x[2] as symbol[]).map(s => '`' + (s.description ?? '?')).join(' ')
       case ImpT.SYM: {
         let name = x[2].description ?? '?`'
         switch (x[1].kind) {

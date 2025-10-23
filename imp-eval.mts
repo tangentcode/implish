@@ -68,12 +68,54 @@ async function readContent(x: ImpVal): Promise<string> {
   }
 }
 
+// Helper function to get numeric value from INT, NUM, or vector types
+function getNum(x: ImpVal): number | number[] {
+  if (x[0] === ImpT.INT || x[0] === ImpT.NUM) return x[2] as number
+  if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) return x[2] as number[]
+  throw "expected number or vector, got: " + x[0]
+}
+
+// Helper function to apply binary operation element-wise
+function elemWise(op: (a: number, b: number) => number, x: ImpVal, y: ImpVal): ImpVal {
+  let xVal = getNum(x)
+  let yVal = getNum(y)
+
+  // Both scalars
+  if (typeof xVal === 'number' && typeof yVal === 'number') {
+    return ImpC.int(op(xVal, yVal))
+  }
+
+  // x is scalar, y is vector
+  if (typeof xVal === 'number' && Array.isArray(yVal)) {
+    return ImpC.ints(yVal.map(b => op(xVal, b)))
+  }
+
+  // x is vector, y is scalar
+  if (Array.isArray(xVal) && typeof yVal === 'number') {
+    return ImpC.ints(xVal.map(a => op(a, yVal)))
+  }
+
+  // Both vectors - element-wise (must be same length)
+  if (Array.isArray(xVal) && Array.isArray(yVal)) {
+    if (xVal.length !== yVal.length) throw "vector length mismatch"
+    return ImpC.ints(xVal.map((a, i) => op(a, yVal[i])))
+  }
+
+  throw "invalid operands"
+}
+
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
-  '+'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) + (y[2] as number))),
-  '-'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) - (y[2] as number))),
-  '*'   : imp.jdy((x,y)=>ImpC.int((x[2] as number) * (y[2] as number))),
-  '%'   : imp.jdy((x,y)=>ImpC.int(Math.floor((x[2] as number ) / (y[2] as number)))),
+  '+'   : imp.jdy((x,y)=>elemWise((a,b)=>a+b, x, y)),
+  '-'   : imp.jdy((x,y)=>elemWise((a,b)=>a-b, x, y)),
+  '*'   : imp.jdy((x,y)=>elemWise((a,b)=>a*b, x, y)),
+  '%'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.floor(a/b), x, y)),
+  '!'   : imp.jsf(x=>{
+    let n = x[2] as number
+    if (n < 0) throw "! requires non-negative integer"
+    if (n === 0) return ImpC.nums([])
+    return ImpC.nums(Array.from({length: n}, (_, i) => i))
+  }, 1),
   'rd': imp.jsf(async x=>ImpC.str(await readContent(x)), 1),
   'load': imp.jsf(x=>load(x as ImpStr), 1),
   'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
@@ -81,7 +123,15 @@ export let impWords: Record<string, ImpVal> = {
   'eval': imp.jsf(x=>eval(x[2] as string), 1),
   'part': imp.jsf(x=>ImpC.str(wordClass(x)), 1),
   'show': imp.jsf(x=>ImpC.str(impShow(x)), 1),
-  'echo': imp.jsf(x=>(console.log(x[2]), NIL), 1),
+  'echo': imp.jsf(x=>{
+    // For vectors/strands, use impShow; for other types, print the raw value
+    if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs || x[0] === ImpT.SYMs) {
+      console.log(impShow(x))
+    } else {
+      console.log(x[2])
+    }
+    return NIL
+  }, 1),
 }
 
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
@@ -106,6 +156,13 @@ function toXml(x: ImpVal): string {
   if (ImpQ.isLst(x) || x[0] === ImpT.TOP) {
     return xmlTag('imp:' + x[0].toLowerCase(), x[1]??{},
       '\n  ' + x[2].map(toXml).join('\n  ') + '\n')}
+  // Handle vector types
+  if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+    return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2] as number[]).join(' ')})
+  }
+  if (x[0] === ImpT.SYMs) {
+    return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2] as symbol[]).map(s => s.description).join(' ')})
+  }
   // For other types (SEP, INT, STR, MLS, JSF, JDY, END), treat as simple values
   return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2]??'').toString()})}
 
@@ -114,11 +171,15 @@ function wordClass(x:ImpVal) {
     switch (xt) {
       case ImpT.TOP: return ImpP.N
       case ImpT.END: return ImpP.E
+      case ImpT.SEP: return ImpP.E  // Treat separator as end-like (stops collection)
       case ImpT.INT: return ImpP.N
       case ImpT.NUM: return ImpP.N
       case ImpT.STR: return ImpP.N
       case ImpT.MLS: return ImpP.N
       case ImpT.LST: return ImpP.N
+      case ImpT.INTs: return ImpP.N
+      case ImpT.NUMs: return ImpP.N
+      case ImpT.SYMs: return ImpP.N
       // -- resolved symbols:
       case ImpT.JSF: return ImpP.V
       case ImpT.NIL: return ImpP.N
@@ -190,13 +251,70 @@ class ImpEvaluator {
     return {item: peekItem, wc: peekWC}}
 
   modifyNoun = async (x: ImpVal): Promise<ImpVal> => {
-    // if next token is infix operator (dyad), apply it to x and next noun
+    // if next token is infix operator (dyad), apply it to x and the next noun/strand
     let res = x
     while (this.peek()?.wc === ImpP.O) {
       let op = this.nextItem() as ImpJdy
-      let arg = this.nextItem()
+      // Collect the right operand, which might be a strand
+      let arg = await this.collectStrand()
       res = await op[2].apply(this, [res, arg]) }
     return res }
+
+  // Helper to collect a strand (number or symbol vector)
+  collectStrand = async (): Promise<ImpVal> => {
+    let res = this.nextItem()
+    if (this.wc !== ImpP.N && this.wc !== ImpP.Q) throw "expected a noun, got: " + res
+
+    // Collect strands: multiple numbers or backtick symbols juxtaposed
+    let strand: ImpVal[] = [res]
+    let strandType: ImpT | null = null
+
+    // Determine if we should collect a strand
+    if (res[0] === ImpT.INT) strandType = ImpT.INTs
+    else if (res[0] === ImpT.NUM) strandType = ImpT.NUMs
+    else if (res[0] === ImpT.SYM && (res as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
+
+    if (strandType) {
+      // Keep collecting matching items until we hit a separator, operator, or end
+      while (true) {
+        let p = this.peek()
+        if (!p || (p.wc !== ImpP.N && p.wc !== ImpP.Q)) break
+
+        // Check if next item matches strand type
+        let nextType = p.item[0]
+        let matches = false
+        if (strandType === ImpT.INTs && nextType === ImpT.INT && p.wc === ImpP.N) matches = true
+        else if (strandType === ImpT.NUMs && (nextType === ImpT.NUM || nextType === ImpT.INT) && p.wc === ImpP.N) {
+          // Allow mixing INT and NUM in a NUM strand
+          matches = true
+        }
+        else if (strandType === ImpT.SYMs && nextType === ImpT.SYM &&
+                 (p.item as any)[1].kind === SymT.BQT && p.wc === ImpP.Q) matches = true
+
+        if (!matches) break
+
+        // Add to strand
+        this.keep(p)
+        strand.push(p.item)
+
+        // If we found a NUM in an INT strand, upgrade to NUM strand
+        if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
+      }
+
+      // If we collected more than one item, return a vector
+      if (strand.length > 1) {
+        if (strandType === ImpT.INTs) {
+          return ImpC.ints(strand.map(x => x[2] as number))
+        } else if (strandType === ImpT.NUMs) {
+          return ImpC.nums(strand.map(x => x[2] as number))
+        } else if (strandType === ImpT.SYMs) {
+          return ImpC.syms(strand.map(x => x[2] as symbol))
+        }
+      }
+    }
+
+    return res
+  }
 
   // Handle assignment - recursively processes chained assignments
   doAssign = async (sym: ImpVal): Promise<ImpVal> => {
@@ -210,6 +328,56 @@ class ImpEvaluator {
       value = await this.doAssign(nextX)
     } else if (this.wc === ImpP.N) {
       value = await this.eval(nextX)
+
+      // Collect strands: multiple numbers or backtick symbols juxtaposed
+      let strand: ImpVal[] = [value]
+      let strandType: ImpT | null = null
+
+      // Determine if we should collect a strand
+      if (value[0] === ImpT.INT) strandType = ImpT.INTs
+      else if (value[0] === ImpT.NUM) strandType = ImpT.NUMs
+      else if (value[0] === ImpT.SYM && (value as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
+
+      if (strandType) {
+        // Keep collecting matching items until we hit a separator, operator, or end
+        while (true) {
+          let p = this.peek()
+          if (!p || p.wc !== ImpP.N) break
+
+          // Check if next item matches strand type
+          let nextType = p.item[0]
+          let matches = false
+          if (strandType === ImpT.INTs && nextType === ImpT.INT) matches = true
+          else if (strandType === ImpT.NUMs && (nextType === ImpT.NUM || nextType === ImpT.INT)) {
+            matches = true
+          }
+          else if (strandType === ImpT.SYMs && nextType === ImpT.SYM &&
+                   (p.item as any)[1].kind === SymT.BQT) matches = true
+
+          if (!matches) break
+
+          // Add to strand
+          this.keep(p)
+          let next = await this.eval(p.item)
+          strand.push(next)
+
+          // If we found a NUM in an INT strand, upgrade to NUM strand
+          if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
+        }
+
+        // If we collected more than one item, return a vector
+        if (strand.length > 1) {
+          if (strandType === ImpT.INTs) {
+            value = ImpC.ints(strand.map(s => s[2] as number))
+          } else if (strandType === ImpT.NUMs) {
+            value = ImpC.nums(strand.map(s => s[2] as number))
+          } else if (strandType === ImpT.SYMs) {
+            value = ImpC.syms(strand.map(s => s[2] as symbol))
+          }
+        }
+      }
+
+      // Now apply any infix operators
       value = await this.modifyNoun(value)
     } else if (this.wc === ImpP.V) {
       nextX = this.modifyVerb(nextX as ImpJsf)
@@ -226,13 +394,11 @@ class ImpEvaluator {
   }
 
   nextNoun = async (): Promise<ImpVal> => {
-    // read a noun, after applying chains of infix operators
-    let res = this.nextItem()
-    if (this.wc === ImpP.N) res = await this.modifyNoun(res)
-    else throw "expected a noun, got: " + res
-    // todo: collect multiple numbers or quoted symbols into a vector
-    // todo: if it's a symbol that starts with ., that's also infix (it's a method)
-    return res }
+    // Collect a strand, then apply any infix operators
+    let res = await this.collectStrand()
+    res = await this.modifyNoun(res)
+    return res
+  }
 
   wordClass = (x: ImpVal): ImpP => wordClass(x)
 
@@ -315,13 +481,82 @@ class ImpEvaluator {
           tb.emit(await x[2].apply(this, args))
           break
         case ImpP.N:
-          // process.stderr.write(`noun: ${impShow(x)}\n`)
-          // if x[0] === T.LST {}
+          // Evaluate the noun, collect any following strand, then apply operators
           x = await this.eval(x)
+
+          // Collect strands: multiple numbers or backtick symbols juxtaposed
+          let strand: ImpVal[] = [x]
+          let strandType: ImpT | null = null
+
+          // Determine if we should collect a strand
+          if (x[0] === ImpT.INT) strandType = ImpT.INTs
+          else if (x[0] === ImpT.NUM) strandType = ImpT.NUMs
+          else if (x[0] === ImpT.SYM && (x as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
+
+          if (strandType) {
+            // Keep collecting matching items until we hit a separator, operator, or end
+            while (true) {
+              let p = this.peek()
+              if (!p || p.wc !== ImpP.N) break
+
+              // Check if next item matches strand type
+              let nextType = p.item[0]
+              let matches = false
+              if (strandType === ImpT.INTs && nextType === ImpT.INT) matches = true
+              else if (strandType === ImpT.NUMs && (nextType === ImpT.NUM || nextType === ImpT.INT)) {
+                // Allow mixing INT and NUM in a NUM strand
+                matches = true
+              }
+              else if (strandType === ImpT.SYMs && nextType === ImpT.SYM &&
+                       (p.item as any)[1].kind === SymT.BQT) matches = true
+
+              if (!matches) break
+
+              // Add to strand
+              this.keep(p)
+              let next = await this.eval(p.item)
+              strand.push(next)
+
+              // If we found a NUM in an INT strand, upgrade to NUM strand
+              if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
+            }
+
+            // If we collected more than one item, return a vector
+            if (strand.length > 1) {
+              if (strandType === ImpT.INTs) {
+                x = ImpC.ints(strand.map(s => s[2] as number))
+              } else if (strandType === ImpT.NUMs) {
+                x = ImpC.nums(strand.map(s => s[2] as number))
+              } else if (strandType === ImpT.SYMs) {
+                x = ImpC.syms(strand.map(s => s[2] as symbol))
+              }
+            }
+          }
+
+          // Now apply any infix operators
           x = await this.modifyNoun(x)
           tb.emit(x)
           break
         case ImpP.Q:
+          // Collect strands of backtick symbols
+          if (ImpQ.isSym(x) && (x as any)[1].kind === SymT.BQT) {
+            let strand: ImpVal[] = [x]
+            // Keep collecting matching backtick symbols
+            while (true) {
+              let p = this.peek()
+              if (!p || p.wc !== ImpP.Q) break
+              if (!ImpQ.isSym(p.item) || (p.item as any)[1].kind !== SymT.BQT) break
+
+              // Add to strand
+              this.keep(p)
+              strand.push(p.item)
+            }
+
+            // If we collected more than one item, return a symbol vector
+            if (strand.length > 1) {
+              x = ImpC.syms(strand.map(s => s[2] as symbol))
+            }
+          }
           tb.emit(x)
           break
         case ImpP.S: // set-word (assignment)
@@ -366,6 +601,9 @@ class ImpEvaluator {
       case ImpT.STR: return x
       case ImpT.MLS: return x
       case ImpT.SYM: return x
+      case ImpT.INTs: return x
+      case ImpT.NUMs: return x
+      case ImpT.SYMs: return x
       case ImpT.LST:
         let [_, a, v] = x
         // Check if list is quoted (starts with ' or `)
