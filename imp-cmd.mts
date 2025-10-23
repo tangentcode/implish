@@ -5,8 +5,13 @@ import { impShow } from "./imp-show.mjs";
 import { impEval, impWords } from "./imp-eval.mjs";
 import * as readline from "readline";
 import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 
 let il = new ImpLoader();
+
+// History file location
+const historyFile = path.join(os.homedir(), '.imp-history');
 
 // Tab completion for file paths and word names
 function completer(line: string): [string[], string] {
@@ -151,6 +156,44 @@ let rl = readline.createInterface({
   output: process.stdout,
   completer: completer
 });
+
+// Only enable history persistence when running interactively (TTY)
+const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
+
+if (isInteractive) {
+  // Load history from file if it exists
+  try {
+    const history = fs.readFileSync(historyFile, 'utf-8')
+      .split('\n')
+      .filter(line => line.trim().length > 0)
+      .reverse(); // Reverse because history is added in reverse order
+
+    for (const line of history) {
+      (rl as any).history.push(line);
+    }
+  } catch (e) {
+    // History file doesn't exist yet or can't be read - that's fine
+  }
+
+  // Save history on exit
+  function saveHistory() {
+    try {
+      const history = (rl as any).history
+        .slice()
+        .reverse()
+        .join('\n') + '\n';
+      fs.writeFileSync(historyFile, history, 'utf-8');
+    } catch (e) {
+      console.error('Failed to save history:', e);
+    }
+  }
+
+  process.on('exit', saveHistory);
+  process.on('SIGINT', () => {
+    saveHistory();
+    process.exit(0);
+  });
+}
 
 async function repl() {
   for await (const line of rl) {
