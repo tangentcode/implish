@@ -122,6 +122,11 @@ export let impWords: Record<string, ImpVal> = {
   'look': imp.jsf(x=>ImpC.str(impShow(impWords[(x[2] as string)] ?? NIL)), 1),
   'eval': imp.jsf(x=>eval(x[2] as string), 1),
   'part': imp.jsf(x=>ImpC.str(wordClass(x)), 1),
+  'type?': imp.jsf(x=>{
+    // Map ImpT enum to type symbol name
+    let typeName = x[0].toLowerCase()
+    return ImpC.sym(Symbol(typeName), SymT.TYP)
+  }, 1),
   'show': imp.jsf(x=>ImpC.str(impShow(x)), 1),
   'echo': imp.jsf(x=>{
     // For vectors/strands, use impShow; for other types, print the raw value

@@ -351,6 +351,43 @@ test content
 1 2 3
 #+end_src
 
+* DONE type? introspection
+#+name: type-int
+#+begin_src imp
+> echo show type? 3
+int!
+#+end_src
+
+#+name: type-str
+#+begin_src imp
+> echo show type? "hello"
+str!
+#+end_src
+
+#+name: type-sym
+#+begin_src imp
+> echo show type? `foo
+sym!
+#+end_src
+
+#+name: type-list
+#+begin_src imp
+> echo show type? [1 2 3]
+lst!
+#+end_src
+
+#+name: type-vector-ints
+#+begin_src imp
+> echo show type? 1 2 3
+ints!
+#+end_src
+
+#+name: type-nil
+#+begin_src imp
+> echo show type? nil
+nil!
+#+end_src
+
 * [0/7] upcoming tests
 
 ** TODO ambivalent operators
