@@ -117,7 +117,11 @@ export let impWords: Record<string, ImpVal> = {
     return ImpC.nums(Array.from({length: n}, (_, i) => i))
   }, 1),
   'rd': imp.jsf(async x=>ImpC.str(await readContent(x)), 1),
-  'load': imp.jsf(x=>load(x as ImpStr), 1),
+  'load': imp.jsf(async x=>{
+    // If x is a FILE symbol, read it first (load %path == load rd %path)
+    if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
+      x = ImpC.str(await readContent(x))}
+    return load(x as ImpStr)}, 1),
   'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
   'look': imp.jsf(x=>ImpC.str(impShow(impWords[(x[2] as string)] ?? NIL)), 1),
   'eval': imp.jsf(x=>eval(x[2] as string), 1),
