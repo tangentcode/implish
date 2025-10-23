@@ -260,19 +260,17 @@ class ImpEvaluator {
       res = await op[2].apply(this, [res, arg]) }
     return res }
 
-  // Helper to collect a strand (number or symbol vector)
-  collectStrand = async (): Promise<ImpVal> => {
-    let res = this.nextItem()
-    if (this.wc !== ImpP.N && this.wc !== ImpP.Q) throw "expected a noun, got: " + res
-
-    // Collect strands: multiple numbers or backtick symbols juxtaposed
-    let strand: ImpVal[] = [res]
+  // Helper: extend a value into a strand by collecting following items
+  // - firstItem: the already-obtained first item (evaluated or raw)
+  // - evaluated: if true, items are already evaluated; if false, call eval on each
+  private extendStrand = async (firstItem: ImpVal, evaluated: boolean): Promise<ImpVal> => {
+    let strand: ImpVal[] = [firstItem]
     let strandType: ImpT | null = null
 
     // Determine if we should collect a strand
-    if (res[0] === ImpT.INT) strandType = ImpT.INTs
-    else if (res[0] === ImpT.NUM) strandType = ImpT.NUMs
-    else if (res[0] === ImpT.SYM && (res as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
+    if (firstItem[0] === ImpT.INT) strandType = ImpT.INTs
+    else if (firstItem[0] === ImpT.NUM) strandType = ImpT.NUMs
+    else if (firstItem[0] === ImpT.SYM && (firstItem as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
 
     if (strandType) {
       // Keep collecting matching items until we hit a separator, operator, or end
@@ -295,7 +293,8 @@ class ImpEvaluator {
 
         // Add to strand
         this.keep(p)
-        strand.push(p.item)
+        let item = evaluated ? await this.eval(p.item) : p.item
+        strand.push(item)
 
         // If we found a NUM in an INT strand, upgrade to NUM strand
         if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
@@ -313,7 +312,14 @@ class ImpEvaluator {
       }
     }
 
-    return res
+    return firstItem
+  }
+
+  // Helper to collect a strand (number or symbol vector)
+  collectStrand = async (): Promise<ImpVal> => {
+    let res = this.nextItem()
+    if (this.wc !== ImpP.N && this.wc !== ImpP.Q) throw "expected a noun, got: " + res
+    return await this.extendStrand(res, false)
   }
 
   // Handle assignment - recursively processes chained assignments
@@ -328,56 +334,8 @@ class ImpEvaluator {
       value = await this.doAssign(nextX)
     } else if (this.wc === ImpP.N) {
       value = await this.eval(nextX)
-
-      // Collect strands: multiple numbers or backtick symbols juxtaposed
-      let strand: ImpVal[] = [value]
-      let strandType: ImpT | null = null
-
-      // Determine if we should collect a strand
-      if (value[0] === ImpT.INT) strandType = ImpT.INTs
-      else if (value[0] === ImpT.NUM) strandType = ImpT.NUMs
-      else if (value[0] === ImpT.SYM && (value as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
-
-      if (strandType) {
-        // Keep collecting matching items until we hit a separator, operator, or end
-        while (true) {
-          let p = this.peek()
-          if (!p || p.wc !== ImpP.N) break
-
-          // Check if next item matches strand type
-          let nextType = p.item[0]
-          let matches = false
-          if (strandType === ImpT.INTs && nextType === ImpT.INT) matches = true
-          else if (strandType === ImpT.NUMs && (nextType === ImpT.NUM || nextType === ImpT.INT)) {
-            matches = true
-          }
-          else if (strandType === ImpT.SYMs && nextType === ImpT.SYM &&
-                   (p.item as any)[1].kind === SymT.BQT) matches = true
-
-          if (!matches) break
-
-          // Add to strand
-          this.keep(p)
-          let next = await this.eval(p.item)
-          strand.push(next)
-
-          // If we found a NUM in an INT strand, upgrade to NUM strand
-          if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
-        }
-
-        // If we collected more than one item, return a vector
-        if (strand.length > 1) {
-          if (strandType === ImpT.INTs) {
-            value = ImpC.ints(strand.map(s => s[2] as number))
-          } else if (strandType === ImpT.NUMs) {
-            value = ImpC.nums(strand.map(s => s[2] as number))
-          } else if (strandType === ImpT.SYMs) {
-            value = ImpC.syms(strand.map(s => s[2] as symbol))
-          }
-        }
-      }
-
-      // Now apply any infix operators
+      // Collect any following strand items, then apply infix operators
+      value = await this.extendStrand(value, true)
       value = await this.modifyNoun(value)
     } else if (this.wc === ImpP.V) {
       nextX = this.modifyVerb(nextX as ImpJsf)
@@ -483,57 +441,7 @@ class ImpEvaluator {
         case ImpP.N:
           // Evaluate the noun, collect any following strand, then apply operators
           x = await this.eval(x)
-
-          // Collect strands: multiple numbers or backtick symbols juxtaposed
-          let strand: ImpVal[] = [x]
-          let strandType: ImpT | null = null
-
-          // Determine if we should collect a strand
-          if (x[0] === ImpT.INT) strandType = ImpT.INTs
-          else if (x[0] === ImpT.NUM) strandType = ImpT.NUMs
-          else if (x[0] === ImpT.SYM && (x as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
-
-          if (strandType) {
-            // Keep collecting matching items until we hit a separator, operator, or end
-            while (true) {
-              let p = this.peek()
-              if (!p || p.wc !== ImpP.N) break
-
-              // Check if next item matches strand type
-              let nextType = p.item[0]
-              let matches = false
-              if (strandType === ImpT.INTs && nextType === ImpT.INT) matches = true
-              else if (strandType === ImpT.NUMs && (nextType === ImpT.NUM || nextType === ImpT.INT)) {
-                // Allow mixing INT and NUM in a NUM strand
-                matches = true
-              }
-              else if (strandType === ImpT.SYMs && nextType === ImpT.SYM &&
-                       (p.item as any)[1].kind === SymT.BQT) matches = true
-
-              if (!matches) break
-
-              // Add to strand
-              this.keep(p)
-              let next = await this.eval(p.item)
-              strand.push(next)
-
-              // If we found a NUM in an INT strand, upgrade to NUM strand
-              if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
-            }
-
-            // If we collected more than one item, return a vector
-            if (strand.length > 1) {
-              if (strandType === ImpT.INTs) {
-                x = ImpC.ints(strand.map(s => s[2] as number))
-              } else if (strandType === ImpT.NUMs) {
-                x = ImpC.nums(strand.map(s => s[2] as number))
-              } else if (strandType === ImpT.SYMs) {
-                x = ImpC.syms(strand.map(s => s[2] as symbol))
-              }
-            }
-          }
-
-          // Now apply any infix operators
+          x = await this.extendStrand(x, true)
           x = await this.modifyNoun(x)
           tb.emit(x)
           break
