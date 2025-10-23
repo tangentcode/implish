@@ -260,11 +260,19 @@ NOTE: Can't test #abc in tanco because # starts a comment
 2 + 3
 #+end_src
 
-* DONE rd: read file
-#+name: rd-file
+* DONE file operations: e?, wr, rd, rm
+#+name: file-ops
 #+begin_src imp
-> echo rd %hello.txt
-test content
+> f: %hello.txt
+%hello.txt
+> e? f
+0
+> wr f "test content"
+> e? f
+1
+> rd f
+"test content"
+> rm f
 #+end_src
 
 * DONE quasiquotation: basic unquote

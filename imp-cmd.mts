@@ -3,6 +3,7 @@ import { ImpT } from "./imp-core.mjs";
 import { ImpLoader, lexerTable, TokT } from "./imp-load.mjs";
 import { impShow } from "./imp-show.mjs";
 import { impEval, impWords } from "./imp-eval.mjs";
+import { parsePartialPath, reconstructImplishPath } from "./lib-file.mjs";
 import * as readline from "readline";
 import * as fs from "fs";
 import * as os from "os";
@@ -64,58 +65,15 @@ function completeFilePath(token: string): [string[], string] {
     return completeWindowsDrives()
   }
 
-  // Special case for Windows: %/d/ means d:/ drive
-  let windowsDriveMatch = process.platform === 'win32'
-    ? partialPath.match(/^\/([a-zA-Z])(\/|$)(.*)/)
-    : null
-
-  let dir = '.'
-  let prefix = partialPath
-
-  if (windowsDriveMatch) {
-    // Convert %/d/path to d:/path for filesystem operations
-    let driveLetter = windowsDriveMatch[1]
-    let rest = windowsDriveMatch[3] || ''
-
-    if (rest.includes('/') || rest.includes('\\')) {
-      let lastSep = Math.max(rest.lastIndexOf('/'), rest.lastIndexOf('\\'))
-      dir = driveLetter + ':/' + rest.slice(0, lastSep)
-      prefix = rest.slice(lastSep + 1)
-    } else {
-      dir = driveLetter + ':/'
-      prefix = rest
-    }
-  } else if (partialPath.includes('/') || partialPath.includes('\\')) {
-    let lastSep = Math.max(partialPath.lastIndexOf('/'), partialPath.lastIndexOf('\\'))
-    dir = partialPath.slice(0, lastSep) || '.'
-    prefix = partialPath.slice(lastSep + 1)
-  }
+  // Parse the partial path using lib-path utilities
+  let parsed = parsePartialPath(partialPath)
 
   // Read directory and filter matches
   try {
-    let entries = fs.readdirSync(dir, {withFileTypes: true})
+    let entries = fs.readdirSync(parsed.nativeDir, {withFileTypes: true})
     let matches = entries
-      .filter(e => e.name.startsWith(prefix))
-      .map(e => {
-        let fullPath: string
-
-        if (windowsDriveMatch) {
-          // For Windows drive paths, reconstruct as %/d/path
-          let driveLetter = windowsDriveMatch[1]
-          let rest = windowsDriveMatch[3] || ''
-          let dirPart = rest.includes('/')
-            ? rest.slice(0, rest.lastIndexOf('/') + 1)
-            : ''
-          fullPath = '/' + driveLetter + '/' + dirPart + e.name
-        } else {
-          // Regular paths
-          fullPath = dir === '.' ? e.name : dir + '/' + e.name
-        }
-
-        // Add trailing / for directories
-        if (e.isDirectory()) fullPath += '/'
-        return '%' + fullPath
-      })
+      .filter(e => e.name.startsWith(parsed.prefix))
+      .map(e => reconstructImplishPath(parsed, e.name, e.isDirectory()))
 
     return [matches, token]
   } catch (e) {

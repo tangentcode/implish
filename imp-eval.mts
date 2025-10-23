@@ -17,6 +17,7 @@ import {
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
 import {load} from './imp-load.mjs'
+import {toNativePath} from './lib-file.mjs'
 import * as assert from "assert"
 import * as fs from "fs"
 import * as https from "https"
@@ -26,15 +27,7 @@ import * as http from "http"
 async function readContent(x: ImpVal): Promise<string> {
   // Check if it's a FILE symbol
   if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
-    let filepath = x[2].description!
-
-    // On Windows, convert %/d/path to d:/path
-    if (process.platform === 'win32') {
-      let driveMatch = filepath.match(/^\/([a-zA-Z])\/(.*)/)
-      if (driveMatch) {
-        filepath = driveMatch[1] + ':/' + driveMatch[2]
-      }
-    }
+    let filepath = toNativePath(x[2].description!)
 
     try {
       return fs.readFileSync(filepath, 'utf8')
@@ -117,6 +110,66 @@ export let impWords: Record<string, ImpVal> = {
     return ImpC.nums(Array.from({length: n}, (_, i) => i))
   }, 1),
   'rd': imp.jsf(async x=>ImpC.str(await readContent(x)), 1),
+  'wr': imp.jsf(async (file, content)=>{
+    // file should be a FILE symbol or string
+    let filepath: string
+    if (ImpQ.isSym(file) && file[1].kind === SymT.FILE) {
+      filepath = toNativePath(file[2].description!)
+    } else if (file[0] === ImpT.STR) {
+      filepath = toNativePath(file[2] as string)
+    } else {
+      throw 'wr expects a %file or string filepath as first argument'
+    }
+
+    // content should be a string
+    if (content[0] !== ImpT.STR) {
+      throw 'wr expects a string as second argument'
+    }
+    let text = content[2] as string
+
+    try {
+      fs.writeFileSync(filepath, text, 'utf8')
+      return NIL
+    } catch (e: any) {
+      throw `Failed to write file: ${filepath} - ${e.message}`
+    }
+  }, 2),
+  'e?': imp.jsf(x=>{
+    // file should be a FILE symbol or string
+    let filepath: string
+    if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
+      filepath = toNativePath(x[2].description!)
+    } else if (x[0] === ImpT.STR) {
+      filepath = toNativePath(x[2] as string)
+    } else {
+      throw 'e? expects a %file or string filepath'
+    }
+
+    try {
+      fs.accessSync(filepath, fs.constants.F_OK)
+      return ImpC.int(1)
+    } catch (e) {
+      return ImpC.int(0)
+    }
+  }, 1),
+  'rm': imp.jsf(x=>{
+    // file should be a FILE symbol or string
+    let filepath: string
+    if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
+      filepath = toNativePath(x[2].description!)
+    } else if (x[0] === ImpT.STR) {
+      filepath = toNativePath(x[2] as string)
+    } else {
+      throw 'rm expects a %file or string filepath'
+    }
+
+    try {
+      fs.unlinkSync(filepath)
+      return NIL
+    } catch (e: any) {
+      throw `Failed to remove file: ${filepath} - ${e.message}`
+    }
+  }, 1),
   'load': imp.jsf(async x=>{
     // If x is a FILE symbol, read it first (load %path == load rd %path)
     if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
@@ -185,6 +238,7 @@ function wordClass(x:ImpVal) {
       case ImpT.NUM: return ImpP.N
       case ImpT.STR: return ImpP.N
       case ImpT.MLS: return ImpP.N
+      case ImpT.SYM: return ImpP.N
       case ImpT.LST: return ImpP.N
       case ImpT.INTs: return ImpP.N
       case ImpT.NUMs: return ImpP.N
