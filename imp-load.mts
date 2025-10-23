@@ -14,7 +14,7 @@ export const TokT = {
   URL: 'url', KW: 'kw', KW2: 'kw2', SET: 'set',
   MSG2: 'msg2', TYP: 'typ', ISH: 'ish', FILE: 'file',
   PATH: 'path', REFN: 'refn', LIT: 'lit', GET: 'get',
-  BQT: 'bqt', ANN: 'ann', MSG: 'msg', ERR: 'err', RAW: 'raw'
+  BQT: 'bqt', ANN: 'ann', MSG: 'msg', ERR: 'err', UNQ: 'unq', RAW: 'raw'
 } as const
 
 export type TrimSpec = [number, number] | null
@@ -47,6 +47,7 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.ANN,  /^@[^\s\[\](){}:;!]+/,                 [1, 0]], // annotation: @foo (strip @)
   [TokT.MSG,  /^\.[^\s\[\](){}:;!]+/,                [1, 0]], // message: .foo (strip .)
   [TokT.ERR,  /^\?[^\s\[\](){}:;!]+/,                [1, 0]], // error: ?foo (strip ?)
+  [TokT.UNQ,  /^,[^\s\[\](){}:;!,]+/,                [1, 0]], // unquote: ,foo (strip ,)
   [TokT.RAW,  /^((?![\])}])\S)+/,                    [0, 0]], // catchall (keep last)
 ]
 
@@ -126,6 +127,7 @@ export class ImpLoader {
     [TokT.ANN]:  (tok, trim) => this.mkSym(tok, trim, SymT.ANN),
     [TokT.MSG]:  (tok, trim) => this.mkSym(tok, trim, SymT.MSG),
     [TokT.ERR]:  (tok, trim) => this.mkSym(tok, trim, SymT.ERR),
+    [TokT.UNQ]:  (tok, trim) => this.mkSym(tok, trim, SymT.UNQ),
     [TokT.RAW]:  (tok, trim) => this.mkSym(tok, trim, SymT.RAW),
   }
 

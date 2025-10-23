@@ -38,6 +38,7 @@ export enum SymT {
   MSG2 = 14,   // message2: !foo
   KW2  = 15,   // keyword2: !foo:
   ERR  = 16,   // error: ?foo
+  UNQ  = 17,   // unquote: ,foo
 }
 
 export type ImpSymA = { kind: SymT }

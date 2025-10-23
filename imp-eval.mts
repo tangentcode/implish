@@ -97,7 +97,7 @@ function toXml(x: ImpVal): string {
     const attrs: Record<string, string> = {}
     // Only add 'k' attribute if not RAW (add first for consistent ordering)
     if (x[1].kind !== SymT.RAW) {
-      const kindNames = ['raw', 'set', 'get', 'lit', 'refn', 'ish', 'path', 'file', 'url', 'bqt', 'typ', 'ann', 'msg', 'kw', 'msg2', 'kw2', 'err']
+      const kindNames = ['raw', 'set', 'get', 'lit', 'refn', 'ish', 'path', 'file', 'url', 'bqt', 'typ', 'ann', 'msg', 'kw', 'msg2', 'kw2', 'err', 'unq']
       attrs.k = kindNames[x[1].kind]
     }
     attrs.v = `${x[2].description}`
@@ -236,6 +236,34 @@ class ImpEvaluator {
 
   wordClass = (x: ImpVal): ImpP => wordClass(x)
 
+  // Evaluate quasiquoted expressions - walk the tree and evaluate unquoted items
+  quasiquote = async (x: ImpVal): Promise<ImpVal> => {
+    // If it's a symbol with UNQ kind, evaluate it
+    if (ImpQ.isSym(x) && x[1].kind === SymT.UNQ) {
+      // Look up the symbol (without the comma prefix)
+      let w = this.words[x[2].description!]
+      if (!w) throw "undefined word: " + x[2].description
+      let result = await this.eval(w)
+      // If the result is a LIT or BQT symbol, strip the quote marker
+      if (ImpQ.isSym(result) && (result[1].kind === SymT.LIT || result[1].kind === SymT.BQT)) {
+        return ImpC.sym(result[2], SymT.RAW)
+      }
+      return result
+    }
+    // If it's a list, recursively quasiquote its contents
+    if (ImpQ.isLst(x)) {
+      let results: ImpVal[] = []
+      for (let item of x[2]) {
+        results.push(await this.quasiquote(item))
+      }
+      // Strip the backtick from the opener to return an unquoted list
+      let newOpen = x[1].open.startsWith('`') ? x[1].open.slice(1) : x[1].open
+      return imp.lst({open: newOpen, close: x[1].close}, results)
+    }
+    // For all other values, return as-is
+    return x
+  }
+
   // keep the peeked-at item
   keep = (p: {item: ImpVal, wc: ImpP}): void => { this.item = p.item; this.wc = p.wc; this.pos++ }
 
@@ -340,7 +368,18 @@ class ImpEvaluator {
       case ImpT.SYM: return x
       case ImpT.LST:
         let [_, a, v] = x
-        let m = (a.open||'[').match(/^(.+)([[({])$/)
+        // Check if list is quoted (starts with ' or `)
+        let opener = a.open || '['
+        if (opener.startsWith("`")) {
+          // Backtick is quasiquotation - evaluate unquoted items
+          return await this.quasiquote(x)
+        }
+        if (opener.startsWith("'")) {
+          // Single quote strips one layer - return list with quote removed
+          let newOpen = opener.slice(1)
+          return imp.lst({open: newOpen, close: a.close}, v)
+        }
+        let m = opener.match(/^(.+)([[({])$/)
         if (m) { let sym = m[1]; switch (m[2]) {
           case '[': return await this.project(sym, v)
           // case '(': TODO

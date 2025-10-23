@@ -192,6 +192,27 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
+* DONE quoted list with backtick (quasiquote)
+#+name: quoted-list-backtick
+#+begin_src imp
+> `[1 2 3]
+[1 2 3]
+#+end_src
+
+* DONE quoted list with quote (strips one layer)
+#+name: quoted-list-quote
+#+begin_src imp
+> '[a b c]
+[a b c]
+#+end_src
+
+* DONE quoted list with nested quotes
+#+name: quoted-list-nested
+#+begin_src imp
+> '[a 'b '[c]]
+[a 'b '[c]]
+#+end_src
+
 * DONE assignment: basic
 #+name: assignment-basic
 #+begin_src imp
@@ -244,6 +265,44 @@ NOTE: Can't test #abc in tanco because # starts a comment
 #+begin_src imp
 > echo rd %hello.txt
 test content
+#+end_src
+
+* DONE quasiquotation: basic unquote
+#+name: quasiquote-basic
+#+begin_src imp
+> x: 42
+42
+> `[1 2 ,x]
+[1 2 42]
+#+end_src
+
+* DONE quasiquotation: unquote with expression
+#+name: quasiquote-expr
+#+begin_src imp
+> a: 10
+10
+> b: 20
+20
+> `[sum is ,a plus ,b]
+[sum is 10 plus 20]
+#+end_src
+
+* DONE quasiquotation: nested lists
+#+name: quasiquote-nested
+#+begin_src imp
+> y: 99
+99
+> `[outer [inner ,y]]
+[outer [inner 99]]
+#+end_src
+
+* DONE quasiquotation: unquote quoted symbol
+#+name: quasiquote-unquote-lit
+#+begin_src imp
+> x: 'two
+'two
+> `[one ,x three]
+[one two three]
 #+end_src
 
 * [0/7] upcoming tests
