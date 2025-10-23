@@ -21,6 +21,7 @@
   "dependencies": {
   },
   "devDependencies": {
-    "@types/node": "^24.8.1"
+    "@types/node": "^24.8.1",
+    "@modelcontextprotocol/sdk": "^1.0.4"
   }
 }

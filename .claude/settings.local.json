@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "mcp__implish__eval_implish",
+      "mcp__implish__load_implish"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
