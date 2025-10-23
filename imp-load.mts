@@ -1,4 +1,4 @@
-/** Implish loader (parser)
+/** Implish loader ("code-as-data" parser)
  * Converts strings to implish token-trees.
  */
 import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop, SymT} from './imp-core.mjs'
@@ -88,7 +88,17 @@ export class ImpLoader {
       let res = this.tree.root;
       this.clear();
       return ImpC.top(res)}
-    else return ImpC.err("failed to read")}
+    else {
+      // Provide detailed error about why reading failed
+      if (!this.empty) {
+        return ImpC.err(`failed to read: ${this.buffer.length} unprocessed tokens remaining`)
+      } else if (this.waiting) {
+        let unclosed = this.expect.map(e => e.open).join(', ')
+        return ImpC.err(`failed to read: unclosed delimiters: ${unclosed}`)
+      } else {
+        return ImpC.err("failed to read: unknown error")
+      }
+    }}
 
   // Helper: create a symbol with trimming
   mkSym(tok: string, trim: TrimSpec, kind: SymT): void {
