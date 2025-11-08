@@ -2,9 +2,9 @@
   "targets": {
     "main": {
       "args": [
-        "node", "--enable-source-maps", "dist/imp-cmd.mjs"
+        "node", "--enable-source-maps", "dist/imp-cmd.mjs", "-q"
       ],
-      "shell": true
+      "shell": false 
     }
   },
   "test_plan": "imp-tests.org"

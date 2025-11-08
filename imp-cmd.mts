@@ -9,6 +9,15 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+// Parse command-line arguments
+let promptText = '> ';
+const args = process.argv.slice(2);
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '-q' || args[i] === '--quiet') {
+    promptText = '';
+  }
+}
+
 let il = new ImpLoader();
 
 // History file location
@@ -115,7 +124,7 @@ let rl = readline.createInterface({
   completer: completer
 });
 
-rl.setPrompt('> ');
+rl.setPrompt(promptText);
 
 // Only enable history persistence when running interactively (TTY)
 const isInteractive = process.stdin.isTTY && process.stdout.isTTY;

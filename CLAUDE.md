@@ -23,10 +23,17 @@ npm run watch
 
 # Run the REPL
 node dist/imp-cmd.mjs
+
+# Run the REPL in quiet mode (no prompt, useful for testing)
+node dist/imp-cmd.mjs -q
+# or
+node dist/imp-cmd.mjs --quiet
 ```
 
 ### Testing
 No formal test suite yet. Use `imp-tests.org` for manual testing examples.
+
+The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it easier to pipe test cases and compare outputs.
 
 ## Architecture
 
