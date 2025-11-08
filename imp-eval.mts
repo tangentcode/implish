@@ -103,6 +103,33 @@ export let impWords: Record<string, ImpVal> = {
   '-'   : imp.jdy((x,y)=>elemWise((a,b)=>a-b, x, y)),
   '*'   : imp.jdy((x,y)=>elemWise((a,b)=>a*b, x, y)),
   '%'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.floor(a/b), x, y)),
+  '^'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.pow(a,b), x, y)),
+  '+/': imp.jsf(x => {
+    if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+      let nums = x[2] as number[]
+      let sum = nums.reduce((a, b) => a + b, 0)
+      return x[0] === ImpT.INTs ? ImpC.int(sum) : ImpC.num(sum)
+    }
+    throw "+/ expects a numeric vector (INTs or NUMs)"
+  }, 1),
+  'rev': imp.jsf(x => {
+    if (x[0] === ImpT.INTs) {
+      let nums = x[2] as number[]
+      return ImpC.ints([...nums].reverse())
+    }
+    if (x[0] === ImpT.NUMs) {
+      let nums = x[2] as number[]
+      return ImpC.nums([...nums].reverse())
+    }
+    if (x[0] === ImpT.SYMs) {
+      let syms = x[2] as symbol[]
+      return ImpC.syms([...syms].reverse())
+    }
+    if (ImpQ.isLst(x)) {
+      return imp.lst(x[1], [...x[2]].reverse())
+    }
+    throw "rev expects a vector (INTs, NUMs, SYMs) or list (LST)"
+  }, 1),
   '!'   : imp.jsf(x=>{
     let n = x[2] as number
     if (n < 0) throw "! requires non-negative integer"
@@ -322,8 +349,22 @@ class ImpEvaluator {
     let res = x
     while (this.peek()?.wc === ImpP.O) {
       let op = this.nextItem() as ImpJdy
-      // Collect the right operand, which might be a strand
-      let arg = await this.collectStrand()
+      // Collect the right operand - could be a noun/strand or a verb application
+      let arg: ImpVal
+      let p = this.peek()
+      if (p?.wc === ImpP.V) {
+        // Handle verb application (e.g., in "2 ^ ! 4", the "! 4" part)
+        let v = this.nextItem() as ImpJsf
+        v = this.modifyVerb(v)
+        let args = []
+        for (let i = 0; i < v[1].arity; i++) {
+          args.push(await this.nextNoun())
+        }
+        arg = await v[2].apply(this, args)
+      } else {
+        // Handle simple noun/strand
+        arg = await this.collectStrand()
+      }
       res = await op[2].apply(this, [res, arg]) }
     return res }
 
