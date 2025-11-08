@@ -88,24 +88,21 @@ hello
 
 
 
-* DONE echo xmls [1 2; "three"; four]
+* DONE echo xmls '[1 2; "three"; four]
 #+name: xmls
 #+begin_src imp
-> echo xmls [1 2; "three"; four]
+> echo xmls [1 2; "three"; 'four]
 <imp:lst open="[" close="]">
-  <imp:int v="1"/>
-  <imp:int v="2"/>
-  <imp:sep v=";"/>
+  <imp:ints v="1 2"/>
   <imp:str v="three"/>
-  <imp:sep v=";"/>
-  <imp:sym v="four"/>
+  <imp:sym k="lit" v="four"/>
 </imp:lst>
 #+end_src
 
 * DONE word type round-tripping: basic types
 #+name: word-types-basic
 #+begin_src imp
-> echo xmls ['foo :bar baz:]
+> echo xmls '['foo :bar baz:]
 <imp:lst open="[" close="]">
   <imp:sym k="lit" v="foo"/>
   <imp:sym k="get" v="bar"/>
@@ -154,7 +151,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 * DONE new symbol types: annotation and messages
 #+name: word-types-new2
 #+begin_src imp
-> echo xmls [@note .msg .kw:]
+> echo xmls '[@note .msg .kw:]
 <imp:lst open="[" close="]">
   <imp:sym k="ann" v="note"/>
   <imp:sym k="msg" v="msg"/>
@@ -165,7 +162,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 * DONE new symbol types: message2 and keyword2
 #+name: word-types-new3
 #+begin_src imp
-> echo xmls [!msg2 !kw2:]
+> echo xmls '[!msg2 !kw2:]
 <imp:lst open="[" close="]">
   <imp:sym k="msg2" v="msg2"/>
   <imp:sym k="kw2" v="kw2"/>
@@ -184,7 +181,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 * DONE backtick tokenization: no spaces needed
 #+name: backtick-tokenization
 #+begin_src imp
-> echo xmls [`foo`bar`baz]
+> echo xmls '[`foo`bar`baz]
 <imp:lst open="[" close="]">
   <imp:sym k="bqt" v="foo"/>
   <imp:sym k="bqt" v="bar"/>
@@ -407,6 +404,200 @@ ints!
 #+begin_src imp
 > echo show type? nil
 nil!
+#+end_src
+
+* DONE arithmetic operators
+#+name: arithmetic-ops
+#+begin_src imp
+> 10 + 5
+15
+> 10 - 5
+5
+> 10 * 5
+50
+> 10 % 3
+3
+> 2 ^ 8
+256
+#+end_src
+
+* DONE min and max operators
+#+name: min-max
+#+begin_src imp
+> min[3; 7]
+3
+> max[3; 7]
+7
+> 1 2 3 min 2 4 1
+1 2 1
+#+end_src
+
+* DONE tk (take) operator: scalars and vectors
+#+name: take-nums
+#+begin_src imp
+> 5 tk 10
+10 10 10 10 10
+> 3 tk 1 2
+1 2 1
+> 4 tk 7 8 9
+7 8 9 7
+#+end_src
+
+* DONE tk (take) operator: strings and lists
+#+name: take-str-lst
+#+begin_src imp
+> 7 tk "abc"
+"abcabca"
+> 5 tk '[x y]
+[x y x y x]
+#+end_src
+
+* DONE rev (reverse)
+#+name: rev
+#+begin_src imp
+> rev 1 2 3 4
+4 3 2 1
+> rev '[a b c]
+[c b a]
+> rev `x `y `z
+`z `y `x
+#+end_src
+
+* DONE len (length)
+#+name: len
+#+begin_src imp
+> len 1 2 3
+3
+> len "hello"
+5
+> len '[a b c]
+3
+> len 42
+1
+#+end_src
+
+* DONE ! (range/iota)
+#+name: range
+#+begin_src imp
+> ! 5
+0 1 2 3 4
+> ! 0
+
+> ! 3
+0 1 2
+#+end_src
+
+* DONE words (list all defined words)
+#+name: words
+#+begin_src imp
+> words
+`nil `+ `- `* `% `^ `min `max `tk `rev `len `! `rd `wr `e? `rm `load `xmls `look `eval `part `type? `show `echo `words
+#+end_src
+
+* DONE part (get part of speech)
+#+name: part
+#+begin_src imp
+> part 42
+"N"
+> part 'echo
+"V"
+> part '+
+"O"
+#+end_src
+
+* DONE fold (/) suffix: sum and product
+#+name: fold-sum-product
+#+begin_src imp
+> +/ 1 2 3 4
+10
+> */ 1 2 3 4
+24
+> +/ 5
+5
+#+end_src
+
+* DONE fold (/) suffix: min and max
+#+name: fold-min-max
+#+begin_src imp
+> min/ 5 2 8 1 9
+1
+> max/ 5 2 8 1 9
+9
+#+end_src
+
+* DONE scan (\) suffix: running sum
+#+name: scan-sum
+#+begin_src imp
+> +\ 1 2 3 4
+1 3 6 10
+> *\ 2 3 4
+2 6 24
+#+end_src
+
+* DONE user-defined functions: basic
+#+name: user-fn-basic
+#+begin_src imp
+> f: {x + 1}
+{x + 1}
+> f 5
+6
+> f 10 20 30
+11 21 31
+#+end_src
+
+* DONE user-defined functions: dyadic
+#+name: user-fn-dyadic
+#+begin_src imp
+> add: {x + y}
+{x + y}
+> add[3; 5]
+8
+#+end_src
+
+* DONE user-defined functions: composition
+#+name: user-fn-composition
+#+begin_src imp
+> double: {x * 2}
+{x * 2}
+> inc: {x + 1}
+{x + 1}
+> double inc 5
+12
+#+end_src
+
+* DONE user-defined functions: partial application
+#+name: user-fn-partial
+#+begin_src imp
+> add: {x + y}
+{x + y}
+> add3: add[3]
+{x + y}[3]
+> add3[5]
+8
+#+end_src
+
+* DONE get-word: return function without evaluation
+#+name: get-word-function
+#+begin_src imp
+> f: {x * 2}
+{x * 2}
+> :f
+{x * 2}
+> g: :f
+{x * 2}
+> g 5
+10
+#+end_src
+
+* DONE get-word: with partial application
+#+name: get-word-partial
+#+begin_src imp
+> add: {x + y}
+{x + y}
+> add3: add[3]
+{x + y}[3]
+> :add3
+{x + y}[3]
 #+end_src
 
 * [0/7] upcoming tests
