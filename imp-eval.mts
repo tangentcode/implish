@@ -19,15 +19,115 @@ import {
 import {impShow} from './imp-show.mjs'
 import {load} from './imp-load.mjs'
 import {toNativePath} from './lib-file.mjs'
-import * as assert from "assert"
-import * as fs from "fs"
-import * as https from "https"
-import * as http from "http"
+
+// Node.js modules - only available in Node.js environment
+let fs: any = null
+let https: any = null
+let http: any = null
+let readline: any = null
+
+// Try to import Node.js modules if available
+try {
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    fs = await import('fs')
+    https = await import('https')
+    http = await import('http')
+    readline = await import('readline')
+  }
+} catch (e) {
+  // Running in browser or environment without Node.js modules
+}
+
+// Input provider abstraction - can be implemented for Node.js, browser, or other contexts
+export interface InputProvider {
+  readLine(): Promise<string>
+}
+
+// Output provider abstraction - can be customized for different environments
+export interface OutputProvider {
+  writeLine(text: string): void
+}
+
+// Default console output provider
+class ConsoleOutputProvider implements OutputProvider {
+  writeLine(text: string): void {
+    console.log(text)
+  }
+}
+
+// Global output provider
+let globalOutputProvider: OutputProvider = new ConsoleOutputProvider()
+
+export function setOutputProvider(provider: OutputProvider) {
+  globalOutputProvider = provider
+}
+
+// Default Node.js readline-based input provider
+class NodeReadlineProvider implements InputProvider {
+  constructor(private rl: any) {}
+
+  async readLine(): Promise<string> {
+    return new Promise((resolve) => {
+      // Use once('line') instead of question() to properly integrate with the async iterator
+      this.rl.once('line', (line: string) => {
+        resolve(line)
+      })
+    })
+  }
+}
+
+// Fallback provider for non-interactive contexts (piped input, etc.)
+class NodeStdinProvider implements InputProvider {
+  async readLine(): Promise<string> {
+    if (!readline) throw 'readline not available'
+    return new Promise((resolve) => {
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        terminal: false
+      })
+
+      rl.once('line', (line: string) => {
+        rl.close()
+        resolve(line)
+      })
+    })
+  }
+}
+
+// Global input provider (set by REPL or external code)
+let globalInputProvider: InputProvider | null = null
+
+export function setInputProvider(provider: InputProvider | null) {
+  globalInputProvider = provider
+}
+
+// Convenience function for Node.js readline interface
+export function setReadlineInterface(rl: any | null) {
+  if (rl) {
+    globalInputProvider = new NodeReadlineProvider(rl)
+  } else {
+    globalInputProvider = null
+  }
+}
+
+// Helper: read a line from the configured input provider
+async function readLine(): Promise<string> {
+  // If we have a global input provider, use it
+  if (globalInputProvider) {
+    return await globalInputProvider.readLine()
+  }
+
+  // Otherwise, fall back to Node.js stdin
+  const fallback = new NodeStdinProvider()
+  return await fallback.readLine()
+}
 
 // Helper: read file or URL content as string (async)
 async function readContent(x: ImpVal): Promise<string> {
   // Check if it's a FILE symbol
   if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
+    if (!fs) throw 'File reading not available in browser environment'
     let filepath = toNativePath(x[2].description!)
 
     try {
@@ -39,17 +139,31 @@ async function readContent(x: ImpVal): Promise<string> {
   // Check if it's a URL symbol
   else if (ImpQ.isSym(x) && x[1].kind === SymT.URL) {
     let url = x[2].description!
+
+    // In browser, use fetch API
+    if (!http && !https) {
+      try {
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return await response.text()
+      } catch (e: any) {
+        throw `Failed to fetch URL: ${url} - ${e.message}`
+      }
+    }
+
+    // In Node.js, use http/https modules
     return new Promise((resolve, reject) => {
       let protocol = url.startsWith('https:') ? https : http
-      protocol.get(url, (res) => {
+      protocol.get(url, (res: any) => {
         let data = ''
-        res.on('data', chunk => data += chunk)
+        res.on('data', (chunk: any) => data += chunk)
         res.on('end', () => resolve(data))
-      }).on('error', (e) => reject(`Failed to fetch URL: ${url} - ${e.message}`))
+      }).on('error', (e: any) => reject(`Failed to fetch URL: ${url} - ${e.message}`))
     })
   }
   // String fallback (treat as filepath)
   else if (x[0] === ImpT.STR) {
+    if (!fs) throw 'File reading not available in browser environment'
     let filepath = x[2] as string
     try {
       return fs.readFileSync(filepath, 'utf8')
@@ -231,7 +345,10 @@ export let impWords: Record<string, ImpVal> = {
     return ImpC.nums(Array.from({length: n}, (_, i) => i))
   }, 1),
   'rd': imp.jsf(async x=>ImpC.str(await readContent(x)), 1),
+  'rln': imp.jsf(async ()=>ImpC.str(await readLine()), 0),
   'wr': imp.jsf(async (file, content)=>{
+    if (!fs) throw 'File writing not available in browser environment'
+
     // file should be a FILE symbol or string
     let filepath: string
     if (ImpQ.isSym(file) && file[1].kind === SymT.FILE) {
@@ -256,6 +373,8 @@ export let impWords: Record<string, ImpVal> = {
     }
   }, 2),
   'e?': imp.jsf(x=>{
+    if (!fs) throw 'File operations not available in browser environment'
+
     // file should be a FILE symbol or string
     let filepath: string
     if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
@@ -274,6 +393,8 @@ export let impWords: Record<string, ImpVal> = {
     }
   }, 1),
   'rm': imp.jsf(x=>{
+    if (!fs) throw 'File operations not available in browser environment'
+
     // file should be a FILE symbol or string
     let filepath: string
     if (ImpQ.isSym(x) && x[1].kind === SymT.FILE) {
@@ -317,11 +438,13 @@ export let impWords: Record<string, ImpVal> = {
   'show': imp.jsf(x=>ImpC.str(impShow(x)), 1),
   'echo': imp.jsf(x=>{
     // For vectors/strands, use impShow; for other types, print the raw value
+    let output: string
     if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs || x[0] === ImpT.SYMs) {
-      console.log(impShow(x))
+      output = impShow(x)
     } else {
-      console.log(x[2])
+      output = String(x[2])
     }
+    globalOutputProvider.writeLine(output)
     return NIL
   }, 1),
   'words': imp.jsf(()=>{
@@ -852,7 +975,7 @@ class ImpEvaluator {
       this.keep(p)
       switch (p.wc) {
         case ImpP.V: // composition (v u) - handle async
-          assert.ok(res[1].arity as number ===1, "oh no")
+          if (res[1].arity as number !== 1) throw "composition requires arity 1"
           let u = res[2] as JSF
           let v = p.item[2] as JSF
           res = imp.jsf(async (x) => {

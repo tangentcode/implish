@@ -2,7 +2,7 @@
 import { ImpT } from "./imp-core.mjs";
 import { ImpLoader, lexerTable, TokT } from "./imp-load.mjs";
 import { impShow } from "./imp-show.mjs";
-import { impEval, impWords } from "./imp-eval.mjs";
+import { impEval, impWords, setInputProvider } from "./imp-eval.mjs";
 import { parsePartialPath, reconstructImplishPath } from "./lib-file.mjs";
 import * as readline from "readline";
 import * as fs from "fs";
@@ -165,8 +165,27 @@ if (isInteractive) {
 }
 
 async function repl() {
+  // Create an async iterator that we control
+  const lineIterator = rl[Symbol.asyncIterator]();
+
+  // Create a provider that reads from the shared iterator
+  class REPLInputProvider {
+    async readLine() {
+      const { value, done } = await lineIterator.next();
+      if (done) throw new Error('End of input');
+      return value;
+    }
+  }
+
+  setInputProvider(new REPLInputProvider());
+
   rl.prompt();
-  for await (const line of rl) {
+
+  // Manually iterate instead of using for-await to share the iterator
+  while (true) {
+    const { value: line, done } = await lineIterator.next();
+    if (done) break;
+
     try {
       il.send(line)
       let r = il.read()
@@ -176,6 +195,9 @@ async function repl() {
     catch (e) { console.trace(e) }
     rl.prompt();
   }
+
+  // Clean up when REPL exits
+  setInputProvider(null);
 }
 
 await repl()

@@ -487,13 +487,6 @@ nil!
 0 1 2
 #+end_src
 
-* DONE words (list all defined words)
-#+name: words
-#+begin_src imp
-> words
-`nil `+ `- `* `% `^ `min `max `tk `rev `len `! `rd `wr `e? `rm `load `xmls `look `eval `part `type? `show `echo `words
-#+end_src
-
 * DONE part (get part of speech)
 #+name: part
 #+begin_src imp
@@ -620,3 +613,39 @@ x + y is addition,  + x is transpose or complex conjugate
 - quoting might fill the gap?
 
 ** TODO tokenizer -> xml test?
+
+* DONE rln: read line from input
+#+name: rln
+#+begin_src imp
+> rln
+> hello
+"hello"
+#+end_src
+
+This test verifies that rln reads a line from the input stream.
+The input provider can be customized for different environments (Node.js, browser, testing, etc.)
+
+* DONE rln: store in variable
+#+name: rln-assign
+#+begin_src imp
+> name: rln
+> Alice
+"Alice"
+> echo name
+Alice
+#+end_src
+
+* DONE rln: multiple reads
+#+name: rln-multiple
+#+begin_src imp
+> a: rln
+> first
+"first"
+> b: rln
+> second
+"second"
+> a
+"first"
+> b
+"second"
+#+end_src
