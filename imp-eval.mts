@@ -117,6 +117,81 @@ export let impWords: Record<string, ImpVal> = {
   '^'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.pow(a,b), x, y)),
   'min' : imp.jdy((x,y)=>elemWise((a,b)=>Math.min(a,b), x, y)),
   'max' : imp.jdy((x,y)=>elemWise((a,b)=>Math.max(a,b), x, y)),
+  '#'   : imp.jdy((x,y)=> {
+    // x # y: take x items from y, with repeats/cycling
+    // x must be a scalar integer
+    if (x[0] !== ImpT.INT) {
+      throw "# left argument must be an integer"
+    }
+    let count = x[2] as number
+
+    // Handle y as string - cycle through characters
+    if (y[0] === ImpT.STR) {
+      let str = y[2] as string
+      if (str.length === 0) {
+        throw "# cannot take from empty string"
+      }
+      let result = ""
+      for (let i = 0; i < count; i++) {
+        result += str[i % str.length]
+      }
+      return ImpC.str(result)
+    }
+
+    // Handle y as list - cycle through elements
+    if (y[0] === ImpT.LST) {
+      let vals = y[2] as ImpVal[]
+      if (vals.length === 0) {
+        throw "# cannot take from empty list"
+      }
+      let result: ImpVal[] = []
+      for (let i = 0; i < count; i++) {
+        result.push(vals[i % vals.length])
+      }
+      return imp.lst(y[1], result)
+    }
+
+    // Handle y as numeric scalar - repeat it
+    if (y[0] === ImpT.INT) {
+      let val = y[2] as number
+      return ImpC.ints(Array(count).fill(val))
+    }
+    if (y[0] === ImpT.NUM) {
+      let val = y[2] as number
+      return ImpC.nums(Array(count).fill(val))
+    }
+
+    // Handle y as numeric vector
+    if (y[0] === ImpT.INTs) {
+      let vals = y[2] as number[]
+      if (vals.length === 0) {
+        throw "# cannot take from empty array"
+      }
+      let result: number[] = []
+      for (let i = 0; i < count; i++) {
+        result.push(vals[i % vals.length])
+      }
+      return ImpC.ints(result)
+    }
+    if (y[0] === ImpT.NUMs) {
+      let vals = y[2] as number[]
+      if (vals.length === 0) {
+        throw "# cannot take from empty array"
+      }
+      let result: number[] = []
+      for (let i = 0; i < count; i++) {
+        result.push(vals[i % vals.length])
+      }
+      return ImpC.nums(result)
+    }
+
+    // For any other scalar type, repeat it in a list
+    let result: ImpVal[] = []
+    for (let i = 0; i < count; i++) {
+      result.push(y)
+    }
+    return imp.lst(undefined, result)
+  }),
   'rev': imp.jsf(x => {
     if (x[0] === ImpT.INTs) {
       let nums = x[2] as number[]
