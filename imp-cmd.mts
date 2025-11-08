@@ -115,6 +115,8 @@ let rl = readline.createInterface({
   completer: completer
 });
 
+rl.setPrompt('> ');
+
 // Only enable history persistence when running interactively (TTY)
 const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
 
@@ -154,6 +156,7 @@ if (isInteractive) {
 }
 
 async function repl() {
+  rl.prompt();
   for await (const line of rl) {
     try {
       il.send(line)
@@ -161,6 +164,9 @@ async function repl() {
       if (r) {
         let e = await impEval(r)
         if (e[0] !== ImpT.NIL) console.log(impShow(e)) }}
-    catch (e) { console.trace(e) }}}
+    catch (e) { console.trace(e) }
+    rl.prompt();
+  }
+}
 
 await repl()
