@@ -100,6 +100,14 @@ function elemWise(op: (a: number, b: number) => number, x: ImpVal, y: ImpVal): I
   throw "invalid operands"
 }
 
+// Identity values for fold operations (for empty arrays)
+const foldIdentities: Record<string, number> = {
+  '+': 0,
+  '*': 1,
+  'min': Infinity,
+  'max': -Infinity,
+}
+
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
   '+'   : imp.jdy((x,y)=>elemWise((a,b)=>a+b, x, y)),
@@ -107,14 +115,8 @@ export let impWords: Record<string, ImpVal> = {
   '*'   : imp.jdy((x,y)=>elemWise((a,b)=>a*b, x, y)),
   '%'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.floor(a/b), x, y)),
   '^'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.pow(a,b), x, y)),
-  '+/': imp.jsf(x => {
-    if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-      let nums = x[2] as number[]
-      let sum = nums.reduce((a, b) => a + b, 0)
-      return x[0] === ImpT.INTs ? ImpC.int(sum) : ImpC.num(sum)
-    }
-    throw "+/ expects a numeric vector (INTs or NUMs)"
-  }, 1),
+  'min' : imp.jdy((x,y)=>elemWise((a,b)=>Math.min(a,b), x, y)),
+  'max' : imp.jdy((x,y)=>elemWise((a,b)=>Math.max(a,b), x, y)),
   'rev': imp.jsf(x => {
     if (x[0] === ImpT.INTs) {
       let nums = x[2] as number[]
@@ -374,9 +376,27 @@ class ImpEvaluator {
       switch (x[1].kind) {
         case SymT.RAW: {
           // Normal symbol, so look it up
-          let w = this.words[x[2].description!]
+          let name = x[2].description!
+          let w = this.words[name]
+
+          // If not found and ends with '/' or '\', try to create a fold/scan operator
+          if (!w && (name.endsWith('/') || name.endsWith('\\'))) {
+            let baseName = name.slice(0, -1)
+            let baseOp = this.words[baseName]
+
+            if (baseOp && (baseOp[0] === ImpT.JDY || (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2))) {
+              // Create and cache the fold or scan operator
+              if (name.endsWith('/')) {
+                w = this.createFoldOperator(baseName, baseOp)
+              } else {
+                w = this.createScanOperator(baseName, baseOp)
+              }
+              this.words[name] = w
+            }
+          }
+
           if (w) x = w, this.wc = this.wordClass(w)
-          else throw "undefined word: " + x[2].description
+          else throw "undefined word: " + name
           break
         }
         case SymT.SET:  this.wc = ImpP.S; break  // set-word
@@ -659,6 +679,154 @@ class ImpEvaluator {
       }
     }
     return res
+  }
+
+  // Create a fold operator from a dyadic function (JSF with arity 2 or JDY)
+  createFoldOperator = (baseName: string, baseOp: ImpVal): ImpVal => {
+    return imp.jsf(async x => {
+      // Handle scalar input - just return it
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+        return x
+      }
+
+      // Extract the numeric array based on type
+      if (x[0] !== ImpT.INTs && x[0] !== ImpT.NUMs) {
+        throw `${baseName}/ expects a numeric value or vector (INT, NUM, INTs, or NUMs)`
+      }
+
+      let nums = x[2] as number[]
+      let isInts = x[0] === ImpT.INTs
+
+      // Handle empty array - return identity value if defined
+      if (nums.length === 0) {
+        let identity = foldIdentities[baseName]
+        if (identity === undefined) {
+          throw `${baseName}/ has no identity value for empty arrays`
+        }
+        return isInts ? ImpC.int(identity) : ImpC.num(identity)
+      }
+
+      // Handle single element
+      if (nums.length === 1) {
+        return x
+      }
+
+      // Get the dyadic function
+      let dyadicFn: (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
+
+      if (baseOp[0] === ImpT.JDY) {
+        dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
+      } else if (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2) {
+        // JSF with arity 2 - wrap it to take two separate args
+        let jsfFn = baseOp[2] as (xs: ImpLst) => ImpVal | Promise<ImpVal>
+        dyadicFn = (x: ImpVal, y: ImpVal) => jsfFn(imp.lst(undefined, [x, y]))
+      } else {
+        throw `${baseName}/ requires a dyadic operator (JDY or JSF with arity 2)`
+      }
+
+      // Perform the fold operation
+      let result = nums[0]
+      for (let i = 1; i < nums.length; i++) {
+        let xVal = isInts ? ImpC.int(result) : ImpC.num(result)
+        let yVal = isInts ? ImpC.int(nums[i]) : ImpC.num(nums[i])
+        let folded = dyadicFn(xVal, yVal)
+
+        // Handle async operations
+        if (folded instanceof Promise) {
+          folded = await folded as ImpVal
+        }
+
+        // Extract the numeric result
+        if (folded[0] === ImpT.INT) {
+          result = folded[2] as number
+        } else if (folded[0] === ImpT.NUM) {
+          result = folded[2] as number
+          isInts = false  // If we get a NUM, result should be NUM
+        } else {
+          throw `${baseName}/ produced non-numeric result`
+        }
+      }
+
+      return isInts ? ImpC.int(result) : ImpC.num(result)
+    }, 1)
+  }
+
+  // Create a scan operator from a dyadic function (JSF with arity 2 or JDY)
+  // Returns all intermediate results of the fold operation
+  createScanOperator = (baseName: string, baseOp: ImpVal): ImpVal => {
+    return imp.jsf(async x => {
+      // Handle scalar input - return as single-element vector
+      if (x[0] === ImpT.INT) {
+        return ImpC.ints([x[2] as number])
+      }
+      if (x[0] === ImpT.NUM) {
+        return ImpC.nums([x[2] as number])
+      }
+
+      // Extract the numeric array based on type
+      if (x[0] !== ImpT.INTs && x[0] !== ImpT.NUMs) {
+        throw `${baseName}\\ expects a numeric value or vector (INT, NUM, INTs, or NUMs)`
+      }
+
+      let nums = x[2] as number[]
+      let isInts = x[0] === ImpT.INTs
+
+      // Handle empty array - return empty array or identity value
+      if (nums.length === 0) {
+        let identity = foldIdentities[baseName]
+        if (identity === undefined) {
+          return x  // Return empty array as-is
+        }
+        return isInts ? ImpC.ints([identity]) : ImpC.nums([identity])
+      }
+
+      // Handle single element - return as-is
+      if (nums.length === 1) {
+        return x
+      }
+
+      // Get the dyadic function
+      let dyadicFn: (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
+
+      if (baseOp[0] === ImpT.JDY) {
+        dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
+      } else if (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2) {
+        // JSF with arity 2 - wrap it to take two separate args
+        let jsfFn = baseOp[2] as (xs: ImpLst) => ImpVal | Promise<ImpVal>
+        dyadicFn = (x: ImpVal, y: ImpVal) => jsfFn(imp.lst(undefined, [x, y]))
+      } else {
+        throw `${baseName}\\ requires a dyadic operator (JDY or JSF with arity 2)`
+      }
+
+      // Perform the scan operation - collect all intermediate results
+      let results: number[] = [nums[0]]
+      let result = nums[0]
+
+      for (let i = 1; i < nums.length; i++) {
+        let xVal = isInts ? ImpC.int(result) : ImpC.num(result)
+        let yVal = isInts ? ImpC.int(nums[i]) : ImpC.num(nums[i])
+        let folded = dyadicFn(xVal, yVal)
+
+        // Handle async operations
+        if (folded instanceof Promise) {
+          folded = await folded as ImpVal
+        }
+
+        // Extract the numeric result
+        if (folded[0] === ImpT.INT) {
+          result = folded[2] as number
+        } else if (folded[0] === ImpT.NUM) {
+          result = folded[2] as number
+          isInts = false  // If we get a NUM, result should be NUM
+        } else {
+          throw `${baseName}\\ produced non-numeric result`
+        }
+
+        results.push(result)
+      }
+
+      return isInts ? ImpC.ints(results) : ImpC.nums(results)
+    }, 1)
   }
 
   // evaluate a list
