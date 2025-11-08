@@ -27,11 +27,29 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-import { ImpLoader } from "./imp-load.mjs";
-import { impEval, impWords } from "./imp-eval.mjs";
-import { impShow } from "./imp-show.mjs";
-import { ImpT } from "./imp-core.mjs";
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Helper to dynamically import modules with cache busting
+async function getImplishModules() {
+  const timestamp = Date.now();
+  const core = await import(`./imp-core.mjs?t=${timestamp}`);
+  const loader = await import(`./imp-load.mjs?t=${timestamp}`);
+  const evalMod = await import(`./imp-eval.mjs?t=${timestamp}`);
+  const show = await import(`./imp-show.mjs?t=${timestamp}`);
+
+  return {
+    ImpLoader: loader.ImpLoader,
+    impEval: evalMod.impEval,
+    impWords: evalMod.impWords,
+    impShow: show.impShow,
+    ImpT: core.ImpT,
+  };
+}
 
 // Create server instance
 const server = new Server(
@@ -119,6 +137,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("code parameter is required");
         }
 
+        // Dynamically load modules
+        const { ImpLoader, impEval, impShow, ImpT } = await getImplishModules();
+
         // Parse the code
         const loader = new ImpLoader();
         loader.send(code);
@@ -168,6 +189,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("code parameter is required");
         }
 
+        // Dynamically load modules
+        const { ImpLoader, impShow } = await getImplishModules();
+
         // Parse the code
         const loader = new ImpLoader();
         loader.send(code);
@@ -187,6 +211,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "list_words": {
+        // Dynamically load modules
+        const { impWords } = await getImplishModules();
+
         const words = Object.keys(impWords).sort();
         return {
           content: [
@@ -206,6 +233,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (!word) {
           throw new Error("word parameter is required");
         }
+
+        // Dynamically load modules
+        const { impWords, impShow } = await getImplishModules();
 
         const value = impWords[word];
         if (value === undefined) {
