@@ -1135,8 +1135,52 @@ class ImpEvaluator {
     let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     this.enter(xs)
     while (!done) {
-      // skip separators
-      do {this.nextItem() } while (this.item && this.item[0] === ImpT.SEP && !this.atEnd())
+      // Handle separators - check for comma-verb sequencing
+      this.nextItem()
+      while (this.item && this.item[0] === ImpT.SEP && !this.atEnd()) {
+        // Check if this is a comma followed by a verb (sequencing operator)
+        if (this.item[2] === ',') {
+          let p = this.peek()
+          if (p && p.wc === ImpP.V && tb.root.length > 0) {
+            // Get the last emitted value
+            let lastVal = (tb.root as ImpVal[]).pop()!
+            // Consume the comma and get the verb
+            let op = this.nextItem()
+            let arity = 0
+            if (op[0] === ImpT.JSF) {
+              arity = (op as ImpJsf)[1].arity
+            } else if (op[0] === ImpT.IFN) {
+              arity = (op as ImpIfn)[1].arity
+            }
+
+            if (arity === 1) {
+              // Arity-1: apply verb to last value
+              if (op[0] === ImpT.IFN) {
+                lastVal = await this.applyIfn(op as ImpIfn, [lastVal])
+              } else {
+                lastVal = await (op as ImpJsf)[2].apply(this, [lastVal])
+              }
+            } else if (arity === 2) {
+              // Arity-2: collect right arg and apply
+              let arg = await this.nextNoun()
+              if (op[0] === ImpT.IFN) {
+                lastVal = await this.applyIfn(op as ImpIfn, [lastVal, arg])
+              } else {
+                lastVal = await (op as ImpJsf)[2].apply(this, [lastVal, arg])
+              }
+            } else {
+              throw `Comma-verb sequencing requires verb of arity 1 or 2, got arity ${arity}`
+            }
+            // Emit the modified value
+            tb.emit(lastVal)
+            // Continue with next item
+            this.nextItem()
+            continue
+          }
+        }
+        // Regular separator, just skip it
+        this.nextItem()
+      }
       if (this.atEnd()) done = true
       let x = this.item!
       switch (this.wc) {
