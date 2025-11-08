@@ -1000,7 +1000,7 @@ class ImpEvaluator {
 
   // project a function
   project = async (sym:string, xs: ImpVal[]): Promise<ImpVal> => {
-    let f: imp.ImpJsf | undefined = this.words[sym] as ImpJsf
+    let f: ImpVal | undefined = this.words[sym]
     if (!f) throw "[project]: undefined word: " + sym
     let args = [], arg = imp.lst()
     for (let x of xs) {
@@ -1012,7 +1012,15 @@ class ImpEvaluator {
     for (let a of args) {
       evaluatedArgs.push(await this.lastEval(a))
     }
-    return await f[2].apply(this, evaluatedArgs)}
+    // Check if it's a user-defined function (IFN) or JavaScript function (JSF)
+    if (f[0] === ImpT.IFN) {
+      return await this.applyIfn(f as ImpIfn, evaluatedArgs)
+    } else if (f[0] === ImpT.JSF) {
+      return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
+    } else {
+      throw "[project]: not a function: " + sym
+    }
+  }
 
   // evaluate an expression
   eval = async (x: ImpVal): Promise<ImpVal> => {
