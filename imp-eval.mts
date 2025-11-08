@@ -301,7 +301,16 @@ export let impWords: Record<string, ImpVal> = {
   'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
   'look': imp.jsf(x=>ImpC.str(impShow(impWords[(x[2] as string)] ?? NIL)), 1),
   'eval': imp.jsf(x=>eval(x[2] as string), 1),
-  'part': imp.jsf(x=>ImpC.str(wordClass(x)), 1),
+  'part': imp.jsf(x=>{
+    // If x is a string or symbol, look up the word in impWords
+    let val = x
+    if (x[0] === ImpT.STR) {
+      val = impWords[x[2] as string] ?? x
+    } else if (ImpQ.isSym(x)) {
+      val = impWords[(x[2] as symbol).description ?? ''] ?? x
+    }
+    return ImpC.str(wordClass(val))
+  }, 1),
   'type?': imp.jsf(x=>{
     // Map ImpT enum to type symbol name
     let typeName = x[0].toLowerCase()
