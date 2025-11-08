@@ -502,7 +502,7 @@ nil!
 > part 'echo
 "V"
 > part '+
-"O"
+"V"
 #+end_src
 
 * DONE fold (/) suffix: sum and product

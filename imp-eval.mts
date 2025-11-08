@@ -9,8 +9,6 @@ import {
   NIL,
   SymT,
   TreeBuilder,
-  ImpJdy,
-  JDY,
   JSF,
   ImpJsf,
   ImpJsfA,
@@ -110,14 +108,14 @@ const foldIdentities: Record<string, number> = {
 
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
-  '+'   : imp.jdy((x,y)=>elemWise((a,b)=>a+b, x, y)),
-  '-'   : imp.jdy((x,y)=>elemWise((a,b)=>a-b, x, y)),
-  '*'   : imp.jdy((x,y)=>elemWise((a,b)=>a*b, x, y)),
-  '%'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.floor(a/b), x, y)),
-  '^'   : imp.jdy((x,y)=>elemWise((a,b)=>Math.pow(a,b), x, y)),
-  'min' : imp.jdy((x,y)=>elemWise((a,b)=>Math.min(a,b), x, y)),
-  'max' : imp.jdy((x,y)=>elemWise((a,b)=>Math.max(a,b), x, y)),
-  'tk'  : imp.jdy((x,y)=> {
+  '+'   : imp.jsf((x,y)=>elemWise((a,b)=>a+b, x, y), 2),
+  '-'   : imp.jsf((x,y)=>elemWise((a,b)=>a-b, x, y), 2),
+  '*'   : imp.jsf((x,y)=>elemWise((a,b)=>a*b, x, y), 2),
+  '%'   : imp.jsf((x,y)=>elemWise((a,b)=>Math.floor(a/b), x, y), 2),
+  '^'   : imp.jsf((x,y)=>elemWise((a,b)=>Math.pow(a,b), x, y), 2),
+  'min' : imp.jsf((x,y)=>elemWise((a,b)=>Math.min(a,b), x, y), 2),
+  'max' : imp.jsf((x,y)=>elemWise((a,b)=>Math.max(a,b), x, y), 2),
+  'tk'  : imp.jsf((x,y)=> {
     // x tk y: take x items from y, with repeats/cycling
     // x must be a scalar integer
     if (x[0] !== ImpT.INT) {
@@ -191,7 +189,7 @@ export let impWords: Record<string, ImpVal> = {
       result.push(y)
     }
     return imp.lst(undefined, result)
-  }),
+  }, 2),
   'rev': imp.jsf(x => {
     if (x[0] === ImpT.INTs) {
       let nums = x[2] as number[]
@@ -424,7 +422,6 @@ function wordClass(x:ImpVal) {
       case ImpT.JSF: return ImpP.V
       case ImpT.IFN: return ImpP.V
       case ImpT.NIL: return ImpP.N
-      case ImpT.JDY: return ImpP.O
       default: throw "[wordClass] invalid argument:" + x }}
 
 class ImpEvaluator {
@@ -468,7 +465,7 @@ class ImpEvaluator {
             let baseName = name.slice(0, -1)
             let baseOp = this.words[baseName]
 
-            if (baseOp && (baseOp[0] === ImpT.JDY || (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2))) {
+            if (baseOp && (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2)) {
               // Create and cache the fold or scan operator
               if (name.endsWith('/')) {
                 w = this.createFoldOperator(baseName, baseOp)
@@ -510,27 +507,56 @@ class ImpEvaluator {
     return {item: peekItem, wc: peekWC}}
 
   modifyNoun = async (x: ImpVal): Promise<ImpVal> => {
-    // if next token is infix operator (dyad), apply it to x and the next noun/strand
+    // Check if next token is an arity-2 verb (works as infix operator)
     let res = x
-    while (this.peek()?.wc === ImpP.O) {
-      let op = this.nextItem() as ImpJdy
+    while (true) {
+      let p = this.peek()
+      if (!p || p.wc !== ImpP.V) break
+
+      // Check if it's an arity-2 verb (can be used infix)
+      let arity = 0
+      if (p.item[0] === ImpT.JSF) {
+        arity = (p.item as ImpJsf)[1].arity
+      } else if (p.item[0] === ImpT.IFN) {
+        arity = (p.item as ImpIfn)[1].arity
+      }
+
+      if (arity !== 2) break  // Not an arity-2 verb, stop
+
+      // Consume the verb
+      let op = this.nextItem()
+
       // Collect the right operand - could be a noun/strand or a verb application
       let arg: ImpVal
-      let p = this.peek()
-      if (p?.wc === ImpP.V) {
+      let p2 = this.peek()
+      if (p2?.wc === ImpP.V) {
         // Handle verb application (e.g., in "2 ^ ! 4", the "! 4" part)
-        let v = this.nextItem() as ImpJsf
-        v = this.modifyVerb(v)
+        let v = this.nextItem()
+        if (v[0] === ImpT.JSF) {
+          v = this.modifyVerb(v as ImpJsf)
+        }
         let args = []
-        for (let i = 0; i < v[1].arity; i++) {
+        let vArity = (v[1] as ImpJsfA | ImpIfnA).arity
+        for (let i = 0; i < vArity; i++) {
           args.push(await this.nextNoun())
         }
-        arg = await v[2].apply(this, args)
+        if (v[0] === ImpT.IFN) {
+          arg = await this.applyIfn(v as ImpIfn, args)
+        } else {
+          arg = await (v as ImpJsf)[2].apply(this, args)
+        }
       } else {
         // Handle simple noun/strand
         arg = await this.collectStrand()
       }
-      res = await op[2].apply(this, [res, arg]) }
+
+      // Apply the arity-2 verb
+      if (op[0] === ImpT.IFN) {
+        res = await this.applyIfn(op as ImpIfn, [res, arg])
+      } else {
+        res = await (op as ImpJsf)[2].apply(this, [res, arg])
+      }
+    }
     return res }
 
   // Helper: extend a value into a strand by collecting following items
@@ -595,6 +621,10 @@ class ImpEvaluator {
     while (res[0] === ImpT.SEP && res[2] === ',') {
       res = this.nextItem()
     }
+    // Check for END (ran out of input)
+    if (res[0] === ImpT.END) {
+      throw "unexpected end of input (missing argument?)"
+    }
     // Handle different word classes
     if (this.wc === ImpP.S) {
       // Assignment - evaluate and return the assigned value
@@ -612,12 +642,39 @@ class ImpEvaluator {
         res = this.modifyVerb(res as ImpJsf)
       }
       let args = []
+      // Get arity from function metadata
       let arity = (res[1] as ImpJsfA | ImpIfnA).arity
-      for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+      // Collect arguments, stopping if we hit END
+      for (let i = 0; i < arity; i++) {
+        if (this.atEnd()) break
+        try {
+          args.push(await this.nextNoun())
+        } catch (e) {
+          // If we can't get an argument (e.g., hit END), stop collecting
+          if (String(e).includes("unexpected end of input")) break
+          throw e
+        }
+      }
+      // Handle partial application
       if (res[0] === ImpT.IFN) {
         return await this.applyIfn(res as ImpIfn, args)
       } else {
-        return await (res as ImpJsf)[2].apply(this, args)
+        // JSF - check if we need partial application
+        if (args.length < arity) {
+          // Create partial application
+          let partialArity = arity - args.length
+          let capturedArgs = args
+          let originalFn = res as ImpJsf
+          return [ImpT.JSF, {
+            arity: partialArity,
+            sourceIfn: originalFn,
+            capturedArgs: capturedArgs
+          }, async (...remainingArgs: ImpVal[]) => {
+            return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
+          }]
+        } else {
+          return await (res as ImpJsf)[2].apply(this, args)
+        }
       }
     } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
       throw "expected a noun, got: " + impShow(res)
@@ -654,12 +711,39 @@ class ImpEvaluator {
         nextX = this.modifyVerb(nextX as ImpJsf)
       }
       let args = []
+      // Get arity from function metadata
       let arity = (nextX[1] as ImpJsfA | ImpIfnA).arity
-      for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+      // Collect arguments, stopping if we hit END
+      for (let i = 0; i < arity; i++) {
+        if (this.atEnd()) break
+        try {
+          args.push(await this.nextNoun())
+        } catch (e) {
+          // If we can't get an argument (e.g., hit END), stop collecting
+          if (String(e).includes("unexpected end of input")) break
+          throw e
+        }
+      }
+      // Handle partial application
       if (nextX[0] === ImpT.IFN) {
         value = await this.applyIfn(nextX as ImpIfn, args)
       } else {
-        value = await (nextX as ImpJsf)[2].apply(this, args)
+        // JSF - check if we need partial application
+        if (args.length < arity) {
+          // Create partial application
+          let partialArity = arity - args.length
+          let capturedArgs = args
+          let originalFn = nextX as ImpJsf
+          value = [ImpT.JSF, {
+            arity: partialArity,
+            sourceIfn: originalFn,
+            capturedArgs: capturedArgs
+          }, async (...remainingArgs: ImpVal[]) => {
+            return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
+          }]
+        } else {
+          value = await (nextX as ImpJsf)[2].apply(this, args)
+        }
       }
     } else if (this.wc === ImpP.Q) {
       value = nextX
@@ -819,18 +903,11 @@ class ImpEvaluator {
         return x
       }
 
-      // Get the dyadic function
-      let dyadicFn: (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
-
-      if (baseOp[0] === ImpT.JDY) {
-        dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
-      } else if (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2) {
-        // JSF with arity 2 - wrap it to take two separate args
-        let jsfFn = baseOp[2] as (xs: ImpLst) => ImpVal | Promise<ImpVal>
-        dyadicFn = (x: ImpVal, y: ImpVal) => jsfFn(imp.lst(undefined, [x, y]))
-      } else {
-        throw `${baseName}/ requires a dyadic operator (JDY or JSF with arity 2)`
+      // Get the dyadic function (JSF with arity 2)
+      if (baseOp[0] !== ImpT.JSF || baseOp[1].arity !== 2) {
+        throw `${baseName}/ requires a JSF with arity 2`
       }
+      let dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
 
       // Perform the fold operation
       let result = nums[0]
@@ -893,18 +970,11 @@ class ImpEvaluator {
         return x
       }
 
-      // Get the dyadic function
-      let dyadicFn: (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
-
-      if (baseOp[0] === ImpT.JDY) {
-        dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
-      } else if (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2) {
-        // JSF with arity 2 - wrap it to take two separate args
-        let jsfFn = baseOp[2] as (xs: ImpLst) => ImpVal | Promise<ImpVal>
-        dyadicFn = (x: ImpVal, y: ImpVal) => jsfFn(imp.lst(undefined, [x, y]))
-      } else {
-        throw `${baseName}\\ requires a dyadic operator (JDY or JSF with arity 2)`
+      // Get the dyadic function (JSF with arity 2)
+      if (baseOp[0] !== ImpT.JSF || baseOp[1].arity !== 2) {
+        throw `${baseName}\\ requires a JSF with arity 2`
       }
+      let dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
 
       // Perform the scan operation - collect all intermediate results
       let results: number[] = [nums[0]]
@@ -954,12 +1024,40 @@ class ImpEvaluator {
             x = this.modifyVerb(x as ImpJsf)
           }
           let args = []
+          // Get arity from function metadata
           let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-          for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+          // Collect arguments, stopping if we hit END
+          for (let i = 0; i < arity; i++) {
+            if (this.atEnd()) break
+            try {
+              args.push(await this.nextNoun())
+            } catch (e) {
+              // If we can't get an argument (e.g., hit END), stop collecting
+              if (String(e).includes("unexpected end of input")) break
+              throw e
+            }
+          }
+          // Handle partial application for IFN
           if (x[0] === ImpT.IFN) {
             tb.emit(await this.applyIfn(x as ImpIfn, args))
           } else {
-            tb.emit(await (x as ImpJsf)[2].apply(this, args))
+            // JSF - check if we need partial application
+            if (args.length < arity) {
+              // Create partial application
+              let partialArity = arity - args.length
+              let capturedArgs = args
+              let originalFn = x as ImpJsf
+              let jsf: ImpJsf = [ImpT.JSF, {
+                arity: partialArity,
+                sourceIfn: originalFn,
+                capturedArgs: capturedArgs
+              }, async (...remainingArgs: ImpVal[]) => {
+                return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
+              }]
+              tb.emit(jsf)
+            } else {
+              tb.emit(await (x as ImpJsf)[2].apply(this, args))
+            }
           }
           break
         case ImpP.N:
@@ -972,6 +1070,7 @@ class ImpEvaluator {
               x = this.modifyVerb(x as ImpJsf)
             }
             let args = []
+            // Get arity from function metadata
             let arity = (x[1] as ImpJsfA | ImpIfnA).arity
             for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
             if (x[0] === ImpT.IFN) {
@@ -1043,17 +1142,11 @@ class ImpEvaluator {
     for (let a of args) {
       evaluatedArgs.push(await this.lastEval(a))
     }
-    // Check if it's a user-defined function (IFN), JavaScript function (JSF), or dyad (JDY)
+    // Check if it's a user-defined function (IFN) or JavaScript function (JSF)
     if (f[0] === ImpT.IFN) {
       return await this.applyIfn(f as ImpIfn, evaluatedArgs)
     } else if (f[0] === ImpT.JSF) {
       return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
-    } else if (f[0] === ImpT.JDY) {
-      // Dyads always take exactly 2 arguments
-      if (evaluatedArgs.length !== 2) {
-        throw `[project]: dyad ${sym} requires exactly 2 arguments, got ${evaluatedArgs.length}`
-      }
-      return await (f as ImpJdy)[2](evaluatedArgs[0], evaluatedArgs[1])
     } else {
       throw "[project]: not a function: " + sym
     }

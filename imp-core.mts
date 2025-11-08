@@ -21,7 +21,6 @@ export enum ImpT {
   // ---- internal / refined types (require eval() to produce)
   NIL = 'NIL',     // empty/unit value
   JSF = 'JSF',     // javascript function
-  JDY = 'JDY',     // javascript dyad (infix operator)
   IFN = 'IFN',     // implish function (user-defined)
 }
 
@@ -48,7 +47,7 @@ export enum SymT {
 
 export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
-export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[]}
+export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string}
 export type ImpIfnA = {arity:number, body:ImpVal[]}
 
 // Individual types for each ImpVal variant
@@ -67,7 +66,6 @@ export type ImpNums = [ImpT.NUMs, null, number[]]
 export type ImpSyms = [ImpT.SYMs, null, symbol[]]
 export type ImpNil = [ImpT.NIL, null, null]
 export type ImpJsf = [ImpT.JSF, ImpJsfA, JSF]
-export type ImpJdy = [ImpT.JDY, {}, JDY]
 export type ImpIfn = [ImpT.IFN, ImpIfnA, ImpVal[]]
 
 // Main discriminated union type (equivalent to union of individual types above)
@@ -75,7 +73,7 @@ export type ImpVal
   = ImpTop | ImpErr | ImpSep | ImpEnd
   | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst
   | ImpInts | ImpNums | ImpSyms | ImpNil
-  | ImpJsf | ImpJdy | ImpIfn
+  | ImpJsf | ImpIfn
 
 // Syntactic sugar: utility object with methods on ImpVal
 export const ImpQ = {
@@ -115,7 +113,6 @@ export enum ImpP {  // parts of speech
   Q = 'Q',     // quote - `symbol
   S = 'S',     // setter / like :set-word in red
   M = 'M',     // method / adjective (symbol starting with ".")
-  O = 'O',     // operator (infix between nouns)
   E = 'E',     // end of input
 }
 
@@ -146,8 +143,5 @@ export function push(xs: ImpLst, x: ImpVal): ImpVal {
   return xs }
 
 export type JSF = (...args: ImpVal[]) => ImpVal | Promise<ImpVal>
-export type JDY = (left: ImpVal, right: ImpVal) => ImpVal
 export let jsf: (f: JSF, a: number) => ImpJsf =
   (f, a) => [ImpT.JSF, {arity: a}, f]
-export let jdy: (f: JDY) => ImpVal =
-  (f) => [ImpT.JDY, {}, f]

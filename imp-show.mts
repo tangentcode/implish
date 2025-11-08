@@ -50,8 +50,16 @@ export class ImpWriter {
       case ImpT.IFN: return '{' + showList(x[2]) + '}'
       case ImpT.JSF: {
         // If it's a partial application, show as {source}[args]
-        if (x[1].sourceIfn && x[1].capturedArgs) {
-          let source = this.show(x[1].sourceIfn)
+        if (x[1].capturedArgs) {
+          // Use sourceName if available, otherwise try to show sourceIfn
+          let source: string
+          if (x[1].sourceName) {
+            source = x[1].sourceName
+          } else if (x[1].sourceIfn) {
+            source = this.show(x[1].sourceIfn)
+          } else {
+            source = '<fn>'
+          }
           let args = x[1].capturedArgs.map(a => this.show(a)).join('; ')
           return `${source}[${args}]`
         }
@@ -59,7 +67,6 @@ export class ImpWriter {
         let arity = x[1].arity
         return arity === 1 ? '<fn[_]>' : `<fn[${Array(arity).fill('_').join('; ')}]>`
       }
-      case ImpT.JDY: return `<dyad>`
       default:
         console.warn("[show] invalid argument:" + x)
         return `?${JSON.stringify(x)}`}}}
