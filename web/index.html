@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implish Browser REPL</title>
+  <style>
+    body {
+      font-family: Consolas, 'Courier New', monospace;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 20px;
+      margin: 0;
+      font-size: 16px;
+    }
+    #container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #569cd6;
+      margin-bottom: 10px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .github-link {
+      color: #4ec9b0;
+      text-decoration: none;
+      font-size: 16px;
+    }
+    .github-link:hover {
+      text-decoration: underline;
+    }
+    #output {
+      background: #252526;
+      padding: 15px;
+      min-height: 400px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+      font-size: 16px;
+      overflow-y: auto;
+      max-height: 600px;
+    }
+    #input-container {
+      display: flex;
+      gap: 10px;
+    }
+    #input {
+      flex: 1;
+      background: #3c3c3c;
+      color: #d4d4d4;
+      border: 1px solid #555;
+      padding: 10px;
+      font-family: Consolas, 'Courier New', monospace;
+      font-size: 16px;
+      border-radius: 4px;
+    }
+    #input:focus {
+      outline: none;
+      border-color: #007acc;
+    }
+    .prompt {
+      color: #4ec9b0;
+    }
+    .output {
+      color: #ce9178;
+    }
+    .error {
+      color: #f48771;
+    }
+    .hint {
+      color: #6a9955;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div class="header">
+      <h1>Implish Browser REPL</h1>
+      <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link">GitHub Repository</a>
+    </div>
+    <div class="hint">
+      Type "words" to see the known words | "clear" to clear the console
+    </div>
+    <div id="output"></div>
+    <div id="input-container">
+      <span class="prompt">&gt;</span>
+      <input id="input" type="text" placeholder="Enter Implish code..." autofocus>
+    </div>
+  </div>
+
+  <script type="module">
+    import { impEval, setInputProvider, setOutputProvider } from '/dist/imp-eval.mjs'
+    import { load } from '/dist/imp-load.mjs'
+    import { impShow } from '/dist/imp-show.mjs'
+    import { ImpT } from '/dist/imp-core.mjs'
+    import pkg from '../package.json' with { type: 'json' }
+
+    const inputEl = document.getElementById('input')
+    const outputEl = document.getElementById('output')
+
+    // Browser Input Provider that integrates with the REPL
+    class BrowserInputProvider {
+      constructor(inputElement, outputElement) {
+        this.inputElement = inputElement
+        this.outputElement = outputElement
+        this.pendingResolve = null
+        this.isWaitingForInput = false
+      }
+
+      async readLine() {
+        this.isWaitingForInput = true
+        this.outputElement.textContent += '\n(waiting for input...)'
+
+        return new Promise((resolve) => {
+          this.pendingResolve = resolve
+        })
+      }
+
+      submitInput(value) {
+        if (this.pendingResolve) {
+          this.pendingResolve(value)
+          this.pendingResolve = null
+          this.isWaitingForInput = false
+          return true
+        }
+        return false
+      }
+    }
+
+    const inputProvider = new BrowserInputProvider(inputEl, outputEl)
+    setInputProvider(inputProvider)
+
+    // Browser Output Provider that writes to the REPL output
+    class BrowserOutputProvider {
+      constructor(outputElement) {
+        this.outputElement = outputElement
+      }
+
+      writeLine(text) {
+        this.outputElement.textContent += '\n' + text
+        this.outputElement.scrollTop = this.outputElement.scrollHeight
+      }
+    }
+
+    const outputProvider = new BrowserOutputProvider(outputEl)
+    setOutputProvider(outputProvider)
+
+    // History management
+    let history = []
+    let historyIndex = -1
+    let currentInput = ''
+
+    // Handle input submission
+    inputEl.addEventListener('keydown', async (e) => {
+      // History navigation
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (history.length === 0) return
+
+        // Save current input if we're at the bottom
+        if (historyIndex === -1) {
+          currentInput = inputEl.value
+        }
+
+        // Move up in history
+        if (historyIndex < history.length - 1) {
+          historyIndex++
+          inputEl.value = history[history.length - 1 - historyIndex]
+        }
+        return
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        if (historyIndex === -1) return
+
+        // Move down in history
+        historyIndex--
+        if (historyIndex === -1) {
+          // Restore current input
+          inputEl.value = currentInput
+        } else {
+          inputEl.value = history[history.length - 1 - historyIndex]
+        }
+        return
+      }
+
+      if (e.key === 'Enter') {
+        const line = inputEl.value
+        inputEl.value = ''
+        historyIndex = -1
+        currentInput = ''
+
+        // Add to history (skip empty lines and duplicates of last entry)
+        if (line.trim() !== '' && (history.length === 0 || history[history.length - 1] !== line)) {
+          history.push(line)
+        }
+
+        // If rln is waiting for input, submit to it
+        if (inputProvider.submitInput(line)) {
+          outputEl.textContent += '\n' + line
+          return
+        }
+
+        // Browser-only command: clear
+        if (line.trim() === 'clear') {
+          outputEl.textContent = ''
+          return
+        }
+
+        // Otherwise, evaluate as Implish code
+        outputEl.textContent += '\n> ' + line
+
+        try {
+          // Parse the code
+          const tree = load({ 0: 5, 1: {}, 2: line })
+
+          // Evaluate it
+          const result = await impEval(tree)
+
+          // Show result if not NIL
+          if (result[0] !== ImpT.NIL) {
+            outputEl.textContent += '\n' + impShow(result)
+          }
+        } catch (e) {
+          outputEl.innerHTML += '\n<span class="error">Error: ' + e + '</span>'
+        }
+
+        // Scroll to bottom
+        outputEl.scrollTop = outputEl.scrollHeight
+      }
+    })
+
+    // Run example code on startup
+    const examples = [
+      'x: 42',
+      'x * 2',
+      'p: {+/ y * rev x ^ ! len y}  .: polynomial function :.',
+      'p 10, 3 5 7  .: evaluate 3 + 5*10 + 7*10^2 :.',
+      '2 + 3 * 5 + 7  .: normal precedence :.',
+      '2, + 3 * 5, + 7  .: comma forces evaluation :.',
+      '! 10, * 2, + 1  .: odd numbers :.',
+      '! 10 * 2 + 1  .: range 21 :.',
+      '1 + 2 * ! 10  .: multiples of 3 :.',
+      '1, + 2 * ! 10  .: odd numbers again :.'
+    ]
+
+    async function runExamples() {
+      const buildDate = new Date().toISOString().split('T')[0]
+      outputEl.textContent = `implish ${pkg.version} (${buildDate})\n\n`
+
+      for (const example of examples) {
+        outputEl.textContent += '> ' + example
+
+        try {
+          const tree = load({ 0: 5, 1: {}, 2: example })
+          const result = await impEval(tree)
+
+          if (result[0] !== ImpT.NIL) {
+            outputEl.textContent += '\n' + impShow(result)
+          }
+        } catch (e) {
+          outputEl.innerHTML += '\n<span class="error">Error: ' + e + '</span>'
+        }
+
+        outputEl.textContent += '\n'
+      }
+
+      outputEl.scrollTop = outputEl.scrollHeight
+    }
+
+    runExamples()
+  </script>
+</body>
+</html>

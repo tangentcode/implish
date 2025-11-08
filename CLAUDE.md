@@ -21,13 +21,19 @@ npm run build
 # Watch mode for continuous compilation
 npm run watch
 
-# Run the REPL
+# Run the Node.js REPL
 node dist/imp-cmd.mjs
 
 # Run the REPL in quiet mode (no prompt, useful for testing)
 node dist/imp-cmd.mjs -q
 # or
 node dist/imp-cmd.mjs --quiet
+
+# Start the browser development server (with hot reload)
+npm run dev
+
+# Preview the built site
+npm run preview
 ```
 
 ### Testing

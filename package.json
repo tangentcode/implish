@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "preview": "vite preview"
   },
   "repository": {
     "type": "git",
@@ -18,10 +20,9 @@
     "url": "https://github.com/tangentstorm/implish/issues"
   },
   "homepage": "https://github.com/tangentstorm/implish#readme",
-  "dependencies": {
-  },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
     "@types/node": "^24.8.1",
-    "@modelcontextprotocol/sdk": "^1.0.4"
+    "vite": "^7.2.2"
   }
 }
