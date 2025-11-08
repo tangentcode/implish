@@ -23,7 +23,6 @@ export type TrimSpec = [number, number] | null
 // trimSpec is [charsFromStart, charsFromEnd] to strip when creating symbol
 export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.WS,   /^((?!\n)\s)+/s,                        null],
-  [TokT.SEP,  /^[;|\n]/m,                             null],
   [TokT.NUM,  /^-?\d+\.\d+([eE][+-]?\d+)?/,          null], // decimal with optional scientific notation
   [TokT.NUM,  /^-?\d+[eE][+-]?\d+/,                  null], // integer with scientific notation
   [TokT.INT,  /^-?\d+/,                               null],
@@ -31,6 +30,8 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.NODE, /^(((?![[({])\S)*[[({]|\.:)/,          null],
   [TokT.DONE, /^(]|:\.|[)}])/,                       null],
   // Symbol types (order matters - more specific before less specific)
+  [TokT.UNQ,  /^,[^\s\[\](){}:;!,]+/,                [1, 0]], // unquote: ,foo (must come before SEP)
+  [TokT.SEP,  /^[;,|\n]/m,                            null],   // separator (comma with whitespace after)
   [TokT.URL,  /^https?:\/\/[^\s\[\](){}]+/,          [0, 0]], // url: http://foo (no trim, keep full URL)
   [TokT.KW,   /^\.[^\s\[\](){}:;!]+:/,               [1, 1]], // keyword: .foo: (strip . and :)
   [TokT.KW2,  /^![^\s\[\](){}:;!]+:/,                [1, 1]], // keyword2: !foo: (strip ! and :)
@@ -47,7 +48,6 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.ANN,  /^@[^\s\[\](){}:;!]+/,                 [1, 0]], // annotation: @foo (strip @)
   [TokT.MSG,  /^\.[^\s\[\](){}:;!]+/,                [1, 0]], // message: .foo (strip .)
   [TokT.ERR,  /^\?[^\s\[\](){}:;!]+/,                [1, 0]], // error: ?foo (strip ?)
-  [TokT.UNQ,  /^,[^\s\[\](){}:;!,]+/,                [1, 0]], // unquote: ,foo (strip ,)
   [TokT.RAW,  /^((?![\])}])\S)+/,                    [0, 0]], // catchall (keep last)
 ]
 

@@ -22,6 +22,7 @@ export enum ImpT {
   NIL = 'NIL',     // empty/unit value
   JSF = 'JSF',     // javascript function
   JDY = 'JDY',     // javascript dyad (infix operator)
+  IFN = 'IFN',     // implish function (user-defined)
 }
 
 export enum SymT {
@@ -48,6 +49,7 @@ export enum SymT {
 export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
 export type ImpJsfA = {arity:number}
+export type ImpIfnA = {arity:number, body:ImpVal[]}
 
 // Individual types for each ImpVal variant
 export type ImpTop = [ImpT.TOP, null, ImpVal[]]
@@ -66,19 +68,21 @@ export type ImpSyms = [ImpT.SYMs, null, symbol[]]
 export type ImpNil = [ImpT.NIL, null, null]
 export type ImpJsf = [ImpT.JSF, ImpJsfA, JSF]
 export type ImpJdy = [ImpT.JDY, {}, JDY]
+export type ImpIfn = [ImpT.IFN, ImpIfnA, ImpVal[]]
 
 // Main discriminated union type (equivalent to union of individual types above)
 export type ImpVal
   = ImpTop | ImpErr | ImpSep | ImpEnd
   | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst
   | ImpInts | ImpNums | ImpSyms | ImpNil
-  | ImpJsf | ImpJdy
+  | ImpJsf | ImpJdy | ImpIfn
 
 // Syntactic sugar: utility object with methods on ImpVal
 export const ImpQ = {
   isTop(x: ImpVal): x is ImpTop { return x[0] === ImpT.TOP },
   isSym(x: ImpVal): x is ImpSym { return x[0] === ImpT.SYM },
   isLst(x: ImpVal): x is ImpLst { return x[0] === ImpT.LST },
+  isIfn(x: ImpVal): x is ImpIfn { return x[0] === ImpT.IFN },
 };
 
 /** Constructor to lift js types up into Implish **/
@@ -98,6 +102,7 @@ export const ImpC = {
   ints(x:number[]):ImpInts { return [ImpT.INTs, null, x]},
   nums(x:number[]):ImpNums { return [ImpT.NUMs, null, x]},
   syms(x:symbol[]):ImpSyms { return [ImpT.SYMs, null, x]},
+  ifn(arity:number, body:ImpVal[]):ImpIfn { return [ImpT.IFN, {arity, body}, body]},
 }
 
 export enum ImpP {  // parts of speech

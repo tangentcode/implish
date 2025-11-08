@@ -47,6 +47,7 @@ export class ImpWriter {
         }
       }
       case ImpT.LST: return (x[1].open||'') + showList(x[2]) + (x[1].close||'')
+      case ImpT.IFN: return '{' + showList(x[2]) + '}'
       default:
         console.warn("[show] invalid argument:" + x)
         return `?${JSON.stringify(x)}`}}}

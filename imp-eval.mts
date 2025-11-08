@@ -13,6 +13,9 @@ import {
   JDY,
   JSF,
   ImpJsf,
+  ImpJsfA,
+  ImpIfn,
+  ImpIfnA,
   ImpStr, ImpC, ImpTop, ImpErr, ImpLst
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
@@ -275,6 +278,47 @@ function toXml(x: ImpVal): string {
   // For other types (SEP, INT, STR, MLS, JSF, JDY, END), treat as simple values
   return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2]??'').toString()})}
 
+// Scan AST for implicit parameters x, y, z to determine function arity
+// Does NOT scan inside nested curly brace functions
+function scanArity(body: ImpVal[]): number {
+  let hasZ = false, hasY = false, hasX = false
+
+  function scan(x: ImpVal): void {
+    // If it's a RAW symbol, check if it's x, y, or z
+    if (ImpQ.isSym(x) && x[1].kind === SymT.RAW) {
+      let name = x[2].description!
+      if (name === 'z') hasZ = true
+      else if (name === 'y') hasY = true
+      else if (name === 'x') hasX = true
+    }
+    // If it's a GET symbol (:x, :y, :z), also count those
+    else if (ImpQ.isSym(x) && x[1].kind === SymT.GET) {
+      let name = x[2].description!
+      if (name === 'z') hasZ = true
+      else if (name === 'y') hasY = true
+      else if (name === 'x') hasX = true
+    }
+    // Recursively scan lists, but NOT curly brace lists (nested functions)
+    else if (ImpQ.isLst(x)) {
+      // Skip if this is a curly brace list (nested function)
+      if (x[1].open === '{') return
+      // Otherwise scan the contents
+      for (let item of x[2]) scan(item)
+    }
+    // Also scan TOP nodes
+    else if (ImpQ.isTop(x)) {
+      for (let item of x[2]) scan(item)
+    }
+  }
+
+  for (let item of body) scan(item)
+
+  if (hasZ) return 3
+  if (hasY) return 2
+  if (hasX) return 1
+  return 0
+}
+
 function wordClass(x:ImpVal) {
     let [xt, _xa, _xv] = x
     switch (xt) {
@@ -292,6 +336,7 @@ function wordClass(x:ImpVal) {
       case ImpT.SYMs: return ImpP.N
       // -- resolved symbols:
       case ImpT.JSF: return ImpP.V
+      case ImpT.IFN: return ImpP.V
       case ImpT.NIL: return ImpP.N
       case ImpT.JDY: return ImpP.O
       default: throw "[wordClass] invalid argument:" + x }}
@@ -442,6 +487,10 @@ class ImpEvaluator {
   // Helper to collect a strand (number or symbol vector)
   collectStrand = async (): Promise<ImpVal> => {
     let res = this.nextItem()
+    // Skip separators (commas are used to separate function arguments)
+    while (res[0] === ImpT.SEP && res[2] === ',') {
+      res = this.nextItem()
+    }
     // Handle different word classes
     if (this.wc === ImpP.S) {
       // Assignment - evaluate and return the assigned value
@@ -453,6 +502,19 @@ class ImpEvaluator {
       let value = this.words[varName]
       if (!value) throw "undefined word: " + varName
       return await this.eval(value)
+    } else if (this.wc === ImpP.V) {
+      // Handle verb directly (e.g., `{x * 2} ! 10`)
+      if (res[0] === ImpT.JSF) {
+        res = this.modifyVerb(res as ImpJsf)
+      }
+      let args = []
+      let arity = (res[1] as ImpJsfA | ImpIfnA).arity
+      for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+      if (res[0] === ImpT.IFN) {
+        return await this.applyIfn(res as ImpIfn, args)
+      } else {
+        return await (res as ImpJsf)[2].apply(this, args)
+      }
     } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
       throw "expected a noun, got: " + impShow(res)
     }
@@ -477,10 +539,18 @@ class ImpEvaluator {
       value = await this.extendStrand(value, true)
       value = await this.modifyNoun(value)
     } else if (this.wc === ImpP.V) {
-      nextX = this.modifyVerb(nextX as ImpJsf)
+      // Apply verb modifiers (composition, etc.) only to JSF for now
+      if (nextX[0] === ImpT.JSF) {
+        nextX = this.modifyVerb(nextX as ImpJsf)
+      }
       let args = []
-      for (let i = 0; i < nextX[1].arity; i++) { args.push(await this.nextNoun()) }
-      value = await nextX[2].apply(this, args)
+      let arity = (nextX[1] as ImpJsfA | ImpIfnA).arity
+      for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+      if (nextX[0] === ImpT.IFN) {
+        value = await this.applyIfn(nextX as ImpIfn, args)
+      } else {
+        value = await (nextX as ImpJsf)[2].apply(this, args)
+      }
     } else if (this.wc === ImpP.Q) {
       value = nextX
     } else {
@@ -495,6 +565,37 @@ class ImpEvaluator {
     let res = await this.collectStrand()
     res = await this.modifyNoun(res)
     return res
+  }
+
+  // Execute an IFN with bound parameters
+  applyIfn = async (fn: ImpIfn, args: ImpVal[]): Promise<ImpVal> => {
+    if (args.length !== fn[1].arity) {
+      throw `IFN arity mismatch: expected ${fn[1].arity}, got ${args.length}`
+    }
+
+    // Save current word bindings for x, y, z
+    let savedX = this.words['x']
+    let savedY = this.words['y']
+    let savedZ = this.words['z']
+
+    // Bind parameters
+    if (args.length >= 1) this.words['x'] = args[0]
+    if (args.length >= 2) this.words['y'] = args[1]
+    if (args.length >= 3) this.words['z'] = args[2]
+
+    // Execute body
+    let body: ImpLst = imp.lst({open: '{', close: '}'}, fn[2])
+    let result = await this.lastEval(body)
+
+    // Restore word bindings
+    if (savedX !== undefined) this.words['x'] = savedX
+    else delete this.words['x']
+    if (savedY !== undefined) this.words['y'] = savedY
+    else delete this.words['y']
+    if (savedZ !== undefined) this.words['z'] = savedZ
+    else delete this.words['z']
+
+    return result
   }
 
   wordClass = (x: ImpVal): ImpP => wordClass(x)
@@ -572,17 +673,41 @@ class ImpEvaluator {
       let x = this.item!
       switch (this.wc) {
       case ImpP.V: // verb
-          x = this.modifyVerb(x as ImpJsf)
+          // Apply verb modifiers (composition, etc.) only to JSF for now
+          if (x[0] === ImpT.JSF) {
+            x = this.modifyVerb(x as ImpJsf)
+          }
           let args = []
-          for (let i = 0; i < x[1].arity; i++) { args.push(await this.nextNoun()) }
-          tb.emit(await x[2].apply(this, args))
+          let arity = (x[1] as ImpJsfA | ImpIfnA).arity
+          for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+          if (x[0] === ImpT.IFN) {
+            tb.emit(await this.applyIfn(x as ImpIfn, args))
+          } else {
+            tb.emit(await (x as ImpJsf)[2].apply(this, args))
+          }
           break
         case ImpP.N:
           // Evaluate the noun, collect any following strand, then apply operators
           x = await this.eval(x)
-          x = await this.extendStrand(x, true)
-          x = await this.modifyNoun(x)
-          tb.emit(x)
+          // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
+          if (this.wordClass(x) === ImpP.V) {
+            // Apply verb modifiers (composition, etc.) only to JSF for now
+            if (x[0] === ImpT.JSF) {
+              x = this.modifyVerb(x as ImpJsf)
+            }
+            let args = []
+            let arity = (x[1] as ImpJsfA | ImpIfnA).arity
+            for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
+            if (x[0] === ImpT.IFN) {
+              tb.emit(await this.applyIfn(x as ImpIfn, args))
+            } else {
+              tb.emit(await (x as ImpJsf)[2].apply(this, args))
+            }
+          } else {
+            x = await this.extendStrand(x, true)
+            x = await this.modifyNoun(x)
+            tb.emit(x)
+          }
           break
         case ImpP.Q:
           // Collect strands of backtick symbols
@@ -655,6 +780,11 @@ class ImpEvaluator {
         let [_, a, v] = x
         // Check if list is quoted (starts with ' or `)
         let opener = a.open || '['
+        // Handle curly braces as function definitions
+        if (opener === '{') {
+          let arity = scanArity(v)
+          return ImpC.ifn(arity, v)
+        }
         if (opener.startsWith("`")) {
           // Backtick is quasiquotation - evaluate unquoted items
           return await this.quasiquote(x)
