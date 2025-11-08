@@ -158,3 +158,5 @@ x: 42
 - Symbol resolution happens during evaluation, not parsing (late binding)
 - The loader is deliberately simple: it only recognizes basic token types, leaving semantic interpretation to evaluators
 - File paths use a unified syntax (`%/d/path` for Windows, `%/path` for Unix) to avoid platform-specific quoting issues
+- always use the mcp server to execute implish code.
+- ALWAYS use the mcp server to run implish!
