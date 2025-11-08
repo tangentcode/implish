@@ -194,6 +194,10 @@ export let impWords: Record<string, ImpVal> = {
     }
     return NIL
   }, 1),
+  'words': imp.jsf(()=>{
+    // Return all defined word names as a SYMs vector
+    return ImpC.syms(Object.keys(impWords).map(w => Symbol(w)))
+  }, 0),
 }
 
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
