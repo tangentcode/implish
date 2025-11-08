@@ -589,13 +589,12 @@ class ImpEvaluator {
             let baseOp = this.words[baseName]
 
             if (baseOp && (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2)) {
-              // Create and cache the fold or scan operator
+              // Create the fold or scan operator (don't cache it)
               if (name.endsWith('/')) {
                 w = this.createFoldOperator(baseName, baseOp)
               } else {
                 w = this.createScanOperator(baseName, baseOp)
               }
-              this.words[name] = w
             }
           }
 
