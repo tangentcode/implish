@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Implish Browser REPL</title>
+  <meta property="og:title" content="Implish Browser REPL">
+  <meta property="og:description" content="Interactive Implish language REPL that runs entirely in your browser.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://raw.githubusercontent.com/tangentstorm/implish/main/misc/implish-clear.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Implish Browser REPL">
+  <meta name="twitter:description" content="Interactive Implish language REPL that runs entirely in your browser.">
+  <meta name="twitter:image" content="https://raw.githubusercontent.com/tangentstorm/implish/main/misc/implish-clear.png">
   <style>
     body {
       font-family: Consolas, 'Courier New', monospace;
@@ -17,6 +25,34 @@
       max-width: 800px;
       margin: 0 auto;
     }
+    .banner {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 18px 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    }
+    .logo-badge {
+      flex-shrink: 0;
+      background: #dcdcdc;
+      padding: 10px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-badge img {
+      width: 150px;
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+    .banner-content {
+      flex: 1;
+    }
     h1 {
       color: #569cd6;
       margin-bottom: 10px;
@@ -25,7 +61,7 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
     }
     .github-link {
       color: #4ec9b0;
@@ -82,12 +118,19 @@
 </head>
 <body>
   <div id="container">
-    <div class="header">
-      <h1>Implish Browser REPL</h1>
-      <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link">GitHub Repository</a>
-    </div>
-    <div class="hint">
-      Type "words" to see the known words | "clear" to clear the console
+    <div class="banner">
+      <div class="logo-badge">
+        <img id="implish-logo" alt="Implish logo" decoding="async">
+      </div>
+      <div class="banner-content">
+        <div class="header">
+          <h1>Implish Browser REPL</h1>
+          <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link">GitHub Repository</a>
+        </div>
+        <div class="hint">
+          Type "words" to see the known words | "clear" to clear the console
+        </div>
+      </div>
     </div>
     <div id="output"></div>
     <div id="input-container">
@@ -101,10 +144,16 @@
     import { load } from '/dist/imp-load.mjs'
     import { impShow } from '/dist/imp-show.mjs'
     import { ImpT } from '/dist/imp-core.mjs'
+    import implishLogo from '@misc/implish-clear.png'
     import pkg from '../package.json' with { type: 'json' }
 
     const inputEl = document.getElementById('input')
     const outputEl = document.getElementById('output')
+    const logoEl = document.getElementById('implish-logo')
+
+    if (logoEl instanceof HTMLImageElement) {
+      logoEl.src = implishLogo
+    }
 
     // Browser Input Provider that integrates with the REPL
     class BrowserInputProvider {
