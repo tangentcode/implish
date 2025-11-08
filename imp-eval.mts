@@ -637,6 +637,12 @@ class ImpEvaluator {
     if (this.wc === ImpP.S) {
       // Another set-word - recurse (enables a: b: 123)
       value = await this.doAssign(nextX)
+    } else if (this.wc === ImpP.G) {
+      // Get-word - look up value without evaluation
+      if (!ImpQ.isSym(nextX)) throw "get-word must be a symbol"
+      let getVarName = nextX[2].description!
+      value = this.words[getVarName]
+      if (!value) throw "undefined word: " + getVarName
     } else if (this.wc === ImpP.N) {
       value = await this.eval(nextX)
       // Collect any following strand items, then apply infix operators
@@ -673,6 +679,24 @@ class ImpEvaluator {
 
   // Execute an IFN with bound parameters
   applyIfn = async (fn: ImpIfn, args: ImpVal[]): Promise<ImpVal> => {
+    // If fewer args than arity, return a partial application
+    if (args.length < fn[1].arity) {
+      // Create a new function that captures the provided args
+      let partialArity = fn[1].arity - args.length
+      let capturedArgs = args
+      let originalFn = fn
+
+      // Wrap the original function with partial application logic
+      let jsf: ImpJsf = [ImpT.JSF, {
+        arity: partialArity,
+        sourceIfn: originalFn,
+        capturedArgs: capturedArgs
+      }, async (...remainingArgs: ImpVal[]) => {
+        return await this.applyIfn(originalFn, [...capturedArgs, ...remainingArgs])
+      }]
+      return jsf
+    }
+
     if (args.length !== fn[1].arity) {
       throw `IFN arity mismatch: expected ${fn[1].arity}, got ${args.length}`
     }
@@ -983,6 +1007,13 @@ class ImpEvaluator {
           }
           tb.emit(x)
           break
+        case ImpP.G: // get-word (return value without evaluation)
+          if (!ImpQ.isSym(x)) throw "get-word must be a symbol"
+          let varName = x[2].description!
+          let value = this.words[varName]
+          if (!value) throw "undefined word: " + varName
+          tb.emit(value)
+          break
         case ImpP.S: // set-word (assignment)
           tb.emit(await this.doAssign(x))
           break
@@ -1012,11 +1043,17 @@ class ImpEvaluator {
     for (let a of args) {
       evaluatedArgs.push(await this.lastEval(a))
     }
-    // Check if it's a user-defined function (IFN) or JavaScript function (JSF)
+    // Check if it's a user-defined function (IFN), JavaScript function (JSF), or dyad (JDY)
     if (f[0] === ImpT.IFN) {
       return await this.applyIfn(f as ImpIfn, evaluatedArgs)
     } else if (f[0] === ImpT.JSF) {
       return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
+    } else if (f[0] === ImpT.JDY) {
+      // Dyads always take exactly 2 arguments
+      if (evaluatedArgs.length !== 2) {
+        throw `[project]: dyad ${sym} requires exactly 2 arguments, got ${evaluatedArgs.length}`
+      }
+      return await (f as ImpJdy)[2](evaluatedArgs[0], evaluatedArgs[1])
     } else {
       throw "[project]: not a function: " + sym
     }

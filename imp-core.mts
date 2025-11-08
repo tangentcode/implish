@@ -48,7 +48,7 @@ export enum SymT {
 
 export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
-export type ImpJsfA = {arity:number}
+export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[]}
 export type ImpIfnA = {arity:number, body:ImpVal[]}
 
 // Individual types for each ImpVal variant
