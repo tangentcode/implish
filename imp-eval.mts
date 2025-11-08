@@ -130,6 +130,22 @@ export let impWords: Record<string, ImpVal> = {
     }
     throw "rev expects a vector (INTs, NUMs, SYMs) or list (LST)"
   }, 1),
+  'len': imp.jsf(x => {
+    if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs || x[0] === ImpT.SYMs) {
+      return ImpC.int((x[2] as any[]).length)
+    }
+    if (ImpQ.isLst(x)) {
+      return ImpC.int(x[2].length)
+    }
+    if (x[0] === ImpT.STR) {
+      return ImpC.int((x[2] as string).length)
+    }
+    // Scalars have length 1
+    if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM) {
+      return ImpC.int(1)
+    }
+    throw "len expects a number, symbol, vector, list, or string"
+  }, 1),
   '!'   : imp.jsf(x=>{
     let n = x[2] as number
     if (n < 0) throw "! requires non-negative integer"
