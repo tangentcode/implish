@@ -14,6 +14,10 @@
  *        }
  *      }
  *    }
+ *   To do this from the command line, run:
+ *
+ *    claude mcp add implish -- node `realpath ./dist/imp-mcp.mjs`
+ *
  * 3. Restart Claude Code
  */
 
