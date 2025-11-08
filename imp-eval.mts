@@ -440,7 +440,9 @@ class ImpEvaluator {
     } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
       throw "expected a noun, got: " + impShow(res)
     }
-    return await this.extendStrand(res, false)
+    // Evaluate the noun first, then check for strands
+    res = await this.eval(res)
+    return await this.extendStrand(res, true)
   }
 
   // Handle assignment - recursively processes chained assignments
@@ -652,7 +654,13 @@ class ImpEvaluator {
           // case '(': TODO
           // case '{': TODO
           default: return imp.lst(a, await this.evalList(x))}}
-        else return imp.lst(a, await this.evalList(x))
+        else {
+          // For parentheses, return the last evaluated value (not wrapped in a list)
+          if (opener === '(') {
+            return await this.lastEval(x)
+          }
+          return imp.lst(a, await this.evalList(x))
+        }
       default: throw "invalid imp value:" + JSON.stringify(x) }}}
 
 export let impEval = async (x: ImpTop | ImpErr): Promise<ImpVal> =>
