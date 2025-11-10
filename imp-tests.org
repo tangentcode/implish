@@ -308,7 +308,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 > x: 42
 42
 > `[1 2 ,x]
-[1 2 42]
+[1 2, 42]
 #+end_src
 
 * DONE quasiquotation: unquote with expression
@@ -385,6 +385,45 @@ NOTE: Can't test #abc in tanco because # starts a comment
 > echo[1 2 3]
 1 2 3
 #+end_src
+
+* DONE strands: purely syntactic (not semantic)
+#+name: strand-syntactic
+#+begin_src imp
+> 1 2 3
+1 2 3
+> (0) 1
+1
+> (1 2) 3
+3
+> a: 2
+2
+> b: 3
+3
+> a b
+3
+> + a b
+5
+#+end_src
+
+Strands are formed only from adjacent literal tokens (INT, NUM, backtick symbols), not from evaluated expressions or variables. So `+ a b` passes two separate arguments (variables aren't literals), while `+ 2 3` would form a strand `2 3` as one argument (resulting in partial application).
+
+* DONE strands: as function arguments with comma separator
+#+name: strand-func-args-comma
+#+begin_src imp
+> + 1 2 3, 4 5 6
+5 7 9
+#+end_src
+
+When collecting function arguments, strands form within each comma-separated argument. The comma acts as an argument separator.
+
+* DONE strands: passed to functions
+#+name: strand-func-args
+#+begin_src imp
+> show 1 2 3
+"1 2 3"
+#+end_src
+
+When a function collects arguments, adjacent literals form a strand that is passed as a single argument. (Note: using `show` instead of `echo` since `echo` writes to stdout which isn't captured by the test harness)
 
 * DONE type? introspection
 #+name: type-int

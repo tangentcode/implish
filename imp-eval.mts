@@ -220,6 +220,81 @@ const foldIdentities: Record<string, number> = {
   'max': -Infinity,
 }
 
+// Refine a token tree by combining adjacent literal tokens into strands
+// This transforms sequences of INT→INTs, NUM/INT→NUMs, and backtick SYM→SYMs
+// Only processes the top level of the given list
+export function refine(tree: ImpVal): ImpVal {
+  // Only refine TOP and LST nodes
+  if (tree[0] !== ImpT.TOP && tree[0] !== ImpT.LST) {
+    return tree
+  }
+
+  const items = tree[2] as ImpVal[]
+  const refined: ImpVal[] = []
+  let i = 0
+
+  while (i < items.length) {
+    const item = items[i]
+
+    // Check if this is the start of a numeric strand
+    if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+      const nums: number[] = [item[2] as number]
+      let hasNum = item[0] === ImpT.NUM
+      let j = i + 1
+
+      // Collect adjacent INT/NUM tokens (stop at any non-number token)
+      while (j < items.length) {
+        const next = items[j]
+        if (next[0] !== ImpT.INT && next[0] !== ImpT.NUM) break
+        nums.push(next[2] as number)
+        if (next[0] === ImpT.NUM) hasNum = true
+        j++
+      }
+
+      // If we collected more than one, create a strand
+      if (nums.length > 1) {
+        refined.push(hasNum ? ImpC.nums(nums) : ImpC.ints(nums))
+        i = j
+        continue
+      }
+    }
+
+    // Check if this is the start of a backtick symbol strand
+    if (ImpQ.isSym(item) && item[1].kind === SymT.BQT) {
+      const syms: symbol[] = [item[2] as symbol]
+      let j = i + 1
+
+      // Collect adjacent backtick symbols
+      while (j < items.length) {
+        const nextItem = items[j]
+        if (!ImpQ.isSym(nextItem)) break
+        const attrs = nextItem[1]
+        if (!attrs || attrs.kind !== SymT.BQT) break
+        syms.push(nextItem[2] as symbol)
+        j++
+      }
+
+      // If we collected more than one, create a strand
+      if (syms.length > 1) {
+        refined.push(ImpC.syms(syms))
+        i = j
+        continue
+      }
+    }
+
+    // Not part of a strand, keep as-is
+    refined.push(item)
+    i++
+  }
+
+  // Return refined tree with same structure
+  if (tree[0] === ImpT.TOP) {
+    return [ImpT.TOP, tree[1], refined]
+  } else {
+    return imp.lst(tree[1], refined)
+  }
+}
+
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
   '+'   : imp.jsf((x,y)=>elemWise((a,b)=>a+b, x, y), 2),
@@ -451,6 +526,7 @@ export let impWords: Record<string, ImpVal> = {
     // Return all defined word names as a SYMs vector
     return ImpC.syms(Object.keys(impWords).map(w => Symbol(w)))
   }, 0),
+  'refine': imp.jsf(x=>refine(x), 1),
 }
 
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
@@ -648,7 +724,7 @@ class ImpEvaluator {
       // Consume the verb
       let op = this.nextItem()
 
-      // Collect the right operand - could be a noun/strand or a verb application
+      // Collect the right operand - could be a noun or a verb application
       let arg: ImpVal
       let p2 = this.peek()
       if (p2?.wc === ImpP.V) {
@@ -668,8 +744,8 @@ class ImpEvaluator {
           arg = await (v as ImpJsf)[2].apply(this, args)
         }
       } else {
-        // Handle simple noun/strand
-        arg = await this.collectStrand()
+        // Handle simple noun (strands are already formed by refine())
+        arg = await this.nextNounItem()
       }
 
       // Apply the arity-2 verb
@@ -681,63 +757,9 @@ class ImpEvaluator {
     }
     return res }
 
-  // Helper: extend a value into a strand by collecting following items
-  // - firstItem: the already-obtained first item (evaluated or raw)
-  // - evaluated: if true, items are already evaluated; if false, call eval on each
-  private extendStrand = async (firstItem: ImpVal, evaluated: boolean): Promise<ImpVal> => {
-    let strand: ImpVal[] = [firstItem]
-    let strandType: ImpT | null = null
 
-    // Determine if we should collect a strand
-    if (firstItem[0] === ImpT.INT) strandType = ImpT.INTs
-    else if (firstItem[0] === ImpT.NUM) strandType = ImpT.NUMs
-    else if (firstItem[0] === ImpT.SYM && (firstItem as any)[1].kind === SymT.BQT) strandType = ImpT.SYMs
-
-    if (strandType) {
-      // Keep collecting matching items until we hit a separator, operator, or end
-      while (true) {
-        let p = this.peek()
-        if (!p || (p.wc !== ImpP.N && p.wc !== ImpP.Q)) break
-
-        // Check if next item matches strand type
-        let nextType = p.item[0]
-        let matches = false
-        if (strandType === ImpT.INTs && nextType === ImpT.INT && p.wc === ImpP.N) matches = true
-        else if (strandType === ImpT.NUMs && (nextType === ImpT.NUM || nextType === ImpT.INT) && p.wc === ImpP.N) {
-          // Allow mixing INT and NUM in a NUM strand
-          matches = true
-        }
-        else if (strandType === ImpT.SYMs && nextType === ImpT.SYM &&
-                 (p.item as any)[1].kind === SymT.BQT && p.wc === ImpP.Q) matches = true
-
-        if (!matches) break
-
-        // Add to strand
-        this.keep(p)
-        let item = evaluated ? await this.eval(p.item) : p.item
-        strand.push(item)
-
-        // If we found a NUM in an INT strand, upgrade to NUM strand
-        if (strandType === ImpT.INTs && nextType === ImpT.NUM) strandType = ImpT.NUMs
-      }
-
-      // If we collected more than one item, return a vector
-      if (strand.length > 1) {
-        if (strandType === ImpT.INTs) {
-          return ImpC.ints(strand.map(x => x[2] as number))
-        } else if (strandType === ImpT.NUMs) {
-          return ImpC.nums(strand.map(x => x[2] as number))
-        } else if (strandType === ImpT.SYMs) {
-          return ImpC.syms(strand.map(x => x[2] as symbol))
-        }
-      }
-    }
-
-    return firstItem
-  }
-
-  // Helper to collect a strand (number or symbol vector)
-  collectStrand = async (): Promise<ImpVal> => {
+  // Collect next noun - handles assignments, get-words, verbs, and regular nouns
+  private async nextNounItem(): Promise<ImpVal> {
     let res = this.nextItem()
     // Skip separators (commas are used to separate function arguments)
     while (res[0] === ImpT.SEP && res[2] === ',') {
@@ -801,9 +823,8 @@ class ImpEvaluator {
     } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
       throw "expected a noun, got: " + impShow(res)
     }
-    // Evaluate the noun first, then check for strands
-    res = await this.eval(res)
-    return await this.extendStrand(res, true)
+    // Evaluate the noun (strands are already formed by refine())
+    return await this.eval(res)
   }
 
   // Handle assignment - recursively processes chained assignments
@@ -824,8 +845,7 @@ class ImpEvaluator {
       if (!value) throw "undefined word: " + getVarName
     } else if (this.wc === ImpP.N) {
       value = await this.eval(nextX)
-      // Collect any following strand items, then apply infix operators
-      value = await this.extendStrand(value, true)
+      // Apply infix operators (strands are already formed by refine())
       value = await this.modifyNoun(value)
     } else if (this.wc === ImpP.V) {
       // Apply verb modifiers (composition, etc.) only to JSF for now
@@ -877,8 +897,8 @@ class ImpEvaluator {
   }
 
   nextNoun = async (): Promise<ImpVal> => {
-    // Collect a strand, then apply any infix operators
-    let res = await this.collectStrand()
+    // Get next noun item, then apply any infix operators
+    let res = await this.nextNounItem()
     res = await this.modifyNoun(res)
     return res
   }
@@ -948,15 +968,17 @@ class ImpEvaluator {
       }
       return result
     }
-    // If it's a list, recursively quasiquote its contents
+    // If it's a list, refine it first to form strands, then recursively quasiquote
     if (ImpQ.isLst(x)) {
+      // First refine to combine adjacent literals into strands
+      let refined = refine(x) as ImpLst
       let results: ImpVal[] = []
-      for (let item of x[2]) {
+      for (let item of refined[2]) {
         results.push(await this.quasiquote(item))
       }
       // Strip the backtick from the opener to return an unquoted list
-      let newOpen = x[1].open.startsWith('`') ? x[1].open.slice(1) : x[1].open
-      return imp.lst({open: newOpen, close: x[1].close}, results)
+      let newOpen = refined[1].open.startsWith('`') ? refined[1].open.slice(1) : refined[1].open
+      return imp.lst({open: newOpen, close: refined[1].close}, results)
     }
     // For all other values, return as-is
     return x
@@ -1131,6 +1153,8 @@ class ImpEvaluator {
 
   // evaluate a list
   evalList = async (xs:ImpLst|ImpTop): Promise<ImpVal[]> => {
+    // First, refine the tree to combine adjacent literals into strands
+    xs = refine(xs) as ImpLst|ImpTop
     // walk from left to right, building up values to emit
     let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     this.enter(xs)
@@ -1227,7 +1251,7 @@ class ImpEvaluator {
           }
           break
         case ImpP.N:
-          // Evaluate the noun, collect any following strand, then apply operators
+          // Evaluate the noun, then apply operators (strands are already formed by refine())
           x = await this.eval(x)
           // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
           if (this.wordClass(x) === ImpP.V) {
@@ -1245,31 +1269,12 @@ class ImpEvaluator {
               tb.emit(await (x as ImpJsf)[2].apply(this, args))
             }
           } else {
-            x = await this.extendStrand(x, true)
             x = await this.modifyNoun(x)
             tb.emit(x)
           }
           break
         case ImpP.Q:
-          // Collect strands of backtick symbols
-          if (ImpQ.isSym(x) && (x as any)[1].kind === SymT.BQT) {
-            let strand: ImpVal[] = [x]
-            // Keep collecting matching backtick symbols
-            while (true) {
-              let p = this.peek()
-              if (!p || p.wc !== ImpP.Q) break
-              if (!ImpQ.isSym(p.item) || (p.item as any)[1].kind !== SymT.BQT) break
-
-              // Add to strand
-              this.keep(p)
-              strand.push(p.item)
-            }
-
-            // If we collected more than one item, return a symbol vector
-            if (strand.length > 1) {
-              x = ImpC.syms(strand.map(s => s[2] as symbol))
-            }
-          }
+          // Quotes (strands of backtick symbols are already formed by refine())
           tb.emit(x)
           break
         case ImpP.G: // get-word (return value without evaluation)

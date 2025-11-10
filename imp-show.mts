@@ -6,10 +6,53 @@ function q(x:string):string {
 
 export class ImpWriter {
 
+  // Get the "kind" of a noun for comma separation purposes
+  // Returns 'number' for numeric items, 'bqt-symbol' for backtick symbols, null otherwise
+  private nounKind(x: ImpVal): string | null {
+    switch (x[0]) {
+      case ImpT.INT:
+      case ImpT.NUM:
+      case ImpT.INTs:
+      case ImpT.NUMs:
+        return 'number'
+      case ImpT.SYM:
+        // Only backtick symbols need commas
+        if (x[1].kind === SymT.BQT) return 'bqt-symbol'
+        return null
+      case ImpT.SYMs:
+        return 'bqt-symbol'  // Backtick symbol vectors
+      default:
+        return null
+    }
+  }
+
   // return a string representation
   show: (x: ImpVal) => string = (x) => {
-    let showList: (xs: ImpVal[]) => string =
-      (xs) => xs.map(this.show).join(' ')
+    let showList: (xs: ImpVal[]) => string = (xs) => {
+      // Check if this list has any SEP tokens
+      const hasSeps = xs.some(item => item[0] === ImpT.SEP)
+
+      let result = ''
+      for (let i = 0; i < xs.length; i++) {
+        if (i > 0) {
+          // If the list has SEPs, they'll be shown naturally; don't insert commas
+          // If no SEPs but adjacent same-kind nouns, insert comma
+          if (!hasSeps) {
+            const prevKind = this.nounKind(xs[i-1])
+            const currKind = this.nounKind(xs[i])
+            if (prevKind !== null && currKind !== null && prevKind === currKind) {
+              result += ', '
+            } else {
+              result += ' '
+            }
+          } else {
+            result += ' '
+          }
+        }
+        result += this.show(xs[i])
+      }
+      return result
+    }
     switch (x[0]) {
       case ImpT.TOP: return showList(x[2])
       case ImpT.ERR: return `?${q(x[2])}`
