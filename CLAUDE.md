@@ -109,6 +109,45 @@ Functions:
 - `part`: Get part of speech for a value
 - `type?`: Get type of a value
 
+### Adding New Words to Implish
+
+To add a new built-in function to implish:
+
+1. **Edit imp-eval.mts** around line 298 where `impWords` is defined
+2. **Add your word** to the `impWords` object using this pattern:
+   ```typescript
+   'wordname': imp.jsf((arg1, arg2, ...) => {
+     // Your implementation here
+     // Return an ImpVal (use ImpC.int(), ImpC.str(), ImpC.sym(), etc.)
+   }, arity),
+   ```
+3. **Choose the correct arity** (number of arguments):
+   - 0 for nullary functions (no arguments)
+   - 1 for unary functions (one argument)
+   - 2 for binary functions (two arguments)
+4. **Return values** using constructors from ImpC:
+   - `ImpC.int(n)` for integers
+   - `ImpC.num(n)` for floats
+   - `ImpC.str(s)` for strings
+   - `ImpC.sym(Symbol('name'), SymT.RAW)` for symbols
+   - `ImpC.ints([...])` for integer vectors
+   - `ImpC.nums([...])` for float vectors
+   - `ImpC.syms([...])` for symbol vectors
+   - `imp.lst(type, [...])` for lists
+   - `NIL` for nil/void
+5. **Rebuild**: Run `npm run build`
+6. **Test**: The MCP server will automatically load the fresh code on next eval
+
+Example:
+```typescript
+'double': imp.jsf(x => {
+  if (x[0] === ImpT.INT) {
+    return ImpC.int((x[2] as number) * 2)
+  }
+  throw "double expects an integer"
+}, 1),
+```
+
 ### Important Patterns
 
 **Strands**: Juxtaposed values form vectors
@@ -166,3 +205,4 @@ x: 42
 - File paths use a unified syntax (`%/d/path` for Windows, `%/path` for Unix) to avoid platform-specific quoting issues
 - always use the mcp server to execute implish code.
 - ALWAYS use the mcp server to run implish!
+- the implish mcp server reloads implish on each version. you don't have to worry about old versions being cached.
