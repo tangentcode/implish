@@ -29,26 +29,67 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { spawn } from 'child_process';
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Helper to dynamically import modules with cache busting
-async function getImplishModules() {
-  const timestamp = Date.now();
-  const core = await import(`./imp-core.mjs?t=${timestamp}`);
-  const loader = await import(`./imp-load.mjs?t=${timestamp}`);
-  const evalMod = await import(`./imp-eval.mjs?t=${timestamp}`);
-  const show = await import(`./imp-show.mjs?t=${timestamp}`);
+interface WorkerRequest {
+  operation: 'eval' | 'load' | 'list_words' | 'inspect_word';
+  code?: string;
+  word?: string;
+}
 
-  return {
-    ImpLoader: loader.ImpLoader,
-    impEval: evalMod.impEval,
-    impWords: evalMod.impWords,
-    impShow: show.impShow,
-    ImpT: core.ImpT,
-  };
+interface WorkerResponse {
+  success: boolean;
+  result?: string;
+  error?: string;
+}
+
+// Spawn a worker process to handle implish operations
+// This ensures a fresh environment for each operation
+async function spawnWorker(request: WorkerRequest): Promise<WorkerResponse> {
+  const workerPath = join(__dirname, 'imp-mcp-worker.mjs');
+
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', [workerPath], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    child.on('error', (error) => {
+      reject(new Error(`Failed to spawn worker: ${error.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Worker exited with code ${code}${stderr ? ': ' + stderr : ''}`));
+        return;
+      }
+
+      try {
+        const response: WorkerResponse = JSON.parse(stdout);
+        resolve(response);
+      } catch (error) {
+        reject(new Error(`Failed to parse worker response: ${error}`));
+      }
+    });
+
+    // Send request to worker
+    child.stdin.write(JSON.stringify(request));
+    child.stdin.end();
+  });
 }
 
 // Create server instance
@@ -137,44 +178,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("code parameter is required");
         }
 
-        // Dynamically load modules
-        const { ImpLoader, impEval, impShow, ImpT } = await getImplishModules();
+        // Spawn worker with fresh environment
+        const response = await spawnWorker({ operation: 'eval', code });
 
-        // Parse the code
-        const loader = new ImpLoader();
-        loader.send(code);
-        const parsed = loader.read();
-
-        // Check for parse errors
-        if (parsed[0] === ImpT.ERR) {
+        if (!response.success) {
           return {
             content: [
               {
                 type: "text",
-                text: `Parse error: ${parsed[2]}`,
+                text: `Error: ${response.error}`,
               },
             ],
+            isError: true,
           };
-        }
-
-        // Evaluate the code
-        const result = await impEval(parsed);
-
-        // Format the result
-        let output: string;
-        if (result[0] === ImpT.ERR) {
-          output = `Error: ${result[2]}`;
-        } else if (result[0] === ImpT.NIL) {
-          output = ""; // Don't show NIL (like the REPL)
-        } else {
-          output = impShow(result);
         }
 
         return {
           content: [
             {
               type: "text",
-              text: output,
+              text: response.result || "",
             },
           ],
         };
@@ -189,37 +212,52 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("code parameter is required");
         }
 
-        // Dynamically load modules
-        const { ImpLoader, impShow } = await getImplishModules();
+        // Spawn worker with fresh environment
+        const response = await spawnWorker({ operation: 'load', code });
 
-        // Parse the code
-        const loader = new ImpLoader();
-        loader.send(code);
-        const parsed = loader.read();
-
-        // Show the parsed result
-        const output = impShow(parsed);
+        if (!response.success) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: ${response.error}`,
+              },
+            ],
+            isError: true,
+          };
+        }
 
         return {
           content: [
             {
               type: "text",
-              text: output,
+              text: response.result || "",
             },
           ],
         };
       }
 
       case "list_words": {
-        // Dynamically load modules
-        const { impWords } = await getImplishModules();
+        // Spawn worker with fresh environment
+        const response = await spawnWorker({ operation: 'list_words' });
 
-        const words = Object.keys(impWords).sort();
+        if (!response.success) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Error: ${response.error}`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: words.join("\n"),
+              text: response.result || "",
             },
           ],
         };
@@ -234,27 +272,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("word parameter is required");
         }
 
-        // Dynamically load modules
-        const { impWords, impShow } = await getImplishModules();
+        // Spawn worker with fresh environment
+        const response = await spawnWorker({ operation: 'inspect_word', word });
 
-        const value = impWords[word];
-        if (value === undefined) {
+        if (!response.success) {
           return {
             content: [
               {
                 type: "text",
-                text: `Word '${word}' is not defined`,
+                text: `Error: ${response.error}`,
               },
             ],
+            isError: true,
           };
         }
 
-        const output = impShow(value);
         return {
           content: [
             {
               type: "text",
-              text: output,
+              text: response.result || "",
             },
           ],
         };
