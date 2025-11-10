@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npm run build:*)",
       "mcp__implish__eval_implish",
-      "mcp__implish__load_implish"
+      "mcp__implish__load_implish",
+      "Bash(uv run:*)",
+      "mcp__implish__inspect_word"
     ],
     "deny": [],
     "ask": []
