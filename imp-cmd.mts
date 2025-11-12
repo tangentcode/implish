@@ -10,11 +10,11 @@ import * as os from "os";
 import * as path from "path";
 
 // Parse command-line arguments
-let promptText = '> ';
+let quietMode = false;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '-q' || args[i] === '--quiet') {
-    promptText = '';
+    quietMode = true;
   }
 }
 
@@ -118,53 +118,92 @@ function completeWord(token: string): [string[], string] {
   return [matches, token]
 }
 
-let rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-  completer: completer
-});
-
-rl.setPrompt(promptText);
-
-// Only enable history persistence when running interactively (TTY)
-const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
-
-if (isInteractive) {
-  // Load history from file if it exists
-  try {
-    const history = fs.readFileSync(historyFile, 'utf-8')
-      .split('\n')
-      .filter(line => line.trim().length > 0)
-      .reverse(); // Reverse because history is added in reverse order
-
-    for (const line of history) {
-      (rl as any).history.push(line);
-    }
-  } catch (e) {
-    // History file doesn't exist yet or can't be read - that's fine
-  }
-
-  // Save history on exit
-  function saveHistory() {
-    try {
-      const history = (rl as any).history
-        .slice()
-        .reverse()
-        .join('\n') + '\n';
-      fs.writeFileSync(historyFile, history, 'utf-8');
-    } catch (e) {
-      console.error('Failed to save history:', e);
-    }
-  }
-
-  process.on('exit', saveHistory);
-  process.on('SIGINT', () => {
-    saveHistory();
-    process.exit(0);
+// Quiet mode REPL: simple line-by-line reading without readline
+async function quietRepl() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: false  // Disable terminal features (no prompt, no special handling)
   });
+
+  const lineIterator = rl[Symbol.asyncIterator]();
+
+  // Create a provider that reads from the shared iterator
+  class REPLInputProvider {
+    async readLine() {
+      const { value, done } = await lineIterator.next();
+      if (done) throw new Error('End of input');
+      return value;
+    }
+  }
+
+  setInputProvider(new REPLInputProvider());
+
+  // Process lines without prompting
+  for await (const line of lineIterator) {
+    try {
+      il.send(line)
+      let r = il.read()
+      if (r) {
+        let e = await impEval(r)
+        if (e[0] !== ImpT.NIL) console.log(impShow(e))
+      }
+    } catch (e) {
+      console.trace(e)
+    }
+  }
+
+  setInputProvider(null);
 }
 
-async function repl() {
+// Interactive mode REPL: full readline with prompt, completion, history
+async function interactiveRepl() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    completer: completer
+  });
+
+  rl.setPrompt('> ');
+
+  // Only enable history persistence when running interactively (TTY)
+  const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
+
+  if (isInteractive) {
+    // Load history from file if it exists
+    try {
+      const history = fs.readFileSync(historyFile, 'utf-8')
+        .split('\n')
+        .filter(line => line.trim().length > 0)
+        .reverse(); // Reverse because history is added in reverse order
+
+      for (const line of history) {
+        (rl as any).history.push(line);
+      }
+    } catch (e) {
+      // History file doesn't exist yet or can't be read - that's fine
+    }
+
+    // Save history on exit
+    function saveHistory() {
+      try {
+        const history = (rl as any).history
+          .slice()
+          .reverse()
+          .join('\n') + '\n';
+        fs.writeFileSync(historyFile, history, 'utf-8');
+      } catch (e) {
+        console.error('Failed to save history:', e);
+      }
+    }
+
+    process.on('exit', saveHistory);
+    process.on('SIGINT', () => {
+      saveHistory();
+      process.exit(0);
+    });
+  }
+
   // Create an async iterator that we control
   const lineIterator = rl[Symbol.asyncIterator]();
 
@@ -191,8 +230,11 @@ async function repl() {
       let r = il.read()
       if (r) {
         let e = await impEval(r)
-        if (e[0] !== ImpT.NIL) console.log(impShow(e)) }}
-    catch (e) { console.trace(e) }
+        if (e[0] !== ImpT.NIL) console.log(impShow(e))
+      }
+    } catch (e) {
+      console.trace(e)
+    }
     rl.prompt();
   }
 
@@ -200,4 +242,9 @@ async function repl() {
   setInputProvider(null);
 }
 
-await repl()
+// Start the appropriate REPL mode
+if (quietMode) {
+  await quietRepl()
+} else {
+  await interactiveRepl()
+}
