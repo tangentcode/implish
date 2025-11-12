@@ -735,8 +735,10 @@ class ImpEvaluator {
         }
         let args = []
         let vArity = (v[1] as ImpJsfA | ImpIfnA).arity
+        // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
+        let vEagerly = (vArity === 1)
         for (let i = 0; i < vArity; i++) {
-          args.push(await this.nextNoun())
+          args.push(await this.nextNoun(vEagerly))
         }
         if (v[0] === ImpT.IFN) {
           arg = await this.applyIfn(v as ImpIfn, args)
@@ -789,10 +791,12 @@ class ImpEvaluator {
       // Get arity from function metadata
       let arity = (res[1] as ImpJsfA | ImpIfnA).arity
       // Collect arguments, stopping if we hit END
+      // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
+      let eagerly = (arity === 1)
       for (let i = 0; i < arity; i++) {
         if (this.atEnd()) break
         try {
-          args.push(await this.nextNoun())
+          args.push(await this.nextNoun(eagerly))
         } catch (e) {
           // If we can't get an argument (e.g., hit END), stop collecting
           if (String(e).includes("unexpected end of input")) break
@@ -856,10 +860,12 @@ class ImpEvaluator {
       // Get arity from function metadata
       let arity = (nextX[1] as ImpJsfA | ImpIfnA).arity
       // Collect arguments, stopping if we hit END
+      // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
+      let eagerly = (arity === 1)
       for (let i = 0; i < arity; i++) {
         if (this.atEnd()) break
         try {
-          args.push(await this.nextNoun())
+          args.push(await this.nextNoun(eagerly))
         } catch (e) {
           // If we can't get an argument (e.g., hit END), stop collecting
           if (String(e).includes("unexpected end of input")) break
@@ -896,10 +902,14 @@ class ImpEvaluator {
     return value
   }
 
-  nextNoun = async (): Promise<ImpVal> => {
-    // Get next noun item, then apply any infix operators
+  nextNoun = async (eagerly: boolean = false): Promise<ImpVal> => {
+    // Get next noun item
+    // If eagerly=true (for monadic functions), don't look ahead for infix operators
+    // If eagerly=false (default), apply infix operators via modifyNoun
     let res = await this.nextNounItem()
-    res = await this.modifyNoun(res)
+    if (!eagerly) {
+      res = await this.modifyNoun(res)
+    }
     return res
   }
 
@@ -1217,19 +1227,22 @@ class ImpEvaluator {
           // Get arity from function metadata
           let arity = (x[1] as ImpJsfA | ImpIfnA).arity
           // Collect arguments, stopping if we hit END
+          // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
+          let eagerly = (arity === 1)
           for (let i = 0; i < arity; i++) {
             if (this.atEnd()) break
             try {
-              args.push(await this.nextNoun())
+              args.push(await this.nextNoun(eagerly))
             } catch (e) {
               // If we can't get an argument (e.g., hit END), stop collecting
               if (String(e).includes("unexpected end of input")) break
               throw e
             }
           }
-          // Handle partial application for IFN
+          // Apply the verb and get result
+          let result: ImpVal
           if (x[0] === ImpT.IFN) {
-            tb.emit(await this.applyIfn(x as ImpIfn, args))
+            result = await this.applyIfn(x as ImpIfn, args)
           } else {
             // JSF - check if we need partial application
             if (args.length < arity) {
@@ -1237,18 +1250,20 @@ class ImpEvaluator {
               let partialArity = arity - args.length
               let capturedArgs = args
               let originalFn = x as ImpJsf
-              let jsf: ImpJsf = [ImpT.JSF, {
+              result = [ImpT.JSF, {
                 arity: partialArity,
                 sourceIfn: originalFn,
                 capturedArgs: capturedArgs
               }, async (...remainingArgs: ImpVal[]) => {
                 return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
               }]
-              tb.emit(jsf)
             } else {
-              tb.emit(await (x as ImpJsf)[2].apply(this, args))
+              result = await (x as ImpJsf)[2].apply(this, args)
             }
           }
+          // Apply infix operators to the result (if any)
+          result = await this.modifyNoun(result)
+          tb.emit(result)
           break
         case ImpP.N:
           // Evaluate the noun, then apply operators (strands are already formed by refine())

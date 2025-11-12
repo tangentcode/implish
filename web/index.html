@@ -290,16 +290,24 @@
 
     // Run example code on startup
     const examples = [
-      'x: 42',
-      'x * 2',
-      'p: {+/ y * rev x ^ ! len y}  .: polynomial function :.',
-      'p 10, 3 5 7  .: evaluate 3 + 5*10 + 7*10^2 :.',
-      '2 + 3 * 5 + 7  .: normal precedence :.',
-      '2, + 3 * 5, + 7  .: comma forces evaluation :.',
-      '! 10, * 2, + 1  .: odd numbers :.',
-      '! 10 * 2 + 1  .: range 21 :.',
-      '1 + 2 * ! 10  .: multiples of 3 :.',
-      '1, + 2 * ! 10  .: odd numbers again :.'
+      '.: Basic operations and strands :.',
+      'x: 1 2 3  .: juxtaposed values form vectors :.',
+      'x + 10  .: element-wise addition :.',
+      '.: Monadic functions collect eagerly :.',
+      'rev 1 2 3  .: reverse a vector :.',
+      '2 + rev 1 2 3  .: infix after monadic :.',
+      'rev 1 2 3 + 10  .: eager: (rev [1,2,3]) + 10 :.',
+      '.: Dyadic operators and infix :.',
+      '2 + 3 * 5  .: left-to-right: (2+3)*5 = 25 :.',
+      '2 ^ ! 5  .: 2^[0..4] = [1,2,4,8,16] :.',
+      '.: Comma forces sequencing :.',
+      '! 5, rev  .: pipe: [0..4] then reverse :.',
+      '! 10, * 2, + 1  .: odd numbers: 1,3,5... :.',
+      '.: Functions with curly braces :.',
+      'f: {x * x}  .: implicit arity-1 :.',
+      'f 7  .: 49 :.',
+      'g: {x + y * 2}  .: implicit arity-2 :.',
+      'g 3, 5  .: 3 + 5*2 = 16 (left-to-right) :.'
     ]
 
     async function runExamples() {
