@@ -9,11 +9,11 @@ The evaluator combines parsing and evaluation in a single pass using a "parts of
 ** Goal
 Refactor the evaluation pipeline into three distinct phases:
 1. ~load[]~ - Lexer/tokenizer (already exists)
-2. ~refine[]~ - Parser/normalizer (exists but minimal - needs expansion)
+2. ~imparse[]~ - Parser/normalizer (exists but minimal - needs expansion)
 3. ~eval[]~ - Interpreter (needs simplification)
 
 ** Key Insight
-After refinement, everything should be in M-expression form: ~head[arg1; arg2; ...]~
+After parsing, everything should be in M-expression form: ~head[arg1; arg2; ...]~
 
 This makes evaluation trivial: look at the head, evaluate it with the arguments.
 
@@ -82,14 +82,14 @@ The ~o="["~ and ~c="]"~ are defaults and can be omitted.
 - This is exactly M-expressions from McCarthy's original Lisp paper
 - We use vectors/arrays instead of cons cells
 
-* Transformation Rules (for refine[])
+* Transformation Rules (for imparse[])
 
 ** Function Application: ~a F b c~ → ~F[a; b; c]~
 
 #+begin_example
 Source:  2 !
 Load:    [INT(2), SYM(!)]
-Refine:  [SYM(!) [INT(2)]]        ; list with head=!
+Parse:   [SYM(!) [INT(2)]]        ; list with head=!
 Display: ![2]
 Eval:    [INT(0), INT(1)]
 #+end_example
@@ -97,7 +97,7 @@ Eval:    [INT(0), INT(1)]
 #+begin_example
 Source:  2 ! 10
 Load:    [INT(2), SYM(!), INT(10)]
-Refine:  [SYM(!) [INT(2), INT(10)]]
+Parse:   [SYM(!) [INT(2), INT(10)]]
 Display: ![2; 10]
 Eval:    ERROR: valence error (! has arity 1, got 2 args)
 #+end_example
@@ -107,7 +107,7 @@ Eval:    ERROR: valence error (! has arity 1, got 2 args)
 #+begin_example
 Source:  2 + 3
 Load:    [INT(2), SYM(+), INT(3)]
-Refine:  [SYM(+) [INT(2), INT(3)]]
+Parse:  [SYM(+) [INT(2), INT(3)]]
 Display: +[2; 3]
 Eval:    INT(5)
 #+end_example
@@ -117,7 +117,7 @@ Eval:    INT(5)
 #+begin_example
 Source:  2 + 3 * 5
 Load:    [INT(2), SYM(+), INT(3), SYM(*), INT(5)]
-Refine:  [SYM(*) [[SYM(+) [INT(2), INT(3)]], INT(5)]]
+Parse:  [SYM(*) [[SYM(+) [INT(2), INT(3)]], INT(5)]]
 Display: *[+[2; 3]; 5]
 Eval:    INT(25)     ; (2 + 3) * 5
 #+end_example
@@ -129,7 +129,7 @@ This is Q'Nial's "pervasive" style: all infix operators have equal precedence, e
 #+begin_example
 Source:  2, + 3 * 5
 Load:    [INT(2), SEP(,), SYM(+), INT(3), SYM(*), INT(5)]
-Refine:  [SYM(+) [INT(2), [SYM(*) [INT(3), INT(5)]]]]
+Parse:  [SYM(+) [INT(2), [SYM(*) [INT(3), INT(5)]]]]
 Display: +[2; *[3; 5]]
 Eval:    INT(17)     ; 2 + (3 * 5)
 #+end_example
@@ -141,7 +141,7 @@ The comma makes the dyadic operator collect its right-hand side as a complete ex
 #+begin_example
 Source:  2, !
 Load:    [INT(2), SEP(,), SYM(!)]
-Refine:  [SYM(!) [INT(2)]]
+Parse:  [SYM(!) [INT(2)]]
 Display: ![2]
 Eval:    [INT(0), INT(1)]
 #+end_example
@@ -151,19 +151,19 @@ Eval:    [INT(0), INT(1)]
 #+begin_example
 Source:  1 2 3
 Load:    [INT(1), INT(2), INT(3)]
-Refine:  [LST [INT(1), INT(2), INT(3)]]
+Parse:  [LST [INT(1), INT(2), INT(3)]]
 Display: 1 2 3
 Eval:    [INT(1), INT(2), INT(3)]
 #+end_example
 
-Currently handled by ~refine[]~, should continue to work.
+Currently handled by ~imparse[]~, should continue to work.
 
 ** Projection Syntax: ~F[a; b]~ (already in M-expression form)
 
 #+begin_example
 Source:  +[1; 2]
 Load:    [SYM(+), LST[INT(1), SEP(;), INT(2)]]
-Refine:  [SYM(+) [INT(1), INT(2)]]
+Parse:  [SYM(+) [INT(1), INT(2)]]
 Display: +[1; 2]
 Eval:    INT(3)
 #+end_example
@@ -220,7 +220,7 @@ All of these should pass after refactoring:
 2. Document all edge cases
 3. Run tests against current implementation to establish baseline
 
-** Phase 2: Implement refine[] Transformations
+** Phase 2: Implement imparse[] Transformations
 1. Start with simple cases:
    - Function application: ~a F b~ → ~F[a; b]~
    - Infix operators: ~a op b~ → ~op[a; b]~

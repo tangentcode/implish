@@ -18,6 +18,7 @@ import {
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
 import {load} from './imp-load.mjs'
+import {imparse} from './im-parse.mjs'
 import {toNativePath} from './lib-file.mjs'
 
 // Node.js modules - only available in Node.js environment
@@ -218,81 +219,6 @@ const foldIdentities: Record<string, number> = {
   '*': 1,
   'min': Infinity,
   'max': -Infinity,
-}
-
-// Refine a token tree by combining adjacent literal tokens into strands
-// This transforms sequences of INT→INTs, NUM/INT→NUMs, and backtick SYM→SYMs
-// Only processes the top level of the given list
-export function refine(tree: ImpVal): ImpVal {
-  // Only refine TOP and LST nodes
-  if (tree[0] !== ImpT.TOP && tree[0] !== ImpT.LST) {
-    return tree
-  }
-
-  const items = tree[2] as ImpVal[]
-  const refined: ImpVal[] = []
-  let i = 0
-
-  while (i < items.length) {
-    const item = items[i]
-
-    // Check if this is the start of a numeric strand
-    if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
-      const nums: number[] = [item[2] as number]
-      let hasNum = item[0] === ImpT.NUM
-      let j = i + 1
-
-      // Collect adjacent INT/NUM tokens (stop at any non-number token)
-      while (j < items.length) {
-        const next = items[j]
-        if (next[0] !== ImpT.INT && next[0] !== ImpT.NUM) break
-        nums.push(next[2] as number)
-        if (next[0] === ImpT.NUM) hasNum = true
-        j++
-      }
-
-      // If we collected more than one, create a strand
-      if (nums.length > 1) {
-        refined.push(hasNum ? ImpC.nums(nums) : ImpC.ints(nums))
-        i = j
-        continue
-      }
-    }
-
-    // Check if this is the start of a backtick symbol strand
-    if (ImpQ.isSym(item) && item[1].kind === SymT.BQT) {
-      const syms: symbol[] = [item[2] as symbol]
-      let j = i + 1
-
-      // Collect adjacent backtick symbols
-      while (j < items.length) {
-        const nextItem = items[j]
-        if (!ImpQ.isSym(nextItem)) break
-        const attrs = nextItem[1]
-        if (!attrs || attrs.kind !== SymT.BQT) break
-        syms.push(nextItem[2] as symbol)
-        j++
-      }
-
-      // If we collected more than one, create a strand
-      if (syms.length > 1) {
-        refined.push(ImpC.syms(syms))
-        i = j
-        continue
-      }
-    }
-
-    // Not part of a strand, keep as-is
-    refined.push(item)
-    i++
-  }
-
-  // Return refined tree with same structure
-  if (tree[0] === ImpT.TOP) {
-    return [ImpT.TOP, tree[1], refined]
-  } else {
-    return imp.lst(tree[1], refined)
-  }
 }
 
 export let impWords: Record<string, ImpVal> = {
@@ -526,7 +452,7 @@ export let impWords: Record<string, ImpVal> = {
     // Return all defined word names as a SYMs vector
     return ImpC.syms(Object.keys(impWords).map(w => Symbol(w)))
   }, 0),
-  'refine': imp.jsf(x=>refine(x), 1),
+  'imparse': imp.jsf(x=>imparse(x), 1),
 }
 
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
@@ -746,7 +672,7 @@ class ImpEvaluator {
           arg = await (v as ImpJsf)[2].apply(this, args)
         }
       } else {
-        // Handle simple noun (strands are already formed by refine())
+        // Handle simple noun (strands are already formed by imparse())
         arg = await this.nextNounItem()
       }
 
@@ -827,7 +753,7 @@ class ImpEvaluator {
     } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
       throw "expected a noun, got: " + impShow(res)
     }
-    // Evaluate the noun (strands are already formed by refine())
+    // Evaluate the noun (strands are already formed by imparse())
     return await this.eval(res)
   }
 
@@ -849,7 +775,7 @@ class ImpEvaluator {
       if (!value) throw "undefined word: " + getVarName
     } else if (this.wc === ImpP.N) {
       value = await this.eval(nextX)
-      // Apply infix operators (strands are already formed by refine())
+      // Apply infix operators (strands are already formed by imparse())
       value = await this.modifyNoun(value)
     } else if (this.wc === ImpP.V) {
       // Apply verb modifiers (composition, etc.) only to JSF for now
@@ -978,10 +904,10 @@ class ImpEvaluator {
       }
       return result
     }
-    // If it's a list, refine it first to form strands, then recursively quasiquote
+    // If it's a list, parse it first to form strands, then recursively quasiquote
     if (ImpQ.isLst(x)) {
-      // First refine to combine adjacent literals into strands
-      let refined = refine(x) as ImpLst
+      // First parse to combine adjacent literals into strands
+      let refined = imparse(x) as ImpLst
       let results: ImpVal[] = []
       for (let item of refined[2]) {
         results.push(await this.quasiquote(item))
@@ -1163,8 +1089,8 @@ class ImpEvaluator {
 
   // evaluate a list
   evalList = async (xs:ImpLst|ImpTop): Promise<ImpVal[]> => {
-    // First, refine the tree to combine adjacent literals into strands
-    xs = refine(xs) as ImpLst|ImpTop
+    // First, parse/normalize the tree (strands + M-expressions)
+    xs = imparse(xs, this.words) as ImpLst|ImpTop
     // walk from left to right, building up values to emit
     let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     this.enter(xs)
@@ -1266,7 +1192,7 @@ class ImpEvaluator {
           tb.emit(result)
           break
         case ImpP.N:
-          // Evaluate the noun, then apply operators (strands are already formed by refine())
+          // Evaluate the noun, then apply operators (strands are already formed by imparse())
           x = await this.eval(x)
           // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
           if (this.wordClass(x) === ImpP.V) {
@@ -1289,7 +1215,7 @@ class ImpEvaluator {
           }
           break
         case ImpP.Q:
-          // Quotes (strands of backtick symbols are already formed by refine())
+          // Quotes (strands of backtick symbols are already formed by imparse())
           tb.emit(x)
           break
         case ImpP.G: // get-word (return value without evaluation)
