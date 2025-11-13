@@ -3,8 +3,7 @@
     "main": {
       "args": [
         "node", "--enable-source-maps", "dist/imp-cmd.mjs", "-q"
-      ],
-      "shell": false 
+      ]
     }
   },
   "test_plan": "imp-tests.org"
