@@ -2,6 +2,59 @@
 #+server: https://tangentcode.com/
 #+name: implish
 
+* DONE get/set: basic set and get
+#+name: get-set-basic
+#+begin_src
+> set[`x; 42]
+42
+> get[`x]
+42
+#+end_src
+
+Basic variable binding using set and retrieval using get.
+
+* DONE get/set: get undefined returns fault
+#+name: get-undefined
+#+begin_src
+> get[`undefined_var]
+?undefined_var
+#+end_src
+
+When getting an undefined variable, get returns a fault symbol (prefixed with ?).
+
+* DONE get/set: parallel assignment with vector
+#+name: get-set-vector
+#+begin_src
+> set[`a `b `c; 1 2 3]
+1 2 3
+> get[`a `b `c]
+<<1, 2, 3>>
+#+end_src
+
+Parallel assignment distributes vector values to multiple variables.
+
+* DONE get/set: scalar broadcast
+#+name: get-set-broadcast
+#+begin_src
+> set[`p `q `r; 99]
+99
+> get[`p `q `r]
+<<99, 99, 99>>
+#+end_src
+
+When setting multiple variables to a scalar, all get the same value.
+
+* DONE get/set: mixed defined and undefined
+#+name: get-set-mixed
+#+begin_src
+> set[`alpha; 10]
+10
+> get[`alpha `beta `gamma]
+<<10 ?beta ?gamma>>
+#+end_src
+
+Getting a mix of defined and undefined variables returns values and faults.
+
 * DONE repl behavior: print everything but nil
 #+name: nil
 #+begin_src

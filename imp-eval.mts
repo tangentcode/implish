@@ -223,6 +223,88 @@ const foldIdentities: Record<string, number> = {
 
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
+
+  // Variable access
+  'get': imp.jsf(function(this: ImpEvaluator, x: ImpVal) {
+    // get[`word] - look up a quoted symbol, return value or fault
+    // Also handles symbol vectors
+    if (ImpQ.isSym(x)) {
+      const varName = x[2].description!
+      const value = this.words[varName]
+      if (value !== undefined) {
+        return value
+      }
+      // Return fault symbol (?word)
+      return ImpC.sym(x[2], SymT.ERR)
+    } else if (x[0] === ImpT.SYMs) {
+      // Handle symbol vector - map get over each symbol
+      const syms = x[2] as symbol[]
+      const results: ImpVal[] = []
+      for (const sym of syms) {
+        const varName = sym.description!
+        const value = this.words[varName]
+        if (value !== undefined) {
+          results.push(value)
+        } else {
+          results.push(ImpC.sym(sym, SymT.ERR))
+        }
+      }
+      // Return as list
+      return imp.lst(undefined, results)
+    }
+    throw "get expects a symbol or symbol vector"
+  }, 1),
+
+  'set': imp.jsf(function(this: ImpEvaluator, x: ImpVal, y: ImpVal) {
+    // set[`word; value] - bind word to value, return value
+    // Also handles parallel assignment with symbol vectors
+    if (ImpQ.isSym(x)) {
+      const varName = x[2].description!
+      this.words[varName] = y
+      return y
+    } else if (x[0] === ImpT.SYMs) {
+      // Parallel assignment: set[`a `b `c; values]
+      const syms = x[2] as symbol[]
+
+      // If y is a list, distribute values
+      if (ImpQ.isLst(y)) {
+        const values = y[2] as ImpVal[]
+        for (let i = 0; i < syms.length; i++) {
+          const varName = syms[i].description!
+          const value = i < values.length ? values[i] : NIL
+          this.words[varName] = value
+        }
+        return y
+      } else if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs || y[0] === ImpT.SYMs) {
+        // Vector values - distribute to each variable
+        const values = y[2] as (number[] | symbol[])
+        const results: ImpVal[] = []
+        for (let i = 0; i < syms.length; i++) {
+          const varName = syms[i].description!
+          let value: ImpVal
+          if (i < values.length) {
+            if (y[0] === ImpT.INTs) value = ImpC.int(values[i] as number)
+            else if (y[0] === ImpT.NUMs) value = ImpC.num(values[i] as number)
+            else value = ImpC.sym(values[i] as symbol, SymT.RAW)
+          } else {
+            value = NIL
+          }
+          this.words[varName] = value
+          results.push(value)
+        }
+        return y
+      } else {
+        // Scalar value - assign to all variables
+        for (const sym of syms) {
+          const varName = sym.description!
+          this.words[varName] = y
+        }
+        return y
+      }
+    }
+    throw "set expects a symbol or symbol vector as first argument"
+  }, 2),
+
   '+'   : imp.jsf((x,y)=>elemWise((a,b)=>a+b, x, y), 2),
   '-'   : imp.jsf((x,y)=>elemWise((a,b)=>a-b, x, y), 2),
   '*'   : imp.jsf((x,y)=>elemWise((a,b)=>a*b, x, y), 2),
