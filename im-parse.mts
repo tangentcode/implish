@@ -302,17 +302,118 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
   return result
 }
 
-// Phase 2: Transform to M-expressions
-// Coordinates the two-pass transformation
-function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Check if there are any commas in the sequence
-  // If so, skip transformation and let the evaluator handle comma threading
-  const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
-  if (hasComma) {
-    return items
+// Transform comma-separated segments into chained M-expressions
+// e.g., `2, + 3` → `+[2; 3]`, `2, + 3 * 5, + 7` → `+[+[2; *[3; 5]]; 7]`
+function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
+  // Check for special symbols (SET, GET, LIT, etc.) - skip transformation entirely
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (ImpQ.isSym(item) && item[1].kind !== SymT.RAW) {
+      return items
+    }
   }
 
+  // Split items by comma separators
+  const segments: ImpVal[][] = []
+  let currentSegment: ImpVal[] = []
+
+  for (const item of items) {
+    if (item[0] === ImpT.SEP && item[2] === ',') {
+      if (currentSegment.length > 0) {
+        segments.push(currentSegment)
+        currentSegment = []
+      }
+    } else {
+      currentSegment.push(item)
+    }
+  }
+  if (currentSegment.length > 0) {
+    segments.push(currentSegment)
+  }
+
+  if (segments.length === 1) {
+    // No commas, just transform normally
+    return transformNoComma(segments[0], dict)
+  }
+
+  // Process segments with comma threading
+  // First segment transforms normally
+  let result = transformNoComma(segments[0], dict)
+
+  // Subsequent segments: check if they start with a verb (threading) or noun (arg separator)
+  for (let i = 1; i < segments.length; i++) {
+    const segment = segments[i]
+    if (segment.length === 0) {
+      throw "comma followed by nothing"
+    }
+
+    // Check if first item is a verb (for threading)
+    const firstItem = segment[0]
+    const isThreading = isRawSymbol(firstItem) &&
+                        isVerb(resolveSymbol(firstItem, dict) || firstItem)
+
+    if (!isThreading) {
+      // Not threading - this is argument separation (like `+ 1 2, 3 4`)
+      // Just append the comma and transformed segment to results
+      result.push(ImpC.sep(','))
+      const transformed = transformNoComma(segment, dict)
+      result.push(...transformed)
+      continue
+    }
+
+    // Threading case: verb takes previous result as first arg
+    const verbItem = firstItem
+    const val = resolveSymbol(verbItem, dict)
+    const resolved = val || verbItem
+
+    const arity = getArity(resolved)
+    const verbName = (verbItem[2] as symbol).description || '?'
+
+    if (arity === 1) {
+      // Arity-1: verb[prevResult]
+      if (segment.length > 1) {
+        throw `arity-1 verb ${verbName} after comma cannot have additional arguments`
+      }
+      // Wrap result in single M-expression
+      const mexpr = imp.lst({open: verbName + '[', close: ']'},
+                            result.length === 1 ? result : [imp.lst(undefined, result)])
+      result = [mexpr]
+    } else if (arity === 2) {
+      // Arity-2: verb[prevResult; restOfSegment]
+      const restItems = segment.slice(1)
+      const rightArg = transformNoComma(restItems, dict)
+
+      // Build M-expression: verb[prevResult; rightArg]
+      const args: ImpVal[] = []
+      // Add previous result
+      if (result.length === 1) {
+        args.push(result[0])
+      } else {
+        args.push(imp.lst(undefined, result))
+      }
+      args.push(ImpC.sep(';'))
+      // Add right argument
+      if (rightArg.length === 1) {
+        args.push(rightArg[0])
+      } else {
+        args.push(imp.lst(undefined, rightArg))
+      }
+
+      const mexpr = imp.lst({open: verbName + '[', close: ']'}, args)
+      result = [mexpr]
+    } else {
+      throw `comma-verb sequencing requires verb of arity 1 or 2, got arity ${arity}`
+    }
+  }
+
+  return result
+}
+
+// Transform items without commas (helper for comma threading)
+function transformNoComma(items: ImpVal[], dict: WordDict): ImpVal[] {
   // Check for special symbols (SET, GET, LIT, etc.) - skip transformation
+  // These need special handling during evaluation (e.g., SET symbols collect their value)
+  // TODO: Handle these in the parser once we have proper expression grouping
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
     if (ImpQ.isSym(item) && item[1].kind !== SymT.RAW) {
@@ -328,4 +429,19 @@ function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
   const afterPrefix = transformPrefix(items, dict)
   const afterInfix = transformInfixPostfix(afterPrefix, dict)
   return afterInfix
+}
+
+// Phase 2: Transform to M-expressions
+// Coordinates the two-pass transformation
+function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
+  // Check if there are any commas in the sequence
+  const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
+
+  if (hasComma) {
+    // Handle comma threading
+    return transformCommas(items, dict)
+  } else {
+    // No commas, use standard transformation
+    return transformNoComma(items, dict)
+  }
 }

@@ -712,16 +712,16 @@ The parser transforms infix chains left-to-right, creating nested M-expressions 
 
 The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10 → ![10]), then infix/postfix.
 
-* DONE imparse: AST skips comma cases
+* DONE imparse: AST handles comma threading
 #+name: imparse-ast-skip-comma
 #+begin_src imp
 > imparse '[2, + 3]
-[2 , + 3]
++[2 ; 3]
 > imparse '[2, + 3 * 5]
-[2 , + 3 * 5]
++[2 ; *[3 ; 5]]
 #+end_src
 
-When commas are present, the parser skips transformation and returns the original list structure.
+The parser now handles comma threading! When a comma is followed by a verb, it threads the previous value as the first argument.
 
 * DONE imparse: AST skips assignment cases
 #+name: imparse-ast-skip-assignment

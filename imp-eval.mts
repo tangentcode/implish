@@ -631,15 +631,14 @@ class ImpEvaluator {
     return {item: peekItem, wc: peekWC}}
 
   modifyNoun = async (x: ImpVal): Promise<ImpVal> => {
-    // NOTE: imparse() now handles prefix/infix/postfix transformation
+    // NOTE: imparse() now handles prefix/infix/postfix/comma threading
     // This code ONLY runs for cases that imparse deliberately skipped:
-    // - Comma threading: 2, + 3 * 5
-    // - Special symbols (SET, GET, LIT): 1 + x: 10
+    // - Special symbols (SET, GET, LIT): 1 + a: 10, 2, + x: 5
     //
     // For all other cases, imparse transforms to M-expressions (+[2; 3])
     // and the evaluator handles them via project() instead.
     //
-    // TODO: Once imparse handles commas and special symbols, this entire
+    // TODO: Once imparse handles special symbols, this entire
     // function can be deleted and eval can just handle M-expressions.
 
     // Check if next token is an arity-2 verb (works as infix operator)
@@ -1088,6 +1087,10 @@ class ImpEvaluator {
       // Handle separators - check for comma-verb sequencing
       this.nextItem()
       while (this.item && this.item[0] === ImpT.SEP && !this.atEnd()) {
+        // NOTE: imparse() now handles comma threading for normal cases
+        // This code ONLY runs when imparse skipped transformation:
+        // - Special symbols (SET, GET, LIT): 2, + x: 10
+        //
         // Check if this is a comma followed by a verb (sequencing operator)
         if (this.item[2] === ',') {
           let p = this.peek()
