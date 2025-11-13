@@ -452,7 +452,7 @@ export let impWords: Record<string, ImpVal> = {
     // Return all defined word names as a SYMs vector
     return ImpC.syms(Object.keys(impWords).map(w => Symbol(w)))
   }, 0),
-  'imparse': imp.jsf(x=>imparse(x), 1),
+  'imparse': imp.jsf((x) => imparse(x, impWords), 1),
 }
 
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
@@ -631,6 +631,17 @@ class ImpEvaluator {
     return {item: peekItem, wc: peekWC}}
 
   modifyNoun = async (x: ImpVal): Promise<ImpVal> => {
+    // NOTE: imparse() now handles prefix/infix/postfix transformation
+    // This code ONLY runs for cases that imparse deliberately skipped:
+    // - Comma threading: 2, + 3 * 5
+    // - Special symbols (SET, GET, LIT): 1 + x: 10
+    //
+    // For all other cases, imparse transforms to M-expressions (+[2; 3])
+    // and the evaluator handles them via project() instead.
+    //
+    // TODO: Once imparse handles commas and special symbols, this entire
+    // function can be deleted and eval can just handle M-expressions.
+
     // Check if next token is an arity-2 verb (works as infix operator)
     let res = x
     while (true) {
@@ -650,31 +661,10 @@ class ImpEvaluator {
       // Consume the verb
       let op = this.nextItem()
 
-      // Collect the right operand - could be a noun or a verb application
-      let arg: ImpVal
-      let p2 = this.peek()
-      if (p2?.wc === ImpP.V) {
-        // Handle verb application (e.g., in "2 ^ ! 4", the "! 4" part)
-        let v = this.nextItem()
-        if (v[0] === ImpT.JSF) {
-          v = this.modifyVerb(v as ImpJsf)
-        }
-        let args = []
-        let vArity = (v[1] as ImpJsfA | ImpIfnA).arity
-        // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-        let vEagerly = (vArity === 1)
-        for (let i = 0; i < vArity; i++) {
-          args.push(await this.nextNoun(vEagerly))
-        }
-        if (v[0] === ImpT.IFN) {
-          arg = await this.applyIfn(v as ImpIfn, args)
-        } else {
-          arg = await (v as ImpJsf)[2].apply(this, args)
-        }
-      } else {
-        // Handle simple noun (strands are already formed by imparse())
-        arg = await this.nextNounItem()
-      }
+      // Collect the right operand
+      // NOTE: imparse() prefix pass already transformed "a + ! b" → "+[a; ![b]]"
+      // So we only see simple nouns here (verbs are already applied)
+      let arg = await this.nextNounItem()
 
       // Apply the arity-2 verb
       if (op[0] === ImpT.IFN) {

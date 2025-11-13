@@ -34,12 +34,17 @@ function isVerb(x: ImpVal): boolean {
   return x[0] === ImpT.JSF || x[0] === ImpT.IFN
 }
 
+// Helper: Check if a value is a RAW symbol (not SET, GET, LIT, etc.)
+function isRawSymbol(x: ImpVal): boolean {
+  return ImpQ.isSym(x) && x[1].kind === SymT.RAW
+}
+
 // Helper: Resolve a RAW symbol to its value in the dictionary
 function resolveSymbol(sym: ImpVal, dict?: WordDict): ImpVal | null {
-  if (!dict || !ImpQ.isSym(sym) || sym[1].kind !== SymT.RAW) {
+  if (!dict || !isRawSymbol(sym)) {
     return null
   }
-  const name = sym[2].description
+  const name = (sym[2] as symbol).description
   return name ? (dict[name] || null) : null
 }
 
@@ -58,16 +63,35 @@ export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
   const phase1: ImpVal[] = formStrands(items)
 
   // Phase 2: Transform to M-expressions (if dictionary provided)
-  // ONLY transform TOP-level sequences, NOT bracket lists [...]
-  // Bracket lists are already in projection syntax and should not be transformed
-  // DISABLED: See imparse.org for why and alternative approaches
-  const shouldTransform = false // dict && tree[0] === ImpT.TOP
+  // Transform TOP-level sequences AND regular bracket lists (source code)
+  // Do NOT transform projection syntax (verb in opener like "+[")
+  //
+  // STATUS: PHASE 1 - Conservative transformation enabled
+  // Transforms postfix/infix ONLY when no prefix verbs present
+  // Cases WITH prefix verbs (! 10 * 2) are left for evaluator
+  // This fixes: 2 !, 2 + 3, 2 + 3 * 5 (postfix and infix chains)
+  // Skips: ! 10, ! 10 * 2, 1 + 2 * ! 10 (prefix cases)
+
+  // Check if this is a regular list (not projection syntax)
+  // Projection syntax has verb in opener: "+[", "![", etc.
+  // Regular lists have plain brackets: "[", "'[", "`["
+  const isRegularList = tree[0] === ImpT.LST &&
+                        tree[1].open?.match(/^['`]*\[/)  // Just quotes+bracket, no verb
+
+  const shouldTransform = dict && (tree[0] === ImpT.TOP || isRegularList)
   const phase2 = (shouldTransform && dict) ? transformToMExpr(phase1, dict) : phase1
 
-  // Return with same structure
+  // Check if transformation actually occurred (phase2 !== phase1)
+  const wasTransformed = phase2 !== phase1
+
+  // Return with appropriate structure
   if (tree[0] === ImpT.TOP) {
     return [ImpT.TOP, tree[1], phase2]
+  } else if (isRegularList && wasTransformed) {
+    // Regular lists that got transformed become TOP nodes (unwrapped)
+    return [ImpT.TOP, null, phase2]
   } else {
+    // Projection syntax and untransformed lists stay as lists
     return imp.lst(tree[1], phase2)
   }
 }
@@ -134,72 +158,78 @@ function formStrands(items: ImpVal[]): ImpVal[] {
   return refined
 }
 
-// Phase 2: Transform to M-expressions
-// Implements: function application (a F b → F[a; b])
-// TODO: Add comma threading transform
-function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Check if there are any commas in the sequence
-  // If so, skip transformation and let the evaluator handle comma threading
-  const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
-  if (hasComma) {
-    return items
-  }
-
+// Pass 1: Transform prefix verbs (F a → F[a])
+// Prefix verbs bind tighter than infix - they consume arguments eagerly
+function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
   const result: ImpVal[] = []
   let i = 0
 
   while (i < items.length) {
     const item = items[i]
 
-    // Skip separators and special symbols
+    // Skip separators
     if (item[0] === ImpT.SEP) {
       result.push(item)
       i++
       continue
     }
 
-    // Try to resolve symbols to check if they're verbs
+    // Check if this is a RAW symbol verb
+    if (!isRawSymbol(item)) {
+      result.push(item)
+      i++
+      continue
+    }
+
     const val = resolveSymbol(item, dict)
     const resolved = val || item
 
-    // Check if this is a verb
     if (isVerb(resolved)) {
       const arity = getArity(resolved)
-      const availableArgs = result.length
-      const hasAhead = i + 1 < items.length
 
-      // Arity-2 verbs are INFIX operators: a op b → op[a; b]
-      // They require exactly 1 arg from left and 1 from right
-      if (arity === 2 && availableArgs > 0 && hasAhead) {
-        const leftArg = result.pop()!
-        const rightArg = items[i + 1]
-
-        // Build M-expression with verb as part of the opener
-        // This matches the existing projection syntax: +[2; 3]
-        // The evaluator recognizes the pattern "sym[" and calls project()
-        // IMPORTANT: Must include SEP (;) between arguments for project() to work
-        const verbName = (item[2] as symbol).description || '?'
-        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [leftArg, ImpC.sep(';'), rightArg])
-        result.push(mexpr)
-        i += 2  // Skip both the operator and right arg
-        continue
+      // Check if this is PREFIX (no noun left argument available)
+      let hasLeftArg = false
+      if (result.length > 0) {
+        const leftItem = result[result.length - 1]
+        if (leftItem[0] !== ImpT.SEP) {
+          // Check if left item is a noun (not a verb)
+          const leftVal = resolveSymbol(leftItem, dict)
+          const leftResolved = leftVal || leftItem
+          hasLeftArg = !isVerb(leftResolved)
+        }
       }
 
-      // Arity-1 verbs can be POSTFIX: a F → F[a]
-      // Only consume from stack if we have args available
-      if (arity === 1 && availableArgs > 0) {
-        const arg = result.pop()!
+      if (!hasLeftArg && arity >= 1 && i + arity <= items.length) {
+        // This is PREFIX - try to collect arguments from the right
+        // BUT: only collect NOUNS, not verbs (verbs should be left for the evaluator)
+        const args: ImpVal[] = []
 
-        // Build M-expression with verb as part of the opener
-        const verbName = (item[2] as symbol).description || '?'
-        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [arg])
-        result.push(mexpr)
-        i++
-        continue
+        for (let j = 1; j <= arity && i + j < items.length; j++) {
+          const nextItem = items[i + j]
+          if (nextItem[0] === ImpT.SEP) break // Stop at separator
+
+          // Check if next item is a verb - if so, don't consume it
+          const nextVal = resolveSymbol(nextItem, dict)
+          const nextResolved = nextVal || nextItem
+          if (isVerb(nextResolved)) break // Stop at verbs
+
+          args.push(nextItem)
+        }
+
+        // If we collected exactly the right number of args, create M-expression
+        if (args.length === arity) {
+          const verbName = (item[2] as symbol).description || '?'
+          const argList: ImpVal[] = []
+          for (let k = 0; k < args.length; k++) {
+            if (k > 0) argList.push(ImpC.sep(';'))
+            argList.push(args[k])
+          }
+          const mexpr = imp.lst({open: verbName + '[', close: ']'}, argList)
+          result.push(mexpr)
+          i += 1 + arity
+          continue
+        }
       }
-
-      // For other cases (prefix, or not enough args), keep as-is
-      // The evaluator will handle prefix application
     }
 
     // Default: keep as-is
@@ -208,4 +238,94 @@ function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
   }
 
   return result
+}
+
+// Pass 2: Transform infix and postfix (left-to-right)
+function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
+  const result: ImpVal[] = []
+  let i = 0
+
+  while (i < items.length) {
+    const item = items[i]
+
+    // Skip separators
+    if (item[0] === ImpT.SEP) {
+      result.push(item)
+      i++
+      continue
+    }
+
+    // Check if this is a RAW symbol verb
+    if (!isRawSymbol(item)) {
+      result.push(item)
+      i++
+      continue
+    }
+
+    const val = resolveSymbol(item, dict)
+    const resolved = val || item
+
+    if (isVerb(resolved)) {
+      const arity = getArity(resolved)
+      const availableArgs = result.length
+      const hasAhead = i + 1 < items.length
+
+      // Arity-2 verbs are INFIX operators: a op b → op[a; b]
+      if (arity === 2 && availableArgs > 0 && hasAhead) {
+        const leftArg = result.pop()!
+        const rightArg = items[i + 1]
+
+        const verbName = (item[2] as symbol).description || '?'
+        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [leftArg, ImpC.sep(';'), rightArg])
+        result.push(mexpr)
+        i += 2
+        continue
+      }
+
+      // Arity-1 verbs can be POSTFIX: a F → F[a]
+      if (arity === 1 && availableArgs > 0) {
+        const arg = result.pop()!
+
+        const verbName = (item[2] as symbol).description || '?'
+        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [arg])
+        result.push(mexpr)
+        i++
+        continue
+      }
+    }
+
+    // Default: keep as-is
+    result.push(item)
+    i++
+  }
+
+  return result
+}
+
+// Phase 2: Transform to M-expressions
+// Coordinates the two-pass transformation
+function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
+  // Check if there are any commas in the sequence
+  // If so, skip transformation and let the evaluator handle comma threading
+  const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
+  if (hasComma) {
+    return items
+  }
+
+  // Check for special symbols (SET, GET, LIT, etc.) - skip transformation
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (ImpQ.isSym(item) && item[1].kind !== SymT.RAW) {
+      return items
+    }
+  }
+
+  // Two-pass transformation:
+  // Pass 1: PREFIX verbs (bind tighter, consume args eagerly)
+  //   ! 10 → ![10]
+  // Pass 2: INFIX and POSTFIX (left-to-right)
+  //   ![10] * 2 → *[![10]; 2]
+  const afterPrefix = transformPrefix(items, dict)
+  const afterInfix = transformInfixPostfix(afterPrefix, dict)
+  return afterInfix
 }

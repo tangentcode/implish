@@ -649,6 +649,93 @@ nil!
 {x + y}[3]
 #+end_src
 
+* DONE imparse: equivalence of load and quoted blocks
+#+name: imparse-equivalence
+#+begin_src imp
+> imparse load "2 + 3"
++[2 ; 3]
+> imparse '[2 + 3]
++[2 ; 3]
+#+end_src
+
+Both `load "code"` (creates TOP node) and `'[code]` (regular list) get transformed into TOP nodes with M-expressions.
+
+* DONE imparse: AST for postfix transformation
+#+name: imparse-ast-postfix
+#+begin_src imp
+> imparse '[2 !]
+![2]
+> imparse '[5 !]
+![5]
+> imparse '[10 !]
+![10]
+#+end_src
+
+The parser transforms postfix unary (a F → F[a]) into M-expression form, returning a TOP node.
+
+* DONE imparse: AST for infix transformation
+#+name: imparse-ast-infix
+#+begin_src imp
+> imparse '[2 + 3]
++[2 ; 3]
+> imparse '[10 - 3]
+-[10 ; 3]
+> imparse '[4 * 5]
+*[4 ; 5]
+#+end_src
+
+The parser transforms infix operators (a op b → op[a; b]) into M-expression form, returning a TOP node.
+
+* DONE imparse: AST for infix chains (left-to-right)
+#+name: imparse-ast-chains
+#+begin_src imp
+> imparse '[2 + 3 * 5]
+*[+[2 ; 3] ; 5]
+> imparse '[10 - 2 + 5]
++[-[10 ; 2] ; 5]
+> imparse '[2 * 3 + 4 * 5]
+*[+[*[2 ; 3] ; 4] ; 5]
+#+end_src
+
+The parser transforms infix chains left-to-right, creating nested M-expressions in a TOP node.
+
+* DONE imparse: AST handles prefix cases
+#+name: imparse-ast-skip-prefix
+#+begin_src imp
+> imparse '[! 10]
+![10]
+> imparse '[! 10 * 2]
+*[![10] ; 2]
+> imparse '[! 10 * 2 + 1]
++[*[![10] ; 2] ; 1]
+#+end_src
+
+The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10 → ![10]), then infix/postfix.
+
+* DONE imparse: AST skips comma cases
+#+name: imparse-ast-skip-comma
+#+begin_src imp
+> imparse '[2, + 3]
+[2 , + 3]
+> imparse '[2, + 3 * 5]
+[2 , + 3 * 5]
+#+end_src
+
+When commas are present, the parser skips transformation and returns the original list structure.
+
+* DONE imparse: AST skips assignment cases
+#+name: imparse-ast-skip-assignment
+#+begin_src imp
+> x: 99
+99
+> imparse '[1 + x: 10]
+[1 + x: 10]
+> imparse '[2 * y: 5]
+[2 * y: 5]
+#+end_src
+
+When special symbols (SET, GET, LIT, etc.) are present, the parser skips transformation and returns the original list structure.
+
 * [0/7] upcoming tests
 
 ** TODO ambivalent operators
