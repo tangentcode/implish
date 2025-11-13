@@ -19,19 +19,20 @@ Implish follows Eric Hehner's *[A Practical Theory of Programming](https://www.c
 In implish, if `p` and `q` are programs, `x` is a variable,  and `b` is a binary expression, then the following are all programs:
 
 ```implish
-ok                 .: the empy program (no variables change) :.
+ok                 .: the empty program (no variables change) :.
 x: 123             .: assignment (x' = 123, other vars are unchanged) :.
 p ; q              .: sequence :.
-if b [p] el [q]    .: condition :.
-while b [p]        .: repetition :.
+ite[b; p; q]       .: condition (if-then-else) :.
+while[b; p]        .: repetition :.
 ```
 
-The following constructs are implemented in terms of the above:
+<!-- The following constructs will be implemented in terms of the above:
 
 ```implish
 rep [p] until b    .: repeat until :.
 for x xs [p]       .: iterator :.
 ```
+-->
 
 ## functional and array-centric
 
@@ -101,8 +102,8 @@ name: input -prompt "what is your name?"
 echo tpl "hello, {name}!"
 ```
 
-```implish
-.: fizzbuzz :.
+<!-- ```implish
+fizzbuzz (TODO: update to use ite syntax)
 for i ! 100 [
   if not i mod 15 [wr "FizzBuzz"]
   ef not i mod 5  [wr "Buzz"]
@@ -110,6 +111,7 @@ for i ! 100 [
   el [wr i]
   if i mod 10 [echo] el [ok]]
 ```
+-->
 
 ```implish
 .: mandelbrot set (work in progress, translating from K) :.
@@ -136,6 +138,12 @@ echo ' + o                          .: transpose and print the output :.
 
 ## how to try it or get in touch
 
-As of this writing (Feb 2024), only the loader exists. Stay tuned.
+As of this writing (early 2025), implish has a working evaluator with the core imperative constructs (assignment, sequence, branching, repetition) as well as basic functional and array operations. See [imp-tests.org](imp-tests.org) for examples.
+
+To try it:
+```bash
+npm install && npm run build
+node dist/imp-cmd.mjs  # REPL
+```
 
 If you'd like to talk to me about this, you can join the #implish discord channel from the  [TangentCode community page](https://tangentcode.com/community) or [find me on your favorite platform](http://tangentstorm.com/).
