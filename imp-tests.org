@@ -839,18 +839,88 @@ The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10
 
 The parser now handles comma threading! When a comma is followed by a verb, it threads the previous value as the first argument.
 
-* DONE imparse: AST skips assignment cases
-#+name: imparse-ast-skip-assignment
+* DONE imparse: GET symbol transformation
+#+name: imparse-get
 #+begin_src imp
-> x: 99
-99
-> imparse '[1 + x: 10]
-[1 + x: 10]
-> imparse '[2 * y: 5]
-[2 * y: 5]
+> imparse load ":x"
+get[`x]
+> imparse load ":foo"
+get[`foo]
 #+end_src
 
-When special symbols (SET, GET, LIT, etc.) are present, the parser skips transformation and returns the original list structure.
+The parser transforms GET symbols (:word) into M-expression form: get[`word].
+
+* DONE imparse: SET symbol transformation
+#+name: imparse-set
+#+begin_src imp
+> imparse load "x: 42"
+set[`x ; 42]
+> imparse load "foo: 99"
+set[`foo ; 99]
+#+end_src
+
+The parser transforms SET symbols (word: value) into M-expression form: set[`word; value].
+
+* DONE imparse: SET with expression RHS
+#+name: imparse-set-expr
+#+begin_src imp
+> imparse load "x: 2 + 3"
+set[`x ; +[2 ; 3]]
+> imparse load "y: 5 * 10 + 1"
+set[`y ; +[*[5 ; 10] ; 1]]
+#+end_src
+
+The parser transforms the RHS of SET through the full transformation pipeline, converting infix to M-expressions.
+
+* DONE imparse: chained SET
+#+name: imparse-set-chained
+#+begin_src imp
+> imparse load "a: b: 99"
+set[`a ; set[`b ; 99]]
+> imparse load "x: y: z: 42"
+set[`x ; set[`y ; set[`z ; 42]]]
+#+end_src
+
+Chained assignments are right-associative: a: b: 99 becomes set[`a; set[`b; 99]].
+
+* DONE imparse: postfix with multiple args (valence check)
+#+name: imparse-postfix-valence
+#+begin_src imp
+> imparse load "2 ! 10"
+![2 ; 10]
+> imparse load "5 ! 20 30"
+![5 ; 20 ; 30]
+#+end_src
+
+The parser collects trailing nouns after postfix verbs. The evaluator will check arity and throw valence errors if needed.
+
+* DONE valence errors: too many arguments
+#+name: valence-error
+#+begin_src imp
+> 2 ! 10
+Error: [project] !: valence error: expected 1 args, got 2
+> ![2; 10]
+Error: [project] !: valence error: expected 1 args, got 2
+#+end_src
+
+When a function receives more arguments than its arity, the evaluator throws a valence error.
+
+* DONE GET/SET: full integration test
+#+name: get-set-integration
+#+begin_src imp
+> x: 42
+42
+> :x
+42
+> y: x + 10
+52
+> a: b: c: 99
+99
+> a + b + c
+297
+#+end_src
+
+GET (:x) and SET (x: value) transformations integrate seamlessly with the rest of the language.
 
 * [0/7] upcoming tests
 

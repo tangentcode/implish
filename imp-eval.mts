@@ -1406,6 +1406,11 @@ class ImpEvaluator {
     if (f[0] === ImpT.IFN) {
       return await this.applyIfn(f as ImpIfn, evaluatedArgs)
     } else if (f[0] === ImpT.JSF) {
+      // Check arity for JSF functions
+      const expectedArity = (f as ImpJsf)[1].arity
+      if (evaluatedArgs.length !== expectedArity) {
+        throw `[project] ${sym}: valence error: expected ${expectedArity} args, got ${evaluatedArgs.length}`
+      }
       return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
     } else {
       throw "[project]: not a function: " + sym

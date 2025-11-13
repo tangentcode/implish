@@ -62,6 +62,11 @@ export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
   // Phase 1: Form strands (numeric and symbol literals)
   const phase1: ImpVal[] = formStrands(items)
 
+  // Phase 1.5: Transform GET/SET symbols to M-expressions (always, even without dict)
+  // :wd → get[`wd]
+  // x: expr → set[`x; expr]
+  const phase15: ImpVal[] = transformGetSet(phase1, dict)
+
   // Phase 2: Transform to M-expressions (if dictionary provided)
   // Transform TOP-level sequences AND regular bracket lists (source code)
   // Do NOT transform projection syntax (verb in opener like "+[")
@@ -79,7 +84,7 @@ export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
                         tree[1].open?.match(/^['`]*\[/)  // Just quotes+bracket, no verb
 
   const shouldTransform = dict && (tree[0] === ImpT.TOP || isRegularList)
-  const phase2 = (shouldTransform && dict) ? transformToMExpr(phase1, dict) : phase1
+  const phase2 = (shouldTransform && dict) ? transformToMExpr(phase15, dict) : phase15
 
   // Check if transformation actually occurred (phase2 !== phase1)
   const wasTransformed = phase2 !== phase1
@@ -156,6 +161,81 @@ function formStrands(items: ImpVal[]): ImpVal[] {
   }
 
   return refined
+}
+
+// Phase 1.5: Transform GET/SET symbols to M-expressions
+// :wd → get[`wd]
+// x: expr → set[`x; expr]
+function transformGetSet(items: ImpVal[], dict?: WordDict): ImpVal[] {
+  const result: ImpVal[] = []
+  let i = 0
+
+  while (i < items.length) {
+    const item = items[i]
+
+    // Handle GET symbols: :foo → get[`foo]
+    if (ImpQ.isSym(item) && item[1].kind === SymT.GET) {
+      const symName = item[2] as symbol
+      const litSym = ImpC.sym(symName, SymT.LIT)
+      const mexpr = imp.lst({open: 'get[', close: ']'}, [litSym])
+      result.push(mexpr)
+      i++
+      continue
+    }
+
+    // Handle SET symbols: foo: expr → set[`foo; expr]
+    if (ImpQ.isSym(item) && item[1].kind === SymT.SET) {
+      const symName = item[2] as symbol
+      const litSym = ImpC.sym(symName, SymT.LIT)
+
+      // Collect the RHS (everything until separator or end)
+      // Handle chained assignments: a: b: 123 → set[`a; set[`b; 123]]
+      const rhs: ImpVal[] = []
+      let j = i + 1
+
+      // Collect until we hit a separator (but not semicolon within brackets)
+      while (j < items.length) {
+        const next = items[j]
+        if (next[0] === ImpT.SEP && (next[2] === ',' || next[2] === '\n')) {
+          break  // Stop at comma or newline
+        }
+        rhs.push(next)
+        j++
+      }
+
+      if (rhs.length === 0) {
+        throw `SET symbol ${symName.description} has no right-hand side`
+      }
+
+      // Transform the RHS through full pipeline (handles GET/SET, infix, postfix, commas)
+      // First recursively handle GET/SET in the RHS
+      const rhsPhase1 = transformGetSet(rhs, dict)
+      // Then apply full M-expression transformation if dict available
+      const transformedRhs = dict ? transformToMExpr(rhsPhase1, dict) : rhsPhase1
+
+      // Build the M-expression: set[`foo; rhs]
+      const args: ImpVal[] = [litSym, ImpC.sep(';')]
+
+      // If RHS is a single item, add it directly; otherwise wrap in a list
+      if (transformedRhs.length === 1) {
+        args.push(transformedRhs[0])
+      } else {
+        // Multiple items on RHS - wrap in TOP node for further processing
+        args.push(imp.lst(undefined, transformedRhs))
+      }
+
+      const mexpr = imp.lst({open: 'set[', close: ']'}, args)
+      result.push(mexpr)
+      i = j
+      continue
+    }
+
+    // Not GET or SET, keep as-is
+    result.push(item)
+    i++
+  }
+
+  return result
 }
 
 // Pass 1: Transform prefix verbs (F a → F[a])
@@ -283,13 +363,34 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
       }
 
       // Arity-1 verbs can be POSTFIX: a F → F[a]
+      // Also collect trailing nouns: a F b c → F[a; b; c] (let evaluator check arity)
       if (arity === 1 && availableArgs > 0) {
-        const arg = result.pop()!
+        const args: ImpVal[] = [result.pop()!]
+
+        // Collect all trailing NOUNS (stop at verbs or separators)
+        let j = i + 1
+        while (j < items.length) {
+          const nextItem = items[j]
+          if (nextItem[0] === ImpT.SEP) break
+
+          // Check if next item is a verb - if so, stop
+          const nextVal = resolveSymbol(nextItem, dict)
+          const nextResolved = nextVal || nextItem
+          if (isVerb(nextResolved)) break
+
+          args.push(nextItem)
+          j++
+        }
 
         const verbName = (item[2] as symbol).description || '?'
-        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [arg])
+        const argList: ImpVal[] = []
+        for (let k = 0; k < args.length; k++) {
+          if (k > 0) argList.push(ImpC.sep(';'))
+          argList.push(args[k])
+        }
+        const mexpr = imp.lst({open: verbName + '[', close: ']'}, argList)
         result.push(mexpr)
-        i++
+        i = j
         continue
       }
     }
@@ -305,14 +406,6 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
 // Transform comma-separated segments into chained M-expressions
 // e.g., `2, + 3` → `+[2; 3]`, `2, + 3 * 5, + 7` → `+[+[2; *[3; 5]]; 7]`
 function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Check for special symbols (SET, GET, LIT, etc.) - skip transformation entirely
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    if (ImpQ.isSym(item) && item[1].kind !== SymT.RAW) {
-      return items
-    }
-  }
-
   // Split items by comma separators
   const segments: ImpVal[][] = []
   let currentSegment: ImpVal[] = []
@@ -411,16 +504,6 @@ function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
 
 // Transform items without commas (helper for comma threading)
 function transformNoComma(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Check for special symbols (SET, GET, LIT, etc.) - skip transformation
-  // These need special handling during evaluation (e.g., SET symbols collect their value)
-  // TODO: Handle these in the parser once we have proper expression grouping
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    if (ImpQ.isSym(item) && item[1].kind !== SymT.RAW) {
-      return items
-    }
-  }
-
   // Two-pass transformation:
   // Pass 1: PREFIX verbs (bind tighter, consume args eagerly)
   //   ! 10 → ![10]
