@@ -223,6 +223,7 @@ const foldIdentities: Record<string, number> = {
 
 export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
+  'ok': imp.jsf(() => NIL, 0),
 
   // Variable access
   'get': imp.jsf(function(this: ImpEvaluator, x: ImpVal) {
