@@ -197,6 +197,14 @@ x: 42
 - imp-eval.mts: Adverbs, prepositions, conjunctions (modifyVerb)
 - docs/parse.md: PEG-style parse library not yet implemented
 
+## Project Planning
+
+**Current work is tracked in `plan.org`** - always check this file first to understand:
+- Current refactoring efforts
+- Architecture decisions
+- Test cases and expected behaviors
+- Implementation strategy
+
 ## Development Notes
 
 - The evaluator uses a "parts of speech" approach (verbs, nouns, operators, etc.) rather than traditional precedence climbing
