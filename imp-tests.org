@@ -34,6 +34,24 @@ Basic variable binding using set and retrieval using get. Variables hold mutable
 
 The colon notation provides shorthand: =x: value= is syntactic sugar for =set[`x; value]=, and =:x= gets the value without further evaluation. Throughout the rest of these tests, we'll use this shorthand notation freely.
 
+* DONE sequence: semicolon separates expressions
+#+name: sequence
+#+begin_src
+> (x: 12; y: 34; z: 56)
+56
+#+end_src
+
+A sequence of expressions separated by semicolons evaluates each in order and returns the value of the last expression. This allows building multi-step programs.
+
+* DONE sequence: syntactic sugar (whitespace-separated)
+#+name: sequence-sugar
+#+begin_src
+> x: 12  y: 34  z: 56
+56
+#+end_src
+
+Whitespace-separated expressions are syntactic sugar for semicolon-separated sequences. The parentheses and semicolons can be omitted at the top level.
+
 * DONE repl behavior: print everything but nil
 #+name: nil
 #+begin_src
