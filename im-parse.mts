@@ -60,7 +60,7 @@ export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
   // Phase 2: Transform to M-expressions (if dictionary provided)
   // ONLY transform TOP-level sequences, NOT bracket lists [...]
   // Bracket lists are already in projection syntax and should not be transformed
-  // TODO: Re-enable after updating evaluator (Phase 3)
+  // DISABLED: See imparse.org for why and alternative approaches
   const shouldTransform = false // dict && tree[0] === ImpT.TOP
   const phase2 = (shouldTransform && dict) ? transformToMExpr(phase1, dict) : phase1
 
@@ -136,8 +136,15 @@ function formStrands(items: ImpVal[]): ImpVal[] {
 
 // Phase 2: Transform to M-expressions
 // Implements: function application (a F b → F[a; b])
-// TODO: Add infix operators and comma threading
+// TODO: Add comma threading transform
 function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
+  // Check if there are any commas in the sequence
+  // If so, skip transformation and let the evaluator handle comma threading
+  const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
+  if (hasComma) {
+    return items
+  }
+
   const result: ImpVal[] = []
   let i = 0
 
@@ -167,10 +174,13 @@ function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
         const leftArg = result.pop()!
         const rightArg = items[i + 1]
 
-        // Build M-expression as: verb, [args]
-        // This matches the existing bracket syntax: +[2; 3] = SYM(+), LST([2, 3])
-        const argList = imp.lst({open: '[', close: ']'}, [leftArg, rightArg])
-        result.push(item, argList)
+        // Build M-expression with verb as part of the opener
+        // This matches the existing projection syntax: +[2; 3]
+        // The evaluator recognizes the pattern "sym[" and calls project()
+        // IMPORTANT: Must include SEP (;) between arguments for project() to work
+        const verbName = (item[2] as symbol).description || '?'
+        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [leftArg, ImpC.sep(';'), rightArg])
+        result.push(mexpr)
         i += 2  // Skip both the operator and right arg
         continue
       }
@@ -180,9 +190,10 @@ function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
       if (arity === 1 && availableArgs > 0) {
         const arg = result.pop()!
 
-        // Build M-expression as: verb, [arg]
-        const argList = imp.lst({open: '[', close: ']'}, [arg])
-        result.push(item, argList)
+        // Build M-expression with verb as part of the opener
+        const verbName = (item[2] as symbol).description || '?'
+        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [arg])
+        result.push(mexpr)
         i++
         continue
       }
