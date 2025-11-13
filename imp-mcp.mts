@@ -49,7 +49,7 @@ interface WorkerResponse {
 
 // Spawn a worker process to handle implish operations
 // This ensures a fresh environment for each operation
-async function spawnWorker(request: WorkerRequest): Promise<WorkerResponse> {
+async function spawnWorker(request: WorkerRequest, timeoutMs: number = 5000): Promise<WorkerResponse> {
   const workerPath = join(__dirname, 'imp-mcp-worker.mjs');
 
   return new Promise((resolve, reject) => {
@@ -59,6 +59,19 @@ async function spawnWorker(request: WorkerRequest): Promise<WorkerResponse> {
 
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+
+    // Set timeout to kill the process if it runs too long
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      // Force kill after 1 second if not dead
+      setTimeout(() => {
+        if (!child.killed) {
+          child.kill('SIGKILL');
+        }
+      }, 1000);
+    }, timeoutMs);
 
     child.stdout.on('data', (data) => {
       stdout += data.toString();
@@ -69,10 +82,18 @@ async function spawnWorker(request: WorkerRequest): Promise<WorkerResponse> {
     });
 
     child.on('error', (error) => {
+      clearTimeout(timeout);
       reject(new Error(`Failed to spawn worker: ${error.message}`));
     });
 
     child.on('close', (code) => {
+      clearTimeout(timeout);
+
+      if (timedOut) {
+        reject(new Error(`Evaluation timed out after ${timeoutMs}ms (possible infinite loop)`));
+        return;
+      }
+
       if (code !== 0) {
         reject(new Error(`Worker exited with code ${code}${stderr ? ': ' + stderr : ''}`));
         return;
