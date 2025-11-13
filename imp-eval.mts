@@ -225,6 +225,63 @@ export let impWords: Record<string, ImpVal> = {
   'nil': NIL,
   'ok': imp.jsf(() => NIL, 0),
 
+  // Control flow (these receive unevaluated LST/TOP arguments for lazy evaluation)
+  'ite': imp.jsf(async function(this: ImpEvaluator, cond: ImpVal, thenBranch: ImpVal, elseBranch: ImpVal) {
+    // Type check: ensure we got LST or TOP values
+    if (!ImpQ.isLst(cond) && !ImpQ.isTop(cond)) {
+      throw "ite: condition must be an unevaluated expression (LST or TOP)"
+    }
+    if (!ImpQ.isLst(thenBranch) && !ImpQ.isTop(thenBranch)) {
+      throw "ite: then branch must be an unevaluated expression (LST or TOP)"
+    }
+    if (!ImpQ.isLst(elseBranch) && !ImpQ.isTop(elseBranch)) {
+      throw "ite: else branch must be an unevaluated expression (LST or TOP)"
+    }
+    // Evaluate condition
+    let condResult = await this.lastEval(cond)
+    // Check if truthy (non-zero, non-nil, non-empty)
+    let isTruthy = false
+    if (condResult[0] === ImpT.INT || condResult[0] === ImpT.NUM) {
+      isTruthy = (condResult[2] as number) !== 0
+    } else if (condResult[0] === ImpT.NIL) {
+      isTruthy = false
+    } else {
+      isTruthy = true  // Everything else is truthy
+    }
+    // Evaluate and return appropriate branch
+    if (isTruthy) {
+      return await this.lastEval(thenBranch)
+    } else {
+      return await this.lastEval(elseBranch)
+    }
+  }, 3),
+
+  'while': imp.jsf(async function(this: ImpEvaluator, cond: ImpVal, body: ImpVal) {
+    // Type check: ensure we got LST or TOP values
+    if (!ImpQ.isLst(cond) && !ImpQ.isTop(cond)) {
+      throw "while: condition must be an unevaluated expression (LST or TOP)"
+    }
+    if (!ImpQ.isLst(body) && !ImpQ.isTop(body)) {
+      throw "while: body must be an unevaluated expression (LST or TOP)"
+    }
+    // Repeatedly evaluate condition and body
+    while (true) {
+      let condResult = await this.lastEval(cond)
+      // Check if truthy
+      let isTruthy = false
+      if (condResult[0] === ImpT.INT || condResult[0] === ImpT.NUM) {
+        isTruthy = (condResult[2] as number) !== 0
+      } else if (condResult[0] === ImpT.NIL) {
+        isTruthy = false
+      } else {
+        isTruthy = true
+      }
+      if (!isTruthy) break
+      await this.lastEval(body)
+    }
+    return NIL
+  }, 2),
+
   // Variable access
   'get': imp.jsf(function(this: ImpEvaluator, x: ImpVal) {
     // get[`word] - look up a quoted symbol, return value or fault
@@ -313,6 +370,12 @@ export let impWords: Record<string, ImpVal> = {
   '^'   : imp.jsf((x,y)=>elemWise((a,b)=>Math.pow(a,b), x, y), 2),
   'min' : imp.jsf((x,y)=>elemWise((a,b)=>Math.min(a,b), x, y), 2),
   'max' : imp.jsf((x,y)=>elemWise((a,b)=>Math.max(a,b), x, y), 2),
+  '<'   : imp.jsf((x,y)=>elemWise((a,b)=>a<b ? 1 : 0, x, y), 2),
+  '>'   : imp.jsf((x,y)=>elemWise((a,b)=>a>b ? 1 : 0, x, y), 2),
+  '<='  : imp.jsf((x,y)=>elemWise((a,b)=>a<=b ? 1 : 0, x, y), 2),
+  '>='  : imp.jsf((x,y)=>elemWise((a,b)=>a>=b ? 1 : 0, x, y), 2),
+  '='   : imp.jsf((x,y)=>elemWise((a,b)=>a===b ? 1 : 0, x, y), 2),
+  '~='  : imp.jsf((x,y)=>elemWise((a,b)=>a!==b ? 1 : 0, x, y), 2),
   'tk'  : imp.jsf((x,y)=> {
     // x tk y: take x items from y, with repeats/cycling
     // x must be a scalar integer
@@ -1325,11 +1388,20 @@ class ImpEvaluator {
       if (x[0] === ImpT.SEP) { args.push(arg); arg = imp.lst() }
       else imp.push(arg,x)}
     args.push(arg)
-    // Need to evaluate all args first, then apply
+
+    // Special forms (ite, while) need lazy evaluation - pass unevaluated args
+    let lazyEvalForms = ['ite', 'while']
     let evaluatedArgs = []
-    for (let a of args) {
-      evaluatedArgs.push(await this.lastEval(a))
+    if (lazyEvalForms.includes(sym)) {
+      // Pass arguments as-is (unevaluated LST values)
+      evaluatedArgs = args
+    } else {
+      // Normal evaluation: evaluate all args first, then apply
+      for (let a of args) {
+        evaluatedArgs.push(await this.lastEval(a))
+      }
     }
+
     // Check if it's a user-defined function (IFN) or JavaScript function (JSF)
     if (f[0] === ImpT.IFN) {
       return await this.applyIfn(f as ImpIfn, evaluatedArgs)

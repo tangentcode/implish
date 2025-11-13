@@ -52,6 +52,30 @@ A sequence of expressions separated by semicolons evaluates each in order and re
 
 Whitespace-separated expressions are syntactic sugar for semicolon-separated sequences. The parentheses and semicolons can be omitted at the top level.
 
+* DONE branching: if-then-else with ite
+#+name: branching-ite
+#+begin_src
+> ite[1; 42; 99]
+42
+> ite[0; 42; 99]
+99
+> x: 5
+5
+> ite[x > 3; `big; `small]
+`big
+#+end_src
+
+The =ite[cond; then; else]= function provides conditional branching. The condition is evaluated, and if truthy (non-zero, non-nil), the then branch is evaluated and returned; otherwise the else branch is evaluated and returned. Only one branch is evaluated (lazy evaluation).
+
+* DONE repetition: while loop
+#+name: repetition-while
+#+begin_src
+> (n: 0; while[n < 5; n: n + 1]; n)
+5
+#+end_src
+
+The =while[cond; body]= function provides repetition. The condition is evaluated, and while truthy, the body is repeatedly evaluated. The loop returns NIL. This, combined with mutable state (assignment), sequence, and branching, provides the fundamental building blocks for any computable program (Turing-complete).
+
 * DONE repl behavior: print everything but nil
 #+name: nil
 #+begin_src
