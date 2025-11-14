@@ -741,6 +741,43 @@ nil!
 8
 #+end_src
 
+* DONE user-defined functions: as first-class values
+#+name: user-fn-first-class
+#+begin_src imp
+> {x + 2}
+{x + 2}
+> {x * 2} 10
+20
+#+end_src
+
+Functions are first-class values. A standalone function definition `{x + 2}` returns the function itself. Functions can be immediately applied by providing arguments.
+
+* DONE user-defined functions: assignment with curly braces
+#+name: user-fn-assign-curly
+#+begin_src imp
+> f: {x + 2}
+{x + 2}
+> g: {x * 3}
+{x * 3}
+> f 5
+7
+> g 4
+12
+#+end_src
+
+Assigning curly brace functions to variables works correctly. The function is stored as a value and can be called later.
+
+* DONE user-defined functions: with infix operators
+#+name: user-fn-infix-body
+#+begin_src imp
+> calc: {x + y * 2}
+{x + y * 2}
+> calc[3; 5]
+16
+#+end_src
+
+Function bodies can contain infix operators. The body is preserved unevaluated until the function is called with arguments. In this case, `3 + 5 * 2` evaluates left-to-right as `(3 + 5) * 2 = 16`.
+
 * DONE get-word: return function without evaluation
 #+name: get-word-function
 #+begin_src imp

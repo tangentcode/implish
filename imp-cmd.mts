@@ -149,7 +149,7 @@ async function quietRepl() {
         if (e[0] !== ImpT.NIL) console.log(impShow(e))
       }
     } catch (e) {
-      console.trace(e)
+      console.log("Error: " + e)
     }
   }
 
@@ -233,7 +233,7 @@ async function interactiveRepl() {
         if (e[0] !== ImpT.NIL) console.log(impShow(e))
       }
     } catch (e) {
-      console.trace(e)
+      console.log("Error: " + e)
     }
     rl.prompt();
   }

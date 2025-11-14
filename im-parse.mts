@@ -77,13 +77,21 @@ export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
   // This fixes: 2 !, 2 + 3, 2 + 3 * 5 (postfix and infix chains)
   // Skips: ! 10, ! 10 * 2, 1 + 2 * ! 10 (prefix cases)
 
-  // Check if this is a regular list (not projection syntax)
+  // Check if this is a regular list (not projection syntax, curly braces, parens, or backtick)
   // Projection syntax has verb in opener: "+[", "![", etc.
-  // Regular lists have plain brackets: "[", "'[", "`["
+  // Regular lists: "[", "'[" (single quote is OK - we transform contents)
+  // Curly braces "{...}" are function definitions - don't transform
+  // Parentheses "(...)" are grouping - don't transform (let evaluator handle)
+  // Backtick "`[...]" is quasiquotation - don't transform (evaluator handles it)
   const isRegularList = tree[0] === ImpT.LST &&
-                        tree[1].open?.match(/^['`]*\[/)  // Just quotes+bracket, no verb
+                        tree[1].open?.match(/^'*\[/)  // Plain or single-quoted bracket, no verb
 
-  const shouldTransform = dict && (tree[0] === ImpT.TOP || isRegularList)
+  const isCurlyBraces = tree[0] === ImpT.LST && tree[1].open === '{'
+  const isParens = tree[0] === ImpT.LST && tree[1].open === '('
+  const isBacktick = tree[0] === ImpT.LST && tree[1].open?.startsWith("`")
+
+  const shouldTransform = dict && (tree[0] === ImpT.TOP || isRegularList) &&
+                          !isCurlyBraces && !isParens && !isBacktick
   const phase2 = (shouldTransform && dict) ? transformToMExpr(phase15, dict) : phase15
 
   // Check if transformation actually occurred (phase2 !== phase1)
@@ -176,8 +184,8 @@ function transformGetSet(items: ImpVal[], dict?: WordDict): ImpVal[] {
     // Handle GET symbols: :foo → get[`foo]
     if (ImpQ.isSym(item) && item[1].kind === SymT.GET) {
       const symName = item[2] as symbol
-      const litSym = ImpC.sym(symName, SymT.LIT)
-      const mexpr = imp.lst({open: 'get[', close: ']'}, [litSym])
+      const bqtSym = ImpC.sym(symName, SymT.BQT)
+      const mexpr = imp.lst({open: 'get[', close: ']'}, [bqtSym])
       result.push(mexpr)
       i++
       continue
@@ -186,19 +194,33 @@ function transformGetSet(items: ImpVal[], dict?: WordDict): ImpVal[] {
     // Handle SET symbols: foo: expr → set[`foo; expr]
     if (ImpQ.isSym(item) && item[1].kind === SymT.SET) {
       const symName = item[2] as symbol
-      const litSym = ImpC.sym(symName, SymT.LIT)
+      const bqtSym = ImpC.sym(symName, SymT.BQT)
 
       // Collect the RHS (everything until separator or end)
       // Handle chained assignments: a: b: 123 → set[`a; set[`b; 123]]
       const rhs: ImpVal[] = []
       let j = i + 1
 
-      // Collect until we hit a separator (but not semicolon within brackets)
+      // Collect RHS until we hit a separator or another SET/GET (with special handling)
+      // Chained assignment: a: b: 123 → collect "b: 123" (only SET/GET symbols until value)
+      // Separate assignments: x: 12 y: 34 → collect "12", stop at "y:"
       while (j < items.length) {
         const next = items[j]
-        if (next[0] === ImpT.SEP && (next[2] === ',' || next[2] === '\n')) {
-          break  // Stop at comma or newline
+        if (next[0] === ImpT.SEP) {
+          break  // Stop at any separator (;, ,, \n)
         }
+        // Check if this is a SET or GET symbol
+        const isSetOrGet = ImpQ.isSym(next) && (next[1].kind === SymT.SET || next[1].kind === SymT.GET)
+
+        // Only stop at SET/GET if we've collected actual values (not just SET/GET symbols)
+        // This allows chained assignments (a: b: 123) while stopping separate ones (x: 12 y: 34)
+        const hasActualValues = rhs.some(item =>
+          !(ImpQ.isSym(item) && (item[1].kind === SymT.SET || item[1].kind === SymT.GET))
+        )
+        if (isSetOrGet && hasActualValues) {
+          break
+        }
+        // Otherwise include it (handles chained assignment: a: b: 123)
         rhs.push(next)
         j++
       }
@@ -214,7 +236,7 @@ function transformGetSet(items: ImpVal[], dict?: WordDict): ImpVal[] {
       const transformedRhs = dict ? transformToMExpr(rhsPhase1, dict) : rhsPhase1
 
       // Build the M-expression: set[`foo; rhs]
-      const args: ImpVal[] = [litSym, ImpC.sep(';')]
+      const args: ImpVal[] = [bqtSym, ImpC.sep(';')]
 
       // If RHS is a single item, add it directly; otherwise wrap in a list
       if (transformedRhs.length === 1) {
@@ -240,24 +262,25 @@ function transformGetSet(items: ImpVal[], dict?: WordDict): ImpVal[] {
 
 // Pass 1: Transform prefix verbs (F a → F[a])
 // Prefix verbs bind tighter than infix - they consume arguments eagerly
+// Process RIGHT-TO-LEFT so nested prefix verbs work: echo show type? 3 → echo[show[type?[3]]]
 function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
   const result: ImpVal[] = []
-  let i = 0
+  let i = items.length - 1
 
-  while (i < items.length) {
+  while (i >= 0) {
     const item = items[i]
 
     // Skip separators
     if (item[0] === ImpT.SEP) {
-      result.push(item)
-      i++
+      result.unshift(item)
+      i--
       continue
     }
 
     // Check if this is a RAW symbol verb
     if (!isRawSymbol(item)) {
-      result.push(item)
-      i++
+      result.unshift(item)
+      i--
       continue
     }
 
@@ -268,9 +291,10 @@ function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
       const arity = getArity(resolved)
 
       // Check if this is PREFIX (no noun left argument available)
+      // When going right-to-left, check if there's a noun to the LEFT
       let hasLeftArg = false
-      if (result.length > 0) {
-        const leftItem = result[result.length - 1]
+      if (i > 0) {
+        const leftItem = items[i - 1]
         if (leftItem[0] !== ImpT.SEP) {
           // Check if left item is a noun (not a verb)
           const leftVal = resolveSymbol(leftItem, dict)
@@ -279,20 +303,13 @@ function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
         }
       }
 
-      if (!hasLeftArg && arity >= 1 && i + arity <= items.length) {
-        // This is PREFIX - try to collect arguments from the right
-        // BUT: only collect NOUNS, not verbs (verbs should be left for the evaluator)
+      if (!hasLeftArg && arity >= 1) {
+        // This is PREFIX - collect arguments from result (which has items to the right)
         const args: ImpVal[] = []
 
-        for (let j = 1; j <= arity && i + j < items.length; j++) {
-          const nextItem = items[i + j]
+        for (let j = 0; j < arity && j < result.length; j++) {
+          const nextItem = result[j]
           if (nextItem[0] === ImpT.SEP) break // Stop at separator
-
-          // Check if next item is a verb - if so, don't consume it
-          const nextVal = resolveSymbol(nextItem, dict)
-          const nextResolved = nextVal || nextItem
-          if (isVerb(nextResolved)) break // Stop at verbs
-
           args.push(nextItem)
         }
 
@@ -305,16 +322,19 @@ function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
             argList.push(args[k])
           }
           const mexpr = imp.lst({open: verbName + '[', close: ']'}, argList)
-          result.push(mexpr)
-          i += 1 + arity
+
+          // Remove consumed args from result and prepend mexpr
+          result.splice(0, args.length)
+          result.unshift(mexpr)
+          i--
           continue
         }
       }
     }
 
     // Default: keep as-is
-    result.push(item)
-    i++
+    result.unshift(item)
+    i--
   }
 
   return result
@@ -378,7 +398,21 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
           const nextResolved = nextVal || nextItem
           if (isVerb(nextResolved)) break
 
-          args.push(nextItem)
+          // Unwrap strands when collecting as function arguments
+          // This allows: 5 ! 20 30 → ![5; 20; 30] instead of ![5; 20 30]
+          if (nextItem[0] === ImpT.INTs || nextItem[0] === ImpT.NUMs) {
+            const nums = nextItem[2] as number[]
+            for (const num of nums) {
+              args.push(nextItem[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
+            }
+          } else if (nextItem[0] === ImpT.SYMs) {
+            const syms = nextItem[2] as symbol[]
+            for (const sym of syms) {
+              args.push(ImpC.sym(sym, SymT.BQT))  // Unwrapped syms from strand are backtick
+            }
+          } else {
+            args.push(nextItem)
+          }
           j++
         }
 
@@ -427,6 +461,50 @@ function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
   if (segments.length === 1) {
     // No commas, just transform normally
     return transformNoComma(segments[0], dict)
+  }
+
+  // Check if first segment starts with a prefix verb (+ args, more-args)
+  // In this case, commas are argument separators, not threading
+  // BUT: only if subsequent segments don't start with verbs (which indicates threading)
+  if (segments[0].length > 0) {
+    const firstItem = segments[0][0]
+    const firstIsVerb = isRawSymbol(firstItem) &&
+                        isVerb(resolveSymbol(firstItem, dict) || firstItem)
+
+    if (firstIsVerb && segments.length > 1) {
+      // Check if any subsequent segment starts with a verb (indicates threading, not args)
+      let hasVerbAfterComma = false
+      for (let i = 1; i < segments.length; i++) {
+        if (segments[i].length > 0) {
+          const segFirstItem = segments[i][0]
+          const segFirstIsVerb = isRawSymbol(segFirstItem) &&
+                                 isVerb(resolveSymbol(segFirstItem, dict) || segFirstItem)
+          if (segFirstIsVerb) {
+            hasVerbAfterComma = true
+            break
+          }
+        }
+      }
+
+      // Only treat as comma-separated args if no verbs after commas
+      if (!hasVerbAfterComma) {
+        const verbItem = firstItem
+        const verbName = (verbItem[2] as symbol).description || '?'
+
+        // Collect all arguments from all segments (comma-separated args)
+        const allArgs: ImpVal[] = []
+        for (let i = 0; i < segments.length; i++) {
+          const segment = i === 0 ? segments[i].slice(1) : segments[i]  // Skip verb in first segment
+          const transformed = transformNoComma(segment, dict)
+          if (i > 0) allArgs.push(ImpC.sep(';'))
+          allArgs.push(...transformed)
+        }
+
+        // Build M-expression: verb[arg1; arg2; ...]
+        const mexpr = imp.lst({open: verbName + '[', close: ']'}, allArgs)
+        return [mexpr]
+      }
+    }
   }
 
   // Process segments with comma threading

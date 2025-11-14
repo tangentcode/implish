@@ -1042,14 +1042,27 @@ class ImpEvaluator {
     // If it's a list, parse it first to form strands, then recursively quasiquote
     if (ImpQ.isLst(x)) {
       // First parse to combine adjacent literals into strands
-      let refined = imparse(x) as ImpLst
+      // Pass this.words so imparse can do full transformations
+      let refined = imparse(x, this.words)
+
+      // imparse might return TOP or LST - extract items appropriately
+      let items: ImpVal[]
+      let attrs: any
+      if (refined[0] === ImpT.TOP) {
+        items = refined[2] as ImpVal[]
+        attrs = x[1]  // Use original list's attrs (opener/closer)
+      } else {
+        items = refined[2] as ImpVal[]
+        attrs = refined[1]
+      }
+
       let results: ImpVal[] = []
-      for (let item of refined[2]) {
+      for (let item of items) {
         results.push(await this.quasiquote(item))
       }
       // Strip the backtick from the opener to return an unquoted list
-      let newOpen = refined[1].open.startsWith('`') ? refined[1].open.slice(1) : refined[1].open
-      return imp.lst({open: newOpen, close: refined[1].close}, results)
+      let newOpen = attrs.open.startsWith('`') ? attrs.open.slice(1) : attrs.open
+      return imp.lst({open: newOpen, close: attrs.close}, results)
     }
     // For all other values, return as-is
     return x
@@ -1291,16 +1304,20 @@ class ImpEvaluator {
           let args = []
           // Get arity from function metadata
           let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-          // Collect arguments, stopping if we hit END
+          // Collect arguments, stopping if we hit END or separator
           // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
           let eagerly = (arity === 1)
           for (let i = 0; i < arity; i++) {
             if (this.atEnd()) break
+            // Peek ahead to see if next is a separator - if so, stop collecting args
+            let nextPos = this.pos
+            if (nextPos < this.here.length && this.here[nextPos][0] === ImpT.SEP) break
             try {
               args.push(await this.nextNoun(eagerly))
             } catch (e) {
-              // If we can't get an argument (e.g., hit END), stop collecting
-              if (String(e).includes("unexpected end of input")) break
+              // If we can't get an argument, stop collecting
+              if (String(e).includes("unexpected end of input") ||
+                  String(e).includes("expected a noun")) break
               throw e
             }
           }
@@ -1335,18 +1352,34 @@ class ImpEvaluator {
           x = await this.eval(x)
           // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
           if (this.wordClass(x) === ImpP.V) {
-            // Apply verb modifiers (composition, etc.) only to JSF for now
-            if (x[0] === ImpT.JSF) {
-              x = this.modifyVerb(x as ImpJsf)
-            }
-            let args = []
-            // Get arity from function metadata
-            let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-            for (let i = 0; i < arity; i++) { args.push(await this.nextNoun()) }
-            if (x[0] === ImpT.IFN) {
-              tb.emit(await this.applyIfn(x as ImpIfn, args))
+            // Only try to apply if there are more items (don't fail at END)
+            // This allows {x + 2} to return a function value instead of trying to collect args
+            if (!this.atEnd()) {
+              // Apply verb modifiers (composition, etc.) only to JSF for now
+              if (x[0] === ImpT.JSF) {
+                x = this.modifyVerb(x as ImpJsf)
+              }
+              let args = []
+              // Get arity from function metadata
+              let arity = (x[1] as ImpJsfA | ImpIfnA).arity
+              for (let i = 0; i < arity; i++) {
+                if (this.atEnd()) break  // Stop if we run out of arguments
+                try {
+                  args.push(await this.nextNoun())
+                } catch (e) {
+                  // If we can't get an argument (e.g., hit END), stop collecting
+                  if (String(e).includes("unexpected end of input")) break
+                  throw e
+                }
+              }
+              if (x[0] === ImpT.IFN) {
+                tb.emit(await this.applyIfn(x as ImpIfn, args))
+              } else {
+                tb.emit(await (x as ImpJsf)[2].apply(this, args))
+              }
             } else {
-              tb.emit(await (x as ImpJsf)[2].apply(this, args))
+              // At end - just emit the verb as a value
+              tb.emit(x)
             }
           } else {
             x = await this.modifyNoun(x)
