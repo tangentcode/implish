@@ -16,6 +16,9 @@
     :root {
       color-scheme: dark;
     }
+    html, body {
+      height: 100%;
+    }
     body {
       font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
       background: #1f1f1f;
@@ -23,10 +26,16 @@
       padding: 24px;
       margin: 0;
       font-size: 16px;
+      height: 100vh;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     #container {
       max-width: 900px;
       margin: 0 auto;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
     }
     .banner {
       display: flex;
@@ -84,15 +93,15 @@
     #output {
       background: #2b2b2b;
       padding: 18px;
-      min-height: 420px;
       border-radius: 8px;
       margin-bottom: 16px;
       white-space: pre-wrap;
       font-size: 16px;
       overflow-y: auto;
-      max-height: 620px;
       border: 1px solid #393939;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      flex: 1;
+      min-height: 0;
     }
     #input-container {
       display: flex;
@@ -538,7 +547,6 @@
     async function runExamples() {
       const buildDate = new Date().toISOString().split('T')[0]
       clearOutput(`implish ${pkg.version} (${buildDate})`)
-      appendSystemLine('')
 
       for (const example of examples) {
         appendCodeLine(example)
@@ -553,8 +561,6 @@
         } catch (e) {
           appendErrorLine('Error: ' + e)
         }
-
-        appendSystemLine('')
       }
     }
 
