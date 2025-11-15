@@ -1,17 +1,38 @@
 #!/usr/bin/env node
 /**
  * Worker process for Implish MCP server
- * Handles implish evaluation in a fresh environment
+ * Long-running process that handles implish evaluation and supports module reloading
  */
 
-import { ImpLoader } from './imp-load.mjs';
-import { impEval, impWords, setOutputProvider, type OutputProvider } from './imp-eval.mjs';
-import { impShow } from './imp-show.mjs';
-import { ImpT } from './imp-core.mjs';
+import { pathToFileURL } from 'url';
 import * as readline from 'readline';
 
+// Dynamic imports to support reloading
+let ImpLoader: any;
+let impEval: any;
+let impWords: any;
+let setOutputProvider: any;
+let impShow: any;
+let ImpT: any;
+
+// Load/reload all implish modules
+async function loadModules() {
+  const timestamp = Date.now();
+  const imp_core = await import(`./imp-core.mjs?t=${timestamp}`);
+  const imp_load = await import(`./imp-load.mjs?t=${timestamp}`);
+  const imp_eval = await import(`./imp-eval.mjs?t=${timestamp}`);
+  const imp_show = await import(`./imp-show.mjs?t=${timestamp}`);
+
+  ImpLoader = imp_load.ImpLoader;
+  impEval = imp_eval.impEval;
+  impWords = imp_eval.impWords;
+  setOutputProvider = imp_eval.setOutputProvider;
+  impShow = imp_show.impShow;
+  ImpT = imp_core.ImpT;
+}
+
 // Capture output provider for echo statements
-class CaptureOutputProvider implements OutputProvider {
+class CaptureOutputProvider {
   private lines: string[] = [];
 
   writeLine(text: string): void {
@@ -28,23 +49,36 @@ class CaptureOutputProvider implements OutputProvider {
 }
 
 interface WorkerRequest {
-  operation: 'eval' | 'load' | 'list_words' | 'inspect_word';
+  id?: number;
+  operation: 'eval' | 'load' | 'list_words' | 'inspect_word' | 'reload';
   code?: string;
   word?: string;
 }
 
 interface WorkerResponse {
+  id?: number;
   success: boolean;
   result?: string;
   error?: string;
+  ready?: boolean;
 }
 
 async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
   try {
+    const response: WorkerResponse = { id: request.id, success: false };
+
     switch (request.operation) {
+      case 'reload': {
+        await loadModules();
+        response.success = true;
+        response.result = 'Modules reloaded';
+        break;
+      }
+
       case 'eval': {
         if (!request.code) {
-          return { success: false, error: 'code parameter is required' };
+          response.error = 'code parameter is required';
+          break;
         }
 
         // Set up output capture for echo statements
@@ -56,7 +90,8 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
         const tree = loader.read();
 
         if (tree[0] === ImpT.ERR) {
-          return { success: false, error: tree[2] as string };
+          response.error = tree[2] as string;
+          break;
         }
 
         const result = await impEval(tree);
@@ -65,22 +100,26 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
         // If there was echo output, include it in the result
         if (capturedOutput) {
           if (result[0] === ImpT.NIL) {
-            return { success: true, result: capturedOutput };
+            response.success = true;
+            response.result = capturedOutput;
           } else {
-            return { success: true, result: capturedOutput + '\n' + impShow(result) };
+            response.success = true;
+            response.result = capturedOutput + '\n' + impShow(result);
           }
+        } else if (result[0] === ImpT.NIL) {
+          response.success = true;
+          response.result = '';
+        } else {
+          response.success = true;
+          response.result = impShow(result);
         }
-
-        if (result[0] === ImpT.NIL) {
-          return { success: true, result: '' };
-        }
-
-        return { success: true, result: impShow(result) };
+        break;
       }
 
       case 'load': {
         if (!request.code) {
-          return { success: false, error: 'code parameter is required' };
+          response.error = 'code parameter is required';
+          break;
         }
 
         const loader = new ImpLoader();
@@ -88,62 +127,76 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
         const tree = loader.read();
 
         if (tree[0] === ImpT.ERR) {
-          return { success: false, error: tree[2] as string };
+          response.error = tree[2] as string;
+          break;
         }
 
-        return { success: true, result: impShow(tree) };
+        response.success = true;
+        response.result = impShow(tree);
+        break;
       }
 
       case 'list_words': {
         const words = Object.keys(impWords).sort();
-        return { success: true, result: words.join('\n') };
+        response.success = true;
+        response.result = words.join('\n');
+        break;
       }
 
       case 'inspect_word': {
         if (!request.word) {
-          return { success: false, error: 'word parameter is required' };
+          response.error = 'word parameter is required';
+          break;
         }
 
         const value = impWords[request.word];
         if (!value) {
-          return { success: false, error: `undefined word: ${request.word}` };
+          response.error = `undefined word: ${request.word}`;
+          break;
         }
 
-        return { success: true, result: impShow(value) };
+        response.success = true;
+        response.result = impShow(value);
+        break;
       }
 
       default:
-        return { success: false, error: `unknown operation: ${(request as any).operation}` };
+        response.error = `unknown operation: ${(request as any).operation}`;
     }
+
+    return response;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return { success: false, error: errorMessage };
+    return { id: request.id, success: false, error: errorMessage };
   }
 }
 
 async function main() {
-  // Read request from stdin
+  // Load modules initially
+  await loadModules();
+
+  // Signal ready to parent (on stdout as a special message)
+  process.stdout.write(JSON.stringify({ ready: true }) + '\n');
+
+  // Set up readline to process requests one per line
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     terminal: false
   });
 
-  let input = '';
-
   for await (const line of rl) {
-    input += line;
-  }
-
-  try {
-    const request: WorkerRequest = JSON.parse(input);
-    const response = await handleRequest(request);
-    console.log(JSON.stringify(response));
-    process.exit(0);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.log(JSON.stringify({ success: false, error: `Failed to parse request: ${errorMessage}` }));
-    process.exit(1);
+    try {
+      const request: WorkerRequest = JSON.parse(line);
+      const response = await handleRequest(request);
+      process.stdout.write(JSON.stringify(response) + '\n');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      process.stdout.write(JSON.stringify({
+        success: false,
+        error: `Failed to process request: ${errorMessage}`
+      }) + '\n');
+    }
   }
 }
 

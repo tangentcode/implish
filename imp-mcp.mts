@@ -29,14 +29,15 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
+import { watch } from 'fs';
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 interface WorkerRequest {
-  operation: 'eval' | 'load' | 'list_words' | 'inspect_word';
+  operation: 'eval' | 'load' | 'list_words' | 'inspect_word' | 'reload';
   code?: string;
   word?: string;
 }
@@ -47,70 +48,156 @@ interface WorkerResponse {
   error?: string;
 }
 
-// Spawn a worker process to handle implish operations
-// This ensures a fresh environment for each operation
-async function spawnWorker(request: WorkerRequest, timeoutMs: number = 5000): Promise<WorkerResponse> {
+// Global worker process
+let workerProcess: ChildProcess | null = null;
+let workerReady = false;
+let pendingRequests = new Map<number, { resolve: (value: WorkerResponse) => void, reject: (reason: any) => void }>();
+let requestIdCounter = 0;
+
+// Start a long-running worker process
+function startWorker(): void {
+  if (workerProcess) {
+    workerProcess.kill();
+  }
+
   const workerPath = join(__dirname, 'imp-mcp-worker.mjs');
+  workerProcess = spawn('node', [workerPath], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 
-  return new Promise((resolve, reject) => {
-    const child = spawn('node', [workerPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+  workerReady = false;
+  let outputBuffer = '';
 
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
+  workerProcess.stdout?.on('data', (data) => {
+    outputBuffer += data.toString();
 
-    // Set timeout to kill the process if it runs too long
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-      // Force kill after 1 second if not dead
-      setTimeout(() => {
-        if (!child.killed) {
-          child.kill('SIGKILL');
-        }
-      }, 1000);
-    }, timeoutMs);
+    // Process complete JSON responses
+    const lines = outputBuffer.split('\n');
+    outputBuffer = lines.pop() || ''; // Keep incomplete line in buffer
 
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('error', (error) => {
-      clearTimeout(timeout);
-      reject(new Error(`Failed to spawn worker: ${error.message}`));
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-
-      if (timedOut) {
-        reject(new Error(`Evaluation timed out after ${timeoutMs}ms (possible infinite loop)`));
-        return;
-      }
-
-      if (code !== 0) {
-        reject(new Error(`Worker exited with code ${code}${stderr ? ': ' + stderr : ''}`));
-        return;
-      }
+    for (const line of lines) {
+      if (!line.trim()) continue;
 
       try {
-        const response: WorkerResponse = JSON.parse(stdout);
-        resolve(response);
+        const response = JSON.parse(line);
+
+        // Check if this is a ready signal
+        if (response.ready) {
+          workerReady = true;
+          console.error('Worker ready');
+          continue;
+        }
+
+        // Handle request responses
+        const requestId = response.id;
+        if (requestId !== undefined && pendingRequests.has(requestId)) {
+          const { resolve } = pendingRequests.get(requestId)!;
+          pendingRequests.delete(requestId);
+          resolve(response);
+        }
       } catch (error) {
-        reject(new Error(`Failed to parse worker response: ${error}`));
+        console.error('Failed to parse worker output:', line, error);
+      }
+    }
+  });
+
+  workerProcess.stderr?.on('data', (data) => {
+    console.error('Worker stderr:', data.toString());
+  });
+
+  workerProcess.on('error', (error) => {
+    console.error('Worker error:', error);
+    workerReady = false;
+  });
+
+  workerProcess.on('exit', (code) => {
+    console.error(`Worker exited with code ${code}`);
+    workerReady = false;
+    workerProcess = null;
+
+    // Reject all pending requests
+    for (const [id, { reject }] of pendingRequests.entries()) {
+      reject(new Error('Worker process exited'));
+    }
+    pendingRequests.clear();
+  });
+}
+
+// Send request to worker and wait for response
+async function sendToWorker(request: WorkerRequest, timeoutMs: number = 5000): Promise<WorkerResponse> {
+  if (!workerProcess || !workerReady) {
+    startWorker();
+
+    // Wait for worker to be ready
+    const maxWait = 10000;
+    const start = Date.now();
+    while (!workerReady && (Date.now() - start) < maxWait) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    if (!workerReady) {
+      throw new Error('Worker failed to start');
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = requestIdCounter++;
+    const requestWithId = { ...request, id: requestId };
+
+    // Set timeout
+    const timeout = setTimeout(() => {
+      if (pendingRequests.has(requestId)) {
+        pendingRequests.delete(requestId);
+        reject(new Error(`Request timed out after ${timeoutMs}ms (possible infinite loop)`));
+      }
+    }, timeoutMs);
+
+    // Store resolver
+    pendingRequests.set(requestId, {
+      resolve: (response) => {
+        clearTimeout(timeout);
+        resolve(response);
+      },
+      reject: (error) => {
+        clearTimeout(timeout);
+        reject(error);
       }
     });
 
-    // Send request to worker
-    child.stdin.write(JSON.stringify(request));
-    child.stdin.end();
+    // Send request
+    try {
+      workerProcess!.stdin!.write(JSON.stringify(requestWithId) + '\n');
+    } catch (error) {
+      pendingRequests.delete(requestId);
+      clearTimeout(timeout);
+      reject(error);
+    }
   });
+}
+
+// Watch for file changes and reload worker
+function watchFiles(): void {
+  const filesToWatch = [
+    'imp-core.mjs',
+    'imp-load.mjs',
+    'imp-eval.mjs',
+    'imp-show.mjs',
+    'imp-mcp-worker.mjs',
+  ].map(f => join(__dirname, f));
+
+  for (const file of filesToWatch) {
+    watch(file, (eventType) => {
+      if (eventType === 'change') {
+        console.error(`File changed: ${file}, reloading worker...`);
+        if (workerReady) {
+          sendToWorker({ operation: 'reload' }).catch(() => {
+            // If reload fails, restart the worker
+            startWorker();
+          });
+        }
+      }
+    });
+  }
 }
 
 // Create server instance
@@ -199,8 +286,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("code parameter is required");
         }
 
-        // Spawn worker with fresh environment
-        const response = await spawnWorker({ operation: 'eval', code });
+        // Send to long-running worker
+        const response = await sendToWorker({ operation: 'eval', code });
 
         if (!response.success) {
           return {
@@ -233,8 +320,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("code parameter is required");
         }
 
-        // Spawn worker with fresh environment
-        const response = await spawnWorker({ operation: 'load', code });
+        // Send to long-running worker
+        const response = await sendToWorker({ operation: 'load', code });
 
         if (!response.success) {
           return {
@@ -259,8 +346,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "list_words": {
-        // Spawn worker with fresh environment
-        const response = await spawnWorker({ operation: 'list_words' });
+        // Send to long-running worker
+        const response = await sendToWorker({ operation: 'list_words' });
 
         if (!response.success) {
           return {
@@ -293,8 +380,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           throw new Error("word parameter is required");
         }
 
-        // Spawn worker with fresh environment
-        const response = await spawnWorker({ operation: 'inspect_word', word });
+        // Send to long-running worker
+        const response = await sendToWorker({ operation: 'inspect_word', word });
 
         if (!response.success) {
           return {
@@ -337,6 +424,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 // Start the server
 async function main() {
+  // Start worker process
+  startWorker();
+
+  // Watch for file changes
+  watchFiles();
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Implish MCP server running on stdio");
