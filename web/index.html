@@ -12,51 +12,53 @@
   <meta name="twitter:title" content="Implish Browser REPL">
   <meta name="twitter:description" content="Interactive Implish language REPL that runs entirely in your browser.">
   <meta name="twitter:image" content="https://raw.githubusercontent.com/tangentstorm/implish/main/misc/implish-clear.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Aladin&family=Roboto+Mono:wght@400;500;600&display=swap">
   <style>
     :root {
       color-scheme: dark;
+      --safe-top: 0px;
+      --safe-bottom: 0px;
+      --input-offset: 0px;
     }
     html, body {
       height: 100%;
     }
     body {
-      font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+      font-family: 'Roboto Mono', 'JetBrains Mono', Consolas, 'Courier New', monospace;
       background: #1f1f1f;
       color: #a9b7c6;
       padding: 24px;
       margin: 0;
       font-size: 16px;
-      height: 100vh;
+      min-height: 100vh;
+      height: 100dvh;
       box-sizing: border-box;
       overflow: hidden;
     }
     #container {
       max-width: 900px;
       margin: 0 auto;
-      height: 100%;
+      height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+      min-height: calc(100vh - var(--safe-top) - var(--safe-bottom));
       display: flex;
       flex-direction: column;
     }
     .banner {
       display: flex;
       align-items: center;
+      justify-content: center;
       gap: 24px;
-      background: linear-gradient(135deg, #2c2f33, #1f1f1f);
-      border-radius: 10px;
-      padding: 20px 28px;
-      margin-bottom: 24px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
-      border: 1px solid #3c3f41;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      position: relative;
     }
     .logo-badge {
       flex-shrink: 0;
-      background: #323232;
-      padding: 12px;
-      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border: 1px solid #45484a;
     }
     .logo-badge img {
       width: 150px;
@@ -66,11 +68,33 @@
     }
     .banner-content {
       flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
     }
-    h1 {
-      color: #c7d6ff;
-      margin-bottom: 10px;
-      font-weight: 600;
+    .banner-content .hint {
+      margin: 0;
+    }
+    .banner-content .github-link.github-mobile {
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .repl-shell-wrapper {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #repl-shell {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      min-height: 0;
+      gap: 12px;
     }
     .header {
       display: flex;
@@ -79,22 +103,32 @@
       margin-bottom: 12px;
     }
     .github-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       color: #6c99ff;
       text-decoration: none;
-      font-size: 16px;
-      border-bottom: 1px dashed transparent;
-      padding-bottom: 2px;
-      transition: border-color 0.2s ease, color 0.2s ease;
+      font-size: 15px;
+      transition: color 0.2s ease, opacity 0.2s ease;
+    }
+    .github-link svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+      display: block;
+    }
+    .github-link.github-mobile {
+      display: none;
     }
     .github-link:hover {
-      border-color: #6c99ff;
       color: #89adff;
     }
     #output {
       background: #2b2b2b;
       padding: 18px;
+      padding-bottom: calc(18px + var(--input-offset));
       border-radius: 8px;
-      margin-bottom: 16px;
+      margin: 0;
       white-space: pre-wrap;
       font-size: 16px;
       overflow-y: auto;
@@ -105,8 +139,18 @@
     }
     #input-container {
       display: flex;
+      justify-content: center;
+      margin-top: 12px;
+      padding-bottom: 12px;
+    }
+    .input-inner {
+      display: flex;
       gap: 10px;
       align-items: center;
+      width: 100%;
+      max-width: 900px;
+      padding: 0 6px;
+      box-sizing: border-box;
     }
     .input-shell {
       position: relative;
@@ -124,7 +168,7 @@
     #input-highlight {
       position: absolute;
       inset: 0;
-      padding: 12px;
+      padding: 10px;
       color: #d8dee9;
       font-family: inherit;
       font-size: 16px;
@@ -132,12 +176,12 @@
       word-break: break-word;
       border-radius: 6px;
       pointer-events: none;
-      line-height: 1.4;
+      line-height: 1;
     }
     #input {
       width: 100%;
       height: 100%;
-      padding: 12px;
+      padding: 10px;
       background: transparent;
       border: none;
       font-family: inherit;
@@ -147,7 +191,7 @@
       position: relative;
       z-index: 1;
       outline: none;
-      line-height: 1.4;
+      line-height: 1;
       box-sizing: border-box;
     }
     #input::placeholder {
@@ -161,17 +205,25 @@
     .prompt {
       color: #cc7832;
       font-weight: 500;
-      margin-right: 10px;
+      margin-right: 0;
+      padding-right: 4px;
+    }
+    .input-inner .prompt {
+      padding-right: 6px;
     }
     .repl-line {
-      line-height: 1.5;
+      line-height: 1;
       font-size: 15px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: transparent;
     }
     .repl-line + .repl-line {
       margin-top: 2px;
     }
     .repl-code {
       color: #a9b7c6;
+      background: rgba(0, 0, 0, 0.2);
     }
     .repl-result {
       color: #c8d3f5;
@@ -204,12 +256,89 @@
     .token-comment {
       color: #808080;
       font-style: italic;
+      font-size: 0.9em;
     }
     .token-brace {
       color: #f97c7c;
     }
     .input-placeholder {
       color: #5f6b7c;
+    }
+    @media (max-width: 640px) {
+      :root {
+        --safe-top: env(safe-area-inset-top, 0px);
+        --safe-bottom: env(safe-area-inset-bottom, 0px);
+        --input-offset: 0px;
+      }
+      body {
+        padding: calc(var(--safe-top) + 20px) 0 calc(var(--safe-bottom) + 10px);
+        overflow: auto;
+        min-height: 100vh;
+        height: auto;
+      }
+      #container {
+        width: 100%;
+        padding-left: 0;
+        padding-right: 0;
+        min-height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+        height: auto;
+      }
+      .banner {
+        border-radius: 0;
+        margin: 0 16px 8px;
+        justify-content: center;
+        padding: 12px 0;
+      }
+      .github-link.github-mobile {
+        display: inline-flex;
+        position: absolute;
+        top: 50%;
+        right: 12px;
+        transform: translateY(-50%);
+      }
+      .banner-content {
+        flex: unset;
+        width: 100%;
+        justify-content: center;
+      }
+      .hint {
+        display: none;
+      }
+      #output {
+        padding: 10px 5px 4px;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+        font-size: 15px;
+      }
+      .repl-shell-wrapper {
+        position: relative;
+        padding-bottom: calc(80px + var(--safe-bottom));
+      }
+      #input-container {
+        gap: 0;
+        margin: 0;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        max-width: none;
+        background: rgba(18, 18, 18, 0.98);
+        padding: 8px 0 calc(8px + var(--safe-bottom));
+        border-radius: 0;
+        box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.6);
+        z-index: 10;
+      }
+      .input-inner {
+        max-width: 900px;
+        width: 100%;
+        margin: 0 auto;
+        padding: 0 6px;
+      }
+      .input-shell {
+        min-height: 42px;
+      }
     }
   </style>
 </head>
@@ -220,21 +349,33 @@
         <img id="implish-logo" alt="Implish logo" decoding="async">
       </div>
       <div class="banner-content">
-        <div class="header">
-          <h1>Implish Browser REPL</h1>
-          <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link">GitHub Repository</a>
-        </div>
         <div class="hint">
           Type "words" to see the known words | "clear" to clear the console
+          <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link" aria-label="GitHub">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.758-1.333-1.758-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.238 1.84 1.238 1.07 1.834 2.807 1.304 3.492.997.108-.775.42-1.305.763-1.605-2.665-.3-5.467-1.334-5.467-5.93 0-1.31.47-2.382 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.838 1.235 1.91 1.235 3.22 0 4.61-2.807 5.628-5.48 5.922.431.37.815 1.102.815 2.222 0 1.604-.015 2.896-.015 3.286 0 .32.218.694.825.576C20.565 21.796 24 17.295 24 12c0-6.63-5.373-12-12-12Z"/>
+            </svg>
+          </a>
         </div>
+        <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link github-mobile" aria-label="GitHub">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.758-1.333-1.758-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.238 1.84 1.238 1.07 1.834 2.807 1.304 3.492.997.108-.775.42-1.305.763-1.605-2.665-.3-5.467-1.334-5.467-5.93 0-1.31.47-2.382 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.838 1.235 1.91 1.235 3.22 0 4.61-2.807 5.628-5.48 5.922.431.37.815 1.102.815 2.222 0 1.604-.015 2.896-.015 3.286 0 .32.218.694.825.576C20.565 21.796 24 17.295 24 12c0-6.63-5.373-12-12-12Z"/>
+          </svg>
+        </a>
       </div>
     </div>
-    <div id="output"></div>
-    <div id="input-container">
-      <span class="prompt">&gt;</span>
-      <div class="input-shell">
-        <div id="input-highlight" aria-hidden="true"></div>
-        <input id="input" type="text" placeholder="Enter Implish code..." autocomplete="off" autofocus>
+    <div class="repl-shell-wrapper">
+      <div id="repl-shell">
+        <div id="output"></div>
+      </div>
+      <div id="input-container">
+        <div class="input-inner">
+          <span class="prompt">&gt;</span>
+          <div class="input-shell">
+            <div id="input-highlight" aria-hidden="true"></div>
+            <input id="input" type="text" placeholder="Enter Implish code..." autocomplete="off" autofocus>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -244,7 +385,7 @@
     import { load } from '/dist/imp-load.mjs'
     import { impShow } from '/dist/imp-show.mjs'
     import { ImpT } from '/dist/imp-core.mjs'
-    import implishLogo from '@misc/implish-clear.png'
+    import implishLogo from '@misc/icon.svg'
     import pkg from '../package.json' with { type: 'json' }
 
     const inputEl = document.getElementById('input')
@@ -342,7 +483,7 @@
 
         if (options.prompt) {
           const highlighted = line ? highlightCode(line) : '&nbsp;'
-          div.innerHTML = `<span class="prompt">&gt;</span> ${highlighted}`
+          div.innerHTML = `<span class="prompt">&gt;&nbsp;</span>${highlighted}`
         } else if (options.highlight) {
           div.innerHTML = line ? highlightCode(line) : '&nbsp;'
         } else {
@@ -353,11 +494,17 @@
       }
 
       outputEl.scrollTop = outputEl.scrollHeight
+      if (window.innerWidth <= 640) {
+        setTimeout(() => {
+          outputEl.scrollTop = outputEl.scrollHeight
+          window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+        }, 0)
+      }
     }
 
     const appendCodeLine = (text) => appendLine(text, 'repl-code', { prompt: true })
     const appendResultLine = (text) => appendLine(text, 'repl-result', { highlight: true })
-    const appendInputEcho = (text) => appendLine(text, 'repl-input', { highlight: true })
+    const appendInputEcho = (text) => appendLine(text, 'repl-input repl-input-echo', { highlight: true })
     const appendSystemLine = (text) => appendLine(text, 'repl-system')
     const appendErrorLine = (text) => appendLine(text, 'repl-error')
 
