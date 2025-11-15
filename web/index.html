@@ -155,9 +155,9 @@
     .input-shell {
       position: relative;
       flex: 1;
-      border: 1px solid #555a5e;
+      border: none;
       border-radius: 6px;
-      background: #3c3f41;
+      background: #1c1f21;
       transition: border-color 0.2s ease, box-shadow 0.2s ease;
       min-height: 48px;
     }
@@ -671,24 +671,24 @@
 
     // Run example code on startup
     const examples = [
-      '.: Basic operations and strands :.',
-      'x: 1 2 3  .: juxtaposed values form vectors :.',
-      'x + 10  .: element-wise addition :.',
-      '.: Monadic functions collect eagerly :.',
+      '.: Basics :.',
+      'x: 1 2 3  .: juxtapose values to build a vector :.',
+      'x + 10  .: add scalar to each element :.',
+      '.: Monadic functions :.',
       'rev 1 2 3  .: reverse a vector :.',
       '2 + rev 1 2 3  .: infix after monadic :.',
-      'rev 1 2 3 + 10  .: eager: (rev [1,2,3]) + 10 :.',
-      '.: Dyadic operators and infix :.',
-      '2 + 3 * 5  .: left-to-right: (2+3)*5 = 25 :.',
-      '2 ^ ! 5  .: 2^[0..4] = [1,2,4,8,16] :.',
-      '.: Comma forces sequencing :.',
-      '! 5, rev  .: pipe: [0..4] then reverse :.',
-      '! 10, * 2, + 1  .: odd numbers: 1,3,5... :.',
-      '.: Functions with curly braces :.',
+      'rev 1 2 3 + 10  .: eager evaluation order :.',
+      '.: Dyadic operators :.',
+      '2 + 3 * 5  .: left-to-right precedence :.',
+      '2 ^ ! 5  .: exponentiate a range :.',
+      '.: Sequencing :.',
+      '! 5, rev  .: pipe a range through rev :.',
+      '! 10, * 2, + 1  .: compose transformations :.',
+      '.: Functions :.',
       'f: {x * x}  .: implicit arity-1 :.',
-      'f 7  .: 49 :.',
+      'f 7  .: call a unary function :.',
       'g: {x + y * 2}  .: implicit arity-2 :.',
-      'g 3, 5  .: 3 + 5*2 = 16 (left-to-right) :.'
+      'g 3, 5  .: call a dyadic function :.'
     ]
 
     async function runExamples() {
