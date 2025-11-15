@@ -267,6 +267,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           required: ["word"],
         },
       },
+      {
+        name: "reset_implish",
+        description: "Reset the implish environment by restarting the worker process. This clears all user-defined variables and functions, restoring the environment to its initial state.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
     ],
   };
 });
@@ -400,6 +408,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             {
               type: "text",
               text: response.result || "",
+            },
+          ],
+        };
+      }
+
+      case "reset_implish": {
+        // Restart the worker process to clear all state
+        startWorker();
+
+        // Wait for worker to be ready
+        const maxWait = 10000;
+        const start = Date.now();
+        while (!workerReady && (Date.now() - start) < maxWait) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        if (!workerReady) {
+          return {
+            content: [
+              {
+                type: "text",
+                text: "Error: Worker failed to restart",
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Implish environment reset successfully",
             },
           ],
         };
