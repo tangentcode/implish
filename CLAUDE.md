@@ -214,3 +214,5 @@ x: 42
 - always use the mcp server to execute implish code.
 - ALWAYS use the mcp server to run implish!
 - the implish mcp server reloads implish on each version. you don't have to worry about old versions being cached.
+- the implish mcp server maintains state between calls, but reloads and clears state when you change one of its source files.
+- you can use the reset_implish mp tool to reset the interpreter state without making a change
