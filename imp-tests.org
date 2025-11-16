@@ -161,6 +161,24 @@ hello
 5
 #+end_src
 
+* TODO +[2] (projection)
+#+name: projection.explicit
+#+begin_src
+> +[2]
+<fn[_; _]>[2]
+#+end_src
+
+"verb[noun]", applies the noun as the verb's first argument.
+
+* TODO 2 + (also projection)
+#+name: projection.pre
+#+begin_src
+> 2 +
+<fn[_; _]>[2]
+#+end_src
+
+"verb[noun]" also applies the noun as the verb's first argument.
+
 * DONE echo[+[2;3]]
 #+name: projection.nested
 #+begin_src

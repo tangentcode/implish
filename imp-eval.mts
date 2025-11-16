@@ -318,6 +318,10 @@ export let impWords: Record<string, ImpVal> = {
     // Also handles parallel assignment with symbol vectors
     if (ImpQ.isSym(x)) {
       const varName = x[2].description!
+      // Unwrap single-element lists created by imparse (e.g., [2 +])
+      if (ImpQ.isLst(y) && y[2].length === 1 && y[1].open === '[' && y[1].close === ']') {
+        y = y[2][0]
+      }
       this.words[varName] = y
       return y
     } else if (x[0] === ImpT.SYMs) {
@@ -809,7 +813,29 @@ class ImpEvaluator {
       // Collect the right operand
       // NOTE: imparse() prefix pass already transformed "a + ! b" → "+[a; ![b]]"
       // So we only see simple nouns here (verbs are already applied)
-      let arg = await this.nextNounItem()
+      let arg: ImpVal | null = null
+      try {
+        arg = await this.nextNounItem()
+      } catch (e) {
+        // If we can't get a right argument (e.g., hit END), create partial application
+        if (String(e).includes("unexpected end of input")) {
+          // Create partial application with left argument captured
+          if (op[0] === ImpT.IFN) {
+            return await this.applyIfn(op as ImpIfn, [res])
+          } else {
+            let originalFn = op as ImpJsf
+            let capturedArgs = [res]
+            return [ImpT.JSF, {
+              arity: 1,
+              sourceIfn: originalFn,
+              capturedArgs: capturedArgs
+            }, async (...remainingArgs: ImpVal[]) => {
+              return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
+            }]
+          }
+        }
+        throw e
+      }
 
       // Apply the arity-2 verb
       if (op[0] === ImpT.IFN) {
@@ -1441,7 +1467,19 @@ class ImpEvaluator {
     } else if (f[0] === ImpT.JSF) {
       // Check arity for JSF functions
       const expectedArity = (f as ImpJsf)[1].arity
-      if (evaluatedArgs.length !== expectedArity) {
+      if (evaluatedArgs.length < expectedArity) {
+        // Partial application - create a new function with captured arguments
+        let partialArity = expectedArity - evaluatedArgs.length
+        let capturedArgs = evaluatedArgs
+        let originalFn = f as ImpJsf
+        return [ImpT.JSF, {
+          arity: partialArity,
+          sourceIfn: originalFn,
+          capturedArgs: capturedArgs
+        }, async (...remainingArgs: ImpVal[]) => {
+          return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
+        }]
+      } else if (evaluatedArgs.length > expectedArity) {
         throw `[project] ${sym}: valence error: expected ${expectedArity} args, got ${evaluatedArgs.length}`
       }
       return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
@@ -1464,6 +1502,8 @@ class ImpEvaluator {
       case ImpT.INTs: return x
       case ImpT.NUMs: return x
       case ImpT.SYMs: return x
+      case ImpT.JSF: return x
+      case ImpT.IFN: return x
       case ImpT.LST:
         let [_, a, v] = x
         // Check if list is quoted (starts with ' or `)
