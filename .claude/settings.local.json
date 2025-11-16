@@ -5,7 +5,8 @@
       "mcp__implish__eval_implish",
       "mcp__implish__load_implish",
       "Bash(uv run:*)",
-      "mcp__implish__inspect_word"
+      "mcp__implish__inspect_word",
+      "mcp__implish__reset_implish"
     ],
     "deny": [],
     "ask": []
