@@ -135,7 +135,7 @@ export class TreeBuilder<T> {
   done() { let prev = this.stack.pop(); if (prev) { prev.push(this.here); this.here = prev } else { throw new Error("done called without node") } }}
 
 export function lst(atr?:ImpLstA, items?:any[]): ImpLst {
-  if (atr===undefined) atr = {open:'<<', close:'>>'}
+  if (atr===undefined) atr = {open:'[', close:']'}
   if (items===undefined) items = []
   return [ImpT.LST, atr, items] }
 export function push(xs: ImpLst, x: ImpVal): ImpVal {
