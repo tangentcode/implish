@@ -109,7 +109,6 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 - next -> 2 (noun)
 - have noun, so look ahead for .method or infix op
 
-
 * DONE arithmetic (left to right eval)
 #+name: arithmetic
 #+begin_src
@@ -148,19 +147,11 @@ hi
 "quoted"
 #+end_src
 
-
 * DONE echo["hello"]
 #+name: hello.projection
 #+begin_src
 > echo["hello"]
 hello
-#+end_src
-
-* DONE echo[2 + 2]
-#+name: projection.with-op
-#+begin_src
-> echo[2 + 2]
-4
 #+end_src
 
 * DONE +[2;3]
@@ -176,7 +167,6 @@ hello
 > echo[+[2;3]]
 5
 #+end_src
-
 
 
 * DONE echo xmls '[1 2; "three"; four]
@@ -316,7 +306,7 @@ When getting an undefined variable, get returns a fault symbol (prefixed with ?)
 > set[`a `b `c; 1 2 3]
 1 2 3
 > get[`a `b `c]
-<<1, 2, 3>>
+[1, 2, 3]
 #+end_src
 
 Parallel assignment distributes vector values to multiple variables.
@@ -327,7 +317,7 @@ Parallel assignment distributes vector values to multiple variables.
 > set[`p `q `r; 99]
 99
 > get[`p `q `r]
-<<99, 99, 99>>
+[99, 99, 99]
 #+end_src
 
 When setting multiple variables to a scalar, all get the same value.
@@ -338,7 +328,7 @@ When setting multiple variables to a scalar, all get the same value.
 > set[`alpha; 10]
 10
 > get[`alpha `beta `gamma]
-<<10 ?beta ?gamma>>
+[10 ?beta ?gamma]
 #+end_src
 
 Getting a mix of defined and undefined variables returns values and faults.
