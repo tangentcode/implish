@@ -1,4 +1,4 @@
-import { ImpT, ImpVal, SymT } from './imp-core.mjs'
+import { ImpT, ImpVal, SymT, ImpQ } from './imp-core.mjs'
 
 function q(x:string):string {
   if (x.match(/^[a-zA-Z0-9_]*$/)) return x
@@ -90,6 +90,24 @@ export class ImpWriter {
         }
       }
       case ImpT.LST: return (x[1].open||'') + showList(x[2]) + (x[1].close||'')
+      case ImpT.DCT: {
+        const dct = x[2] as Map<string, ImpVal>
+        if (dct.size === 0) return ':[]'
+        const pairs: string[] = []
+        for (const [key, val] of dct.entries()) {
+          const valStr = this.show(val)
+          // Add comma before backtick symbol values to distinguish from key
+          if (ImpQ.isSym(val) && val[1] && val[1].kind === SymT.BQT) {
+            pairs.push(`\`${key}, ${valStr}`)
+          } else if (val[0] === ImpT.SYMs) {
+            // For symbol vectors, also add comma
+            pairs.push(`\`${key}, ${valStr}`)
+          } else {
+            pairs.push(`\`${key} ${valStr}`)
+          }
+        }
+        return ':[' + pairs.join('; ') + ']'
+      }
       case ImpT.IFN: return '{' + showList(x[2]) + '}'
       case ImpT.JSF: {
         // If it's a partial application, show as {source}[args]

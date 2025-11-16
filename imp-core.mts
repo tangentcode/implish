@@ -14,6 +14,7 @@ export enum ImpT {
   MLS = 'MLS',     // multi-line string
   SYM = 'SYM',     // symbol
   LST = 'LST',     // list
+  DCT = 'DCT',     // dictionary (key-value map)
   // --- vector types (strands)
   INTs = 'INTs',   // vector of integers
   NUMs = 'NUMs',   // vector of numbers
@@ -47,6 +48,7 @@ export enum SymT {
 
 export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
+export type ImpDctA = { /* metadata for dictionaries */ }
 export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string}
 export type ImpIfnA = {arity:number, body:ImpVal[]}
 
@@ -61,6 +63,7 @@ export type ImpStr = [ImpT.STR, null, string]
 export type ImpMls = [ImpT.MLS, null, string]
 export type ImpSym = [ImpT.SYM, ImpSymA, symbol]
 export type ImpLst = [ImpT.LST, ImpLstA, ImpVal[]]
+export type ImpDct = [ImpT.DCT, ImpDctA | null, Map<string, ImpVal>]
 export type ImpInts = [ImpT.INTs, null, number[]]
 export type ImpNums = [ImpT.NUMs, null, number[]]
 export type ImpSyms = [ImpT.SYMs, null, symbol[]]
@@ -71,7 +74,7 @@ export type ImpIfn = [ImpT.IFN, ImpIfnA, ImpVal[]]
 // Main discriminated union type (equivalent to union of individual types above)
 export type ImpVal
   = ImpTop | ImpErr | ImpSep | ImpEnd
-  | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst
+  | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst | ImpDct
   | ImpInts | ImpNums | ImpSyms | ImpNil
   | ImpJsf | ImpIfn
 
@@ -80,6 +83,7 @@ export const ImpQ = {
   isTop(x: ImpVal): x is ImpTop { return x[0] === ImpT.TOP },
   isSym(x: ImpVal): x is ImpSym { return x[0] === ImpT.SYM },
   isLst(x: ImpVal): x is ImpLst { return x[0] === ImpT.LST },
+  isDct(x: ImpVal): x is ImpDct { return x[0] === ImpT.DCT },
   isIfn(x: ImpVal): x is ImpIfn { return x[0] === ImpT.IFN },
 };
 
@@ -100,6 +104,7 @@ export const ImpC = {
   ints(x:number[]):ImpInts { return [ImpT.INTs, null, x]},
   nums(x:number[]):ImpNums { return [ImpT.NUMs, null, x]},
   syms(x:symbol[]):ImpSyms { return [ImpT.SYMs, null, x]},
+  dct(x?:Map<string, ImpVal>):ImpDct { return [ImpT.DCT, null, x || new Map()]},
   ifn(arity:number, body:ImpVal[]):ImpIfn { return [ImpT.IFN, {arity, body}, body]},
 }
 
@@ -138,6 +143,8 @@ export function lst(atr?:ImpLstA, items?:any[]): ImpLst {
   if (atr===undefined) atr = {open:'[', close:']'}
   if (items===undefined) items = []
   return [ImpT.LST, atr, items] }
+export function dct(items?:Map<string, ImpVal>): ImpDct {
+  return [ImpT.DCT, null, items || new Map()] }
 export function push(xs: ImpLst, x: ImpVal): ImpVal {
   xs[2].push(x)
   return xs }

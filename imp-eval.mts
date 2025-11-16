@@ -14,7 +14,7 @@ import {
   ImpJsfA,
   ImpIfn,
   ImpIfnA,
-  ImpStr, ImpC, ImpTop, ImpErr, ImpLst
+  ImpStr, ImpC, ImpTop, ImpErr, ImpLst, ImpDct
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
 import {load} from './imp-load.mjs'
@@ -603,6 +603,38 @@ export let impWords: Record<string, ImpVal> = {
     return ImpC.syms(Object.keys(impWords).map(w => Symbol(w)))
   }, 0),
   'imparse': imp.jsf((x) => imparse(x, impWords), 1),
+
+  // Dictionary operations
+  'keys': imp.jsf(x => {
+    if (!ImpQ.isDct(x)) throw "keys expects a dictionary"
+    const dct = x[2] as Map<string, ImpVal>
+    return ImpC.syms(Array.from(dct.keys()).map(k => Symbol(k)))
+  }, 1),
+
+  'vals': imp.jsf(x => {
+    if (!ImpQ.isDct(x)) throw "vals expects a dictionary"
+    const dct = x[2] as Map<string, ImpVal>
+    return imp.lst(undefined, Array.from(dct.values()))
+  }, 1),
+
+  'at': imp.jsf((d, k) => {
+    if (!ImpQ.isDct(d)) throw "at expects dictionary as first argument"
+    if (!ImpQ.isSym(k)) throw "at expects symbol as second argument"
+    const dct = d[2] as Map<string, ImpVal>
+    const keyName = k[2].description || ''
+    return dct.get(keyName) || NIL
+  }, 2),
+
+  'put': imp.jsf((d, k, v) => {
+    if (!ImpQ.isDct(d)) throw "put expects dictionary as first argument"
+    if (!ImpQ.isSym(k)) throw "put expects symbol as second argument"
+    const dct = d[2] as Map<string, ImpVal>
+    const keyName = k[2].description || ''
+    // Create new dictionary with updated value (immutable)
+    const newMap = new Map(dct)
+    newMap.set(keyName, v)
+    return imp.dct(newMap)
+  }, 3),
 }
 
 // Add sourceName to all JSF entries in impWords for better display in partial applications
@@ -640,6 +672,15 @@ function toXml(x: ImpVal): string {
   }
   if (x[0] === ImpT.SYMs) {
     return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2] as symbol[]).map(s => s.description).join(' ')})
+  }
+  // Handle dictionaries
+  if (ImpQ.isDct(x)) {
+    const dct = x[2] as Map<string, ImpVal>
+    const entries: string[] = []
+    for (const [key, val] of dct.entries()) {
+      entries.push(`\n  <entry k="${key}">${toXml(val)}</entry>`)
+    }
+    return `<imp:dct>${entries.join('')}\n</imp:dct>`
   }
   // For other types (SEP, INT, STR, MLS, JSF, JDY, END), treat as simple values
   return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2]??'').toString()})}
@@ -697,6 +738,7 @@ function wordClass(x:ImpVal) {
       case ImpT.MLS: return ImpP.N
       case ImpT.SYM: return ImpP.N
       case ImpT.LST: return ImpP.N
+      case ImpT.DCT: return ImpP.N
       case ImpT.INTs: return ImpP.N
       case ImpT.NUMs: return ImpP.N
       case ImpT.SYMs: return ImpP.N
@@ -798,8 +840,38 @@ class ImpEvaluator {
     // TODO: Once imparse handles special symbols, this entire
     // function can be deleted and eval can just handle M-expressions.
 
-    // Check if next token is an arity-2 verb (works as infix operator)
+    // Handle dictionary backtick indexing: d`key
     let res = x
+    if (x[0] === ImpT.DCT) {
+      // Check if next item is a backtick symbol (or strand of backtick symbols)
+      while (true) {
+        let p = this.peek()
+        if (!p || p.wc !== ImpP.Q) break
+
+        let key = this.nextItem()
+
+        // Handle single backtick symbol or strand of symbols
+        const dct = (res as ImpDct)[2]
+        if (ImpQ.isSym(key)) {
+          const keyName = key[2].description || ''
+          const value = dct.get(keyName)
+          res = value !== undefined ? value : NIL
+        } else if (key[0] === ImpT.SYMs) {
+          // Vector of symbols - lookup each one
+          const results: ImpVal[] = []
+          for (const k of key[2]) {
+            const keyName = k.description || ''
+            const value = dct.get(keyName)
+            results.push(value !== undefined ? value : NIL)
+          }
+          res = imp.lst(undefined, results)
+        } else {
+          throw "dictionary keys must be backtick symbols"
+        }
+      }
+    }
+
+    // Check if next token is an arity-2 verb (works as infix operator)
     while (true) {
       let p = this.peek()
       if (!p || p.wc !== ImpP.V) break
@@ -1453,6 +1525,42 @@ class ImpEvaluator {
   project = async (sym:string, xs: ImpVal[]): Promise<ImpVal> => {
     let f: ImpVal | undefined = this.words[sym]
     if (!f) throw "[project]: undefined word: " + sym
+
+    // Check if f is a dictionary - if so, handle dictionary indexing
+    if (f[0] === ImpT.DCT) {
+      const dct = (f as ImpDct)[2]
+      const results: ImpVal[] = []
+
+      // Collect all keys (handles both single keys and strands)
+      for (let x of xs) {
+        if (x[0] === ImpT.SEP) continue
+
+        // Evaluate the key expression
+        let key = await this.eval(x)
+
+        // Handle key as symbol or vector of symbols
+        if (ImpQ.isSym(key)) {
+          const keyName = key[2].description || ''
+          const value = dct.get(keyName)
+          results.push(value !== undefined ? value : NIL)
+        } else if (key[0] === ImpT.SYMs) {
+          // Vector of symbols - lookup each one
+          for (const k of key[2]) {
+            const keyName = k.description || ''
+            const value = dct.get(keyName)
+            results.push(value !== undefined ? value : NIL)
+          }
+        } else {
+          throw "dictionary keys must be symbols"
+        }
+      }
+
+      // Return single value or vector
+      if (results.length === 0) return NIL
+      if (results.length === 1) return results[0]
+      return imp.lst(undefined, results)
+    }
+
     let args = [], arg = imp.lst()
     for (let x of xs) {
       if (x[0] === ImpT.SEP) { args.push(arg); arg = imp.lst() }
@@ -1516,10 +1624,46 @@ class ImpEvaluator {
       case ImpT.SYMs: return x
       case ImpT.JSF: return x
       case ImpT.IFN: return x
+      case ImpT.DCT: return x
       case ImpT.LST:
         let [_, a, v] = x
         // Check if list is quoted (starts with ' or `)
         let opener = a.open || '['
+        // Handle dictionary literals: :[`a 1; `b 2; `c `d]
+        if (opener === ':[') {
+          const dctMap = new Map<string, ImpVal>()
+          let i = 0
+          while (i < v.length) {
+            // Skip separators and commas
+            if (v[i][0] === ImpT.SEP) { i++; continue }
+            if (i >= v.length) break
+
+            // Get key (must be backtick symbol)
+            const keyItem = v[i]
+            if (!ImpQ.isSym(keyItem)) {
+              throw "dictionary keys must be backtick symbols"
+            }
+            if (keyItem[1].kind !== SymT.BQT) {
+              throw "dictionary keys must be backtick symbols (e.g., `a)"
+            }
+            const actualKeyName = keyItem[2].description || ''
+            i++
+
+            // Collect the value expression (everything until the next separator or end)
+            if (i >= v.length) throw "dictionary key without value"
+            const valueExprs: ImpVal[] = []
+            while (i < v.length && v[i][0] !== ImpT.SEP) {
+              valueExprs.push(v[i])
+              i++
+            }
+
+            // Evaluate the value expression as a TOP (sequence)
+            const value = await this.lastEval(ImpC.top(valueExprs))
+
+            dctMap.set(actualKeyName, value)
+          }
+          return imp.dct(dctMap)
+        }
         // Handle curly braces as function definitions
         if (opener === '{') {
           let arity = scanArity(v)

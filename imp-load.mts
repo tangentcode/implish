@@ -48,7 +48,7 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.ANN,  /^@[^\s\[\](){}:;!]+/,                 [1, 0]], // annotation: @foo (strip @)
   [TokT.MSG,  /^\.[^\s\[\](){}:;!]+/,                [1, 0]], // message: .foo (strip .)
   [TokT.ERR,  /^\?[^\s\[\](){}:;!]+/,                [1, 0]], // error: ?foo (strip ?)
-  [TokT.RAW,  /^((?![\])}])\S)+/,                    [0, 0]], // catchall (keep last)
+  [TokT.RAW,  /^[^\s\[\](){}`;]+/,                    [0, 0]], // catchall (keep last, exclude backtick)
 ]
 
 export class ImpLoader {

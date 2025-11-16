@@ -967,6 +967,91 @@ When a function receives more arguments than its arity, the evaluator throws a v
 
 GET (:x) and SET (x: value) transformations integrate seamlessly with the rest of the language.
 
+* DONE dictionaries: basic creation and access
+#+name: dict-basic
+#+begin_src imp
+> d: :[`a 1; `b 2 + 2]
+:[`a 1; `b 4]
+> d[`a]
+1
+> d[`b]
+4
+#+end_src
+
+Dictionaries are key-value maps. Created with `:[key val; ...]` syntax where keys must be backtick symbols.
+
+* DONE dictionaries: backtick infix access
+#+name: dict-backtick-access
+#+begin_src imp
+> d: :[`a 1; `b 4]
+:[`a 1; `b 4]
+> d`a
+1
+> d`b
+4
+#+end_src
+
+Dictionary values can be accessed using backtick infix syntax: `dict`key`.
+
+* DONE dictionaries: multi-key access
+#+name: dict-multi-key
+#+begin_src imp
+> d: :[`a 1; `b 2 + 2]
+:[`a 1; `b 4]
+> d[`a `b]
+1 4
+#+end_src
+
+Multiple keys can be accessed at once using space-separated strands. Returns a vector of values.
+
+* DONE dictionaries: empty dictionary
+#+name: dict-empty
+#+begin_src imp
+> e: :[]
+:[]
+> e
+:[]
+#+end_src
+
+Empty dictionaries are created with `:[]` syntax.
+
+* DONE dictionaries: nested values
+#+name: dict-nested
+#+begin_src imp
+> d: :[`x [1 2 3]; `y "hello"]
+:[`x [1 2 3]; `y "hello"]
+> d`x
+[1 2 3]
+> d`y
+"hello"
+#+end_src
+
+Dictionary values can be any implish type, including lists and strings.
+
+* DONE dictionaries: type check
+#+name: dict-type
+#+begin_src imp
+> d: :[`a 1]
+:[`a 1]
+> echo show type? d
+dct!
+#+end_src
+
+The type? function returns dct! for dictionaries.
+
+* DONE dictionaries: symbol values with comma
+#+name: dict-symbol-values
+#+begin_src imp
+> d: :[`c `d; `e `f `g]
+:[`c, `d; `e, `f `g]
+> d`c
+`d
+> d`e
+`f `g
+#+end_src
+
+When a dictionary value is a backtick symbol, it's printed with a comma to distinguish it from the key. If the value is a strand of symbols, only the first gets the comma.
+
 * [0/7] upcoming tests
 
 ** TODO ambivalent operators
