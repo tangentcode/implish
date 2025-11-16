@@ -1,2 +1,2 @@
 #!/bin/sh
-node dist/imp-cmd.mjs
+node dist/imp-cmd.mjs "$@"
