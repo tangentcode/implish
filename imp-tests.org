@@ -1,17 +1,17 @@
 #+title: implish tests
+#+tanco-format: 0.2
 #+server: https://tangentcode.com/
 #+name: implish
+#+todo: TODO | DONE TEST
 
-* DONE ok: niladic word that returns nil
-#+name: ok
+* TEST ok : ok: niladic word that returns nil
 #+begin_src
 > ok
 #+end_src
 
 The 'ok' word is a niladic function (takes no arguments) that evaluates to NIL and produces no output.
 
-* DONE get/set: basic set and get
-#+name: get-set-basic
+* TEST get-set-basic : get/set: basic set and get
 #+begin_src
 > set[`x; 42]
 42
@@ -21,8 +21,7 @@ The 'ok' word is a niladic function (takes no arguments) that evaluates to NIL a
 
 Basic variable binding using set and retrieval using get. Variables hold mutable state that persists across expressions.
 
-* DONE set-word and get-word: syntactic sugar for set and get
-#+name: setword-getword-basic
+* TEST setword-getword-basic : set-word and get-word: syntactic sugar for set and get
 #+begin_src
 > y: 99
 99
@@ -34,8 +33,7 @@ Basic variable binding using set and retrieval using get. Variables hold mutable
 
 The colon notation provides shorthand: =x: value= is syntactic sugar for =set[`x; value]=, and =:x= gets the value without further evaluation. Throughout the rest of these tests, we'll use this shorthand notation freely.
 
-* DONE sequence: semicolon separates expressions
-#+name: sequence
+* TEST sequence : sequence: semicolon separates expressions
 #+begin_src
 > (x: 12; y: 34; z: 56)
 56
@@ -43,8 +41,7 @@ The colon notation provides shorthand: =x: value= is syntactic sugar for =set[`x
 
 A sequence of expressions separated by semicolons evaluates each in order and returns the value of the last expression. This allows building multi-step programs.
 
-* DONE sequence: syntactic sugar (whitespace-separated)
-#+name: sequence-sugar
+* TEST sequence-sugar : sequence: syntactic sugar (whitespace-separated)
 #+begin_src
 > x: 12  y: 34  z: 56
 56
@@ -52,8 +49,7 @@ A sequence of expressions separated by semicolons evaluates each in order and re
 
 Whitespace-separated expressions are syntactic sugar for semicolon-separated sequences. The parentheses and semicolons can be omitted at the top level.
 
-* DONE branching: if-then-else with ite
-#+name: branching-ite
+* TEST branching-ite : branching: if-then-else with ite
 #+begin_src
 > ite[1; 42; 99]
 42
@@ -67,8 +63,7 @@ Whitespace-separated expressions are syntactic sugar for semicolon-separated seq
 
 The =ite[cond; then; else]= function provides conditional branching. The condition is evaluated, and if truthy (non-zero, non-nil), the then branch is evaluated and returned; otherwise the else branch is evaluated and returned. Only one branch is evaluated (lazy evaluation).
 
-* DONE repetition: while loop
-#+name: repetition-while
+* TEST repetition-while : repetition: while loop
 #+begin_src
 > (n: 0; while[n < 5; n: n + 1]; n)
 5
@@ -76,8 +71,7 @@ The =ite[cond; then; else]= function provides conditional branching. The conditi
 
 The =while[cond; body]= function provides repetition. The condition is evaluated, and while truthy, the body is repeatedly evaluated. The loop returns NIL. This, combined with mutable state (assignment), sequence, and branching, provides the fundamental building blocks for any computable program (Turing-complete).
 
-* DONE repl behavior: print everything but nil
-#+name: nil
+* TEST nil : repl behavior: print everything but nil
 #+begin_src
 > [nil]
 [nil]
@@ -86,14 +80,12 @@ The =while[cond; body]= function provides repetition. The condition is evaluated
 `x
 #+end_src
 
-* DONE echo "hello"
-#+name: hello.applicative
+* TEST hello.applicative : echo "hello"
 #+begin_src
 > echo "hello"
 hello
 #+end_src
-* DONE echo[2 + 2]
-#+name: add
+* TEST add : echo[2 + 2]
 #+begin_src
 > echo[2 + 2]
 4
@@ -109,15 +101,13 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 - next -> 2 (noun)
 - have noun, so look ahead for .method or infix op
 
-* DONE arithmetic (left to right eval)
-#+name: arithmetic
+* TEST arithmetic : arithmetic (left to right eval)
 #+begin_src
 > echo[1 + 2 * 3 + 5]
 14
 #+end_src
 
-* DONE comma sequencing operator
-#+name: comma-sequencing
+* TEST comma-sequencing : comma sequencing operator
 #+begin_src
 > 2 + 3 * 5 + 7
 32
@@ -133,36 +123,31 @@ outputing "2 2" would be reasonable here if you don't look ahead for operators. 
 1 3 5 7 9 11 13 15 17 19
 #+end_src
 
-* DONE ignore comments
-#+name: echo-comment
+* TEST echo-comment : ignore comments
 #+begin_src
 > echo .: this is a comment :. "hi"
 hi
 #+end_src
 
-* DONE echo show "quoted"
-#+name: echo-show
+* TEST echo-show : echo show "quoted"
 #+begin_src
 > echo show "quoted"
 "quoted"
 #+end_src
 
-* DONE echo["hello"]
-#+name: hello.projection
+* TEST hello.projection : echo["hello"]
 #+begin_src
 > echo["hello"]
 hello
 #+end_src
 
-* DONE +[2;3]
-#+name: projection.op
+* TEST projection.op : +[2;3]
 #+begin_src
 > +[2;3]
 5
 #+end_src
 
-* TODO +[2] (projection)
-#+name: projection.explicit
+* TEST projection.explicit : +[2] (projection)
 #+begin_src
 > +[2]
 +[2]
@@ -170,8 +155,7 @@ hello
 
 "verb[noun]", applies the noun as the verb's first argument.
 
-* TODO 2 + (also projection)
-#+name: projection.pre
+* TEST projection.pre : 2 + (also projection)
 #+begin_src
 > 2 +
 +[2]
@@ -179,16 +163,14 @@ hello
 
 "verb[noun]" also applies the noun as the verb's first argument.
 
-* DONE echo[+[2;3]]
-#+name: projection.nested
+* TEST projection.nested : echo[+[2;3]]
 #+begin_src
 > echo[+[2;3]]
 5
 #+end_src
 
 
-* DONE echo xmls '[1 2; "three"; four]
-#+name: xmls
+* TEST xmls : echo xmls '[1 2; "three"; four]
 #+begin_src imp
 > echo xmls [1 2; "three"; 'four]
 <imp:lst open="[" close="]">
@@ -198,8 +180,7 @@ hello
 </imp:lst>
 #+end_src
 
-* DONE word type round-tripping: basic types
-#+name: word-types-basic
+* TEST word-types-basic : word type round-tripping: basic types
 #+begin_src imp
 > echo xmls '['foo :bar baz:]
 <imp:lst open="[" close="]">
@@ -209,8 +190,7 @@ hello
 </imp:lst>
 #+end_src
 
-* DONE word type round-tripping: refinement, path, and file
-#+name: word-types-refn-path-file
+* TEST word-types-refn-path-file : word type round-tripping: refinement, path, and file
 #+begin_src imp
 > echo xmls [/refn foo/bar %file/path]
 <imp:lst open="[" close="]">
@@ -220,16 +200,13 @@ hello
 </imp:lst>
 #+end_src
 
-* TODO word type round-tripping: issue
-NOTE: Can't test #abc in tanco because # starts a comment
-#+name: word-types-ish
+* TEST word-types-ish : word type round-tripping: issue
 #+begin_src imp
 # > xmls [#abc]
 # [#abc]
 #+end_src
 
-* DONE word type round-tripping: URL
-#+name: word-types-url
+* TEST word-types-url : word type round-tripping: URL
 #+begin_src imp
 > echo xmls [http://example.com]
 <imp:lst open="[" close="]">
@@ -237,8 +214,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
-* DONE new symbol types: backtick and type
-#+name: word-types-new1
+* TEST word-types-new1 : new symbol types: backtick and type
 #+begin_src imp
 > echo xmls [`foo bar!]
 <imp:lst open="[" close="]">
@@ -247,8 +223,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
-* DONE new symbol types: annotation and messages
-#+name: word-types-new2
+* TEST word-types-new2 : new symbol types: annotation and messages
 #+begin_src imp
 > echo xmls '[@note .msg .kw:]
 <imp:lst open="[" close="]">
@@ -258,8 +233,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
-* DONE new symbol types: message2 and keyword2
-#+name: word-types-new3
+* TEST word-types-new3 : new symbol types: message2 and keyword2
 #+begin_src imp
 > echo xmls '[!msg2 !kw2:]
 <imp:lst open="[" close="]">
@@ -268,8 +242,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
-* DONE new symbol type: error
-#+name: word-types-err
+* TEST word-types-err : new symbol type: error
 #+begin_src imp
 > echo xmls [?error]
 <imp:lst open="[" close="]">
@@ -277,8 +250,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
-* DONE backtick tokenization: no spaces needed
-#+name: backtick-tokenization
+* TEST backtick-tokenization : backtick tokenization: no spaces needed
 #+begin_src imp
 > echo xmls '[`foo`bar`baz]
 <imp:lst open="[" close="]">
@@ -288,29 +260,25 @@ NOTE: Can't test #abc in tanco because # starts a comment
 </imp:lst>
 #+end_src
 
-* DONE quoted list with backtick (quasiquote)
-#+name: quoted-list-backtick
+* TEST quoted-list-backtick : quoted list with backtick (quasiquote)
 #+begin_src imp
 > `[1 2 3]
 [1 2 3]
 #+end_src
 
-* DONE quoted list with quote (strips one layer)
-#+name: quoted-list-quote
+* TEST quoted-list-quote : quoted list with quote (strips one layer)
 #+begin_src imp
 > '[a b c]
 [a b c]
 #+end_src
 
-* DONE quoted list with nested quotes
-#+name: quoted-list-nested
+* TEST quoted-list-nested : quoted list with nested quotes
 #+begin_src imp
 > '[a 'b '[c]]
 [a 'b '[c]]
 #+end_src
 
-* DONE get/set: get undefined returns fault
-#+name: get-undefined
+* TEST get-undefined : get/set: get undefined returns fault
 #+begin_src
 > get[`undefined_var]
 ?undefined_var
@@ -318,8 +286,7 @@ NOTE: Can't test #abc in tanco because # starts a comment
 
 When getting an undefined variable, get returns a fault symbol (prefixed with ?).
 
-* DONE get/set: parallel assignment with vector
-#+name: get-set-vector
+* TEST get-set-vector : get/set: parallel assignment with vector
 #+begin_src
 > set[`a `b `c; 1 2 3]
 1 2 3
@@ -329,8 +296,7 @@ When getting an undefined variable, get returns a fault symbol (prefixed with ?)
 
 Parallel assignment distributes vector values to multiple variables.
 
-* DONE get/set: scalar broadcast
-#+name: get-set-broadcast
+* TEST get-set-broadcast : get/set: scalar broadcast
 #+begin_src
 > set[`p `q `r; 99]
 99
@@ -340,8 +306,7 @@ Parallel assignment distributes vector values to multiple variables.
 
 When setting multiple variables to a scalar, all get the same value.
 
-* DONE get/set: mixed defined and undefined
-#+name: get-set-mixed
+* TEST get-set-mixed : get/set: mixed defined and undefined
 #+begin_src
 > set[`alpha; 10]
 10
@@ -351,8 +316,7 @@ When setting multiple variables to a scalar, all get the same value.
 
 Getting a mix of defined and undefined variables returns values and faults.
 
-* DONE assignment: basic
-#+name: assignment-basic
+* TEST assignment-basic : assignment: basic
 #+begin_src imp
 > x: 42
 42
@@ -360,8 +324,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 42
 #+end_src
 
-* DONE assignment: with expression
-#+name: assignment-expr
+* TEST assignment-expr : assignment: with expression
 #+begin_src imp
 > y: 2 + 3
 5
@@ -369,8 +332,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 5
 #+end_src
 
-* DONE assignment: use assigned value
-#+name: assignment-use
+* TEST assignment-use : assignment: use assigned value
 #+begin_src imp
 > a: 10
 10
@@ -380,8 +342,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 15
 #+end_src
 
-* DONE assignment: chained
-#+name: assignment-chained
+* TEST assignment-chained : assignment: chained
 #+begin_src imp
 > x: y: 42
 42
@@ -391,8 +352,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 42
 #+end_src
 
-* DONE assignment: in operator context
-#+name: assignment-in-operator
+* TEST assignment-in-operator : assignment: in operator context
 #+begin_src imp
 > 1 + a: 2 3 4
 3 4 5
@@ -404,15 +364,13 @@ Getting a mix of defined and undefined variables returns values and faults.
 3
 #+end_src
 
-* DONE load: parse string
-#+name: load-string
+* TEST load-string : load: parse string
 #+begin_src imp
 > load "2 + 3"
 2 + 3
 #+end_src
 
-* DONE file operations: e?, wr, rd, rm
-#+name: file-ops
+* TEST file-ops : file operations: e?, wr, rd, rm
 #+begin_src imp
 > f: %hello.txt
 %hello.txt
@@ -426,8 +384,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 > rm f
 #+end_src
 
-* DONE quasiquotation: basic unquote
-#+name: quasiquote-basic
+* TEST quasiquote-basic : quasiquotation: basic unquote
 #+begin_src imp
 > x: 42
 42
@@ -435,8 +392,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 [1 2, 42]
 #+end_src
 
-* DONE quasiquotation: unquote with expression
-#+name: quasiquote-expr
+* TEST quasiquote-expr : quasiquotation: unquote with expression
 #+begin_src imp
 > a: 10
 10
@@ -446,8 +402,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 [sum is 10 plus 20]
 #+end_src
 
-* DONE quasiquotation: nested lists
-#+name: quasiquote-nested
+* TEST quasiquote-nested : quasiquotation: nested lists
 #+begin_src imp
 > y: 99
 99
@@ -455,8 +410,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 [outer [inner 99]]
 #+end_src
 
-* DONE quasiquotation: unquote quoted symbol
-#+name: quasiquote-unquote-lit
+* TEST quasiquote-unquote-lit : quasiquotation: unquote quoted symbol
 #+begin_src imp
 > x: 'two
 'two
@@ -464,8 +418,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 [one two three]
 #+end_src
 
-* DONE strands: integer vector
-#+name: strand-ints
+* TEST strand-ints : strands: integer vector
 #+begin_src imp
 > 1 2 3
 1 2 3
@@ -473,15 +426,13 @@ Getting a mix of defined and undefined variables returns values and faults.
 1 2 3 4 5
 #+end_src
 
-* DONE strands: single integer is not a strand
-#+name: strand-single
+* TEST strand-single : strands: single integer is not a strand
 #+begin_src imp
 > 42
 42
 #+end_src
 
-* DONE strands: backtick symbol vector
-#+name: strand-syms
+* TEST strand-syms : strands: backtick symbol vector
 #+begin_src imp
 > `a `b `c
 `a `b `c
@@ -489,29 +440,25 @@ Getting a mix of defined and undefined variables returns values and faults.
 `foo `bar `baz
 #+end_src
 
-* DONE strands: scalar plus vector
-#+name: strand-scalar-vector
+* TEST strand-scalar-vector : strands: scalar plus vector
 #+begin_src imp
 > 1 + 0 1 2
 1 2 3
 #+end_src
 
-* DONE strands: separated by operators
-#+name: strand-ops
+* TEST strand-ops : strands: separated by operators
 #+begin_src imp
 > 1 2 + 3 4
 4 6
 #+end_src
 
-* DONE strands: in projection
-#+name: strand-projection
+* TEST strand-projection : strands: in projection
 #+begin_src imp
 > echo[1 2 3]
 1 2 3
 #+end_src
 
-* DONE strands: purely syntactic (not semantic)
-#+name: strand-syntactic
+* TEST strand-syntactic : strands: purely syntactic (not semantic)
 #+begin_src imp
 > 1 2 3
 1 2 3
@@ -531,8 +478,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 
 Strands are formed only from adjacent literal tokens (INT, NUM, backtick symbols), not from evaluated expressions or variables. So `+ a b` passes two separate arguments (variables aren't literals), while `+ 2 3` would form a strand `2 3` as one argument (resulting in partial application).
 
-* DONE strands: as function arguments with comma separator
-#+name: strand-func-args-comma
+* TEST strand-func-args-comma : strands: as function arguments with comma separator
 #+begin_src imp
 > + 1 2 3, 4 5 6
 5 7 9
@@ -540,8 +486,7 @@ Strands are formed only from adjacent literal tokens (INT, NUM, backtick symbols
 
 When collecting function arguments, strands form within each comma-separated argument. The comma acts as an argument separator.
 
-* DONE strands: passed to functions
-#+name: strand-func-args
+* TEST strand-func-args : strands: passed to functions
 #+begin_src imp
 > show 1 2 3
 "1 2 3"
@@ -549,8 +494,7 @@ When collecting function arguments, strands form within each comma-separated arg
 
 When a function collects arguments, adjacent literals form a strand that is passed as a single argument. (Note: using `show` instead of `echo` since `echo` writes to stdout which isn't captured by the test harness)
 
-* DONE type? introspection
-#+name: type-int
+* TEST type-int : type? introspection
 #+begin_src imp
 > echo show type? 3
 int!
@@ -586,8 +530,7 @@ ints!
 nil!
 #+end_src
 
-* DONE arithmetic operators
-#+name: arithmetic-ops
+* TEST arithmetic-ops : arithmetic operators
 #+begin_src imp
 > 10 + 5
 15
@@ -601,8 +544,7 @@ nil!
 256
 #+end_src
 
-* DONE min and max operators
-#+name: min-max
+* TEST min-max : min and max operators
 #+begin_src imp
 > min[3; 7]
 3
@@ -612,8 +554,7 @@ nil!
 1 2 1
 #+end_src
 
-* DONE tk (take) operator: scalars and vectors
-#+name: take-nums
+* TEST take-nums : tk (take) operator: scalars and vectors
 #+begin_src imp
 > 5 tk 10
 10 10 10 10 10
@@ -623,8 +564,7 @@ nil!
 7 8 9 7
 #+end_src
 
-* DONE tk (take) operator: strings and lists
-#+name: take-str-lst
+* TEST take-str-lst : tk (take) operator: strings and lists
 #+begin_src imp
 > 7 tk "abc"
 "abcabca"
@@ -632,8 +572,7 @@ nil!
 [x y x y x]
 #+end_src
 
-* DONE rev (reverse)
-#+name: rev
+* TEST rev : rev (reverse)
 #+begin_src imp
 > rev 1 2 3 4
 4 3 2 1
@@ -643,8 +582,7 @@ nil!
 `z `y `x
 #+end_src
 
-* DONE len (length)
-#+name: len
+* TEST len : len (length)
 #+begin_src imp
 > len 1 2 3
 3
@@ -656,8 +594,7 @@ nil!
 1
 #+end_src
 
-* DONE ! (range/iota)
-#+name: range
+* TEST range : ! (range/iota)
 #+begin_src imp
 > ! 5
 0 1 2 3 4
@@ -667,8 +604,7 @@ nil!
 0 1 2
 #+end_src
 
-* DONE part (get part of speech)
-#+name: part
+* TEST part : part (get part of speech)
 #+begin_src imp
 > part 42
 "N"
@@ -678,8 +614,7 @@ nil!
 "V"
 #+end_src
 
-* DONE fold (/) suffix: sum and product
-#+name: fold-sum-product
+* TEST fold-sum-product : fold (/) suffix: sum and product
 #+begin_src imp
 > +/ 1 2 3 4
 10
@@ -689,8 +624,7 @@ nil!
 5
 #+end_src
 
-* DONE fold (/) suffix: min and max
-#+name: fold-min-max
+* TEST fold-min-max : fold (/) suffix: min and max
 #+begin_src imp
 > min/ 5 2 8 1 9
 1
@@ -698,8 +632,7 @@ nil!
 9
 #+end_src
 
-* DONE scan (\) suffix: running sum
-#+name: scan-sum
+* TEST scan-sum : scan (\) suffix: running sum
 #+begin_src imp
 > +\ 1 2 3 4
 1 3 6 10
@@ -707,8 +640,7 @@ nil!
 2 6 24
 #+end_src
 
-* DONE user-defined functions: basic
-#+name: user-fn-basic
+* TEST user-fn-basic : user-defined functions: basic
 #+begin_src imp
 > f: {x + 1}
 {x + 1}
@@ -718,8 +650,7 @@ nil!
 11 21 31
 #+end_src
 
-* DONE user-defined functions: dyadic
-#+name: user-fn-dyadic
+* TEST user-fn-dyadic : user-defined functions: dyadic
 #+begin_src imp
 > add: {x + y}
 {x + y}
@@ -727,8 +658,7 @@ nil!
 8
 #+end_src
 
-* DONE user-defined functions: composition
-#+name: user-fn-composition
+* TEST user-fn-composition : user-defined functions: composition
 #+begin_src imp
 > double: {x * 2}
 {x * 2}
@@ -738,8 +668,7 @@ nil!
 12
 #+end_src
 
-* DONE user-defined functions: partial application
-#+name: user-fn-partial
+* TEST user-fn-partial : user-defined functions: partial application
 #+begin_src imp
 > add: {x + y}
 {x + y}
@@ -749,8 +678,7 @@ nil!
 8
 #+end_src
 
-* DONE user-defined functions: as first-class values
-#+name: user-fn-first-class
+* TEST user-fn-first-class : user-defined functions: as first-class values
 #+begin_src imp
 > {x + 2}
 {x + 2}
@@ -760,8 +688,7 @@ nil!
 
 Functions are first-class values. A standalone function definition `{x + 2}` returns the function itself. Functions can be immediately applied by providing arguments.
 
-* DONE user-defined functions: assignment with curly braces
-#+name: user-fn-assign-curly
+* TEST user-fn-assign-curly : user-defined functions: assignment with curly braces
 #+begin_src imp
 > f: {x + 2}
 {x + 2}
@@ -775,8 +702,7 @@ Functions are first-class values. A standalone function definition `{x + 2}` ret
 
 Assigning curly brace functions to variables works correctly. The function is stored as a value and can be called later.
 
-* DONE user-defined functions: with infix operators
-#+name: user-fn-infix-body
+* TEST user-fn-infix-body : user-defined functions: with infix operators
 #+begin_src imp
 > calc: {x + y * 2}
 {x + y * 2}
@@ -786,8 +712,7 @@ Assigning curly brace functions to variables works correctly. The function is st
 
 Function bodies can contain infix operators. The body is preserved unevaluated until the function is called with arguments. In this case, `3 + 5 * 2` evaluates left-to-right as `(3 + 5) * 2 = 16`.
 
-* DONE get-word: return function without evaluation
-#+name: get-word-function
+* TEST get-word-function : get-word: return function without evaluation
 #+begin_src imp
 > f: {x * 2}
 {x * 2}
@@ -799,8 +724,7 @@ Function bodies can contain infix operators. The body is preserved unevaluated u
 10
 #+end_src
 
-* DONE get-word: with partial application
-#+name: get-word-partial
+* TEST get-word-partial : get-word: with partial application
 #+begin_src imp
 > add: {x + y}
 {x + y}
@@ -810,8 +734,7 @@ Function bodies can contain infix operators. The body is preserved unevaluated u
 {x + y}[3]
 #+end_src
 
-* DONE imparse: equivalence of load and quoted blocks
-#+name: imparse-equivalence
+* TEST imparse-equivalence : imparse: equivalence of load and quoted blocks
 #+begin_src imp
 > imparse load "2 + 3"
 +[2 ; 3]
@@ -821,8 +744,7 @@ Function bodies can contain infix operators. The body is preserved unevaluated u
 
 Both `load "code"` (creates TOP node) and `'[code]` (regular list) get transformed into TOP nodes with M-expressions.
 
-* DONE imparse: AST for postfix transformation
-#+name: imparse-ast-postfix
+* TEST imparse-ast-postfix : imparse: AST for postfix transformation
 #+begin_src imp
 > imparse '[2 !]
 ![2]
@@ -834,8 +756,7 @@ Both `load "code"` (creates TOP node) and `'[code]` (regular list) get transform
 
 The parser transforms postfix unary (a F → F[a]) into M-expression form, returning a TOP node.
 
-* DONE imparse: AST for infix transformation
-#+name: imparse-ast-infix
+* TEST imparse-ast-infix : imparse: AST for infix transformation
 #+begin_src imp
 > imparse '[2 + 3]
 +[2 ; 3]
@@ -847,8 +768,7 @@ The parser transforms postfix unary (a F → F[a]) into M-expression form, retur
 
 The parser transforms infix operators (a op b → op[a; b]) into M-expression form, returning a TOP node.
 
-* DONE imparse: AST for infix chains (left-to-right)
-#+name: imparse-ast-chains
+* TEST imparse-ast-chains : imparse: AST for infix chains (left-to-right)
 #+begin_src imp
 > imparse '[2 + 3 * 5]
 *[+[2 ; 3] ; 5]
@@ -860,8 +780,7 @@ The parser transforms infix operators (a op b → op[a; b]) into M-expression fo
 
 The parser transforms infix chains left-to-right, creating nested M-expressions in a TOP node.
 
-* DONE imparse: AST handles prefix cases
-#+name: imparse-ast-skip-prefix
+* TEST imparse-ast-skip-prefix : imparse: AST handles prefix cases
 #+begin_src imp
 > imparse '[! 10]
 ![10]
@@ -873,8 +792,7 @@ The parser transforms infix chains left-to-right, creating nested M-expressions 
 
 The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10 → ![10]), then infix/postfix.
 
-* DONE imparse: AST handles comma threading
-#+name: imparse-ast-skip-comma
+* TEST imparse-ast-skip-comma : imparse: AST handles comma threading
 #+begin_src imp
 > imparse '[2, + 3]
 +[2 ; 3]
@@ -884,8 +802,7 @@ The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10
 
 The parser now handles comma threading! When a comma is followed by a verb, it threads the previous value as the first argument.
 
-* DONE imparse: GET symbol transformation
-#+name: imparse-get
+* TEST imparse-get : imparse: GET symbol transformation
 #+begin_src imp
 > imparse load ":x"
 get[`x]
@@ -895,8 +812,7 @@ get[`foo]
 
 The parser transforms GET symbols (:word) into M-expression form: get[`word].
 
-* DONE imparse: SET symbol transformation
-#+name: imparse-set
+* TEST imparse-set : imparse: SET symbol transformation
 #+begin_src imp
 > imparse load "x: 42"
 set[`x ; 42]
@@ -906,8 +822,7 @@ set[`foo ; 99]
 
 The parser transforms SET symbols (word: value) into M-expression form: set[`word; value].
 
-* DONE imparse: SET with expression RHS
-#+name: imparse-set-expr
+* TEST imparse-set-expr : imparse: SET with expression RHS
 #+begin_src imp
 > imparse load "x: 2 + 3"
 set[`x ; +[2 ; 3]]
@@ -917,8 +832,7 @@ set[`y ; +[*[5 ; 10] ; 1]]
 
 The parser transforms the RHS of SET through the full transformation pipeline, converting infix to M-expressions.
 
-* DONE imparse: chained SET
-#+name: imparse-set-chained
+* TEST imparse-set-chained : imparse: chained SET
 #+begin_src imp
 > imparse load "a: b: 99"
 set[`a ; set[`b ; 99]]
@@ -928,8 +842,7 @@ set[`x ; set[`y ; set[`z ; 42]]]
 
 Chained assignments are right-associative: a: b: 99 becomes set[`a; set[`b; 99]].
 
-* DONE imparse: postfix with multiple args (valence check)
-#+name: imparse-postfix-valence
+* TEST imparse-postfix-valence : imparse: postfix with multiple args (valence check)
 #+begin_src imp
 > imparse load "2 ! 10"
 ![2 ; 10]
@@ -939,8 +852,7 @@ Chained assignments are right-associative: a: b: 99 becomes set[`a; set[`b; 99]]
 
 The parser collects trailing nouns after postfix verbs. The evaluator will check arity and throw valence errors if needed.
 
-* DONE valence errors: too many arguments
-#+name: valence-error
+* TEST valence-error : valence errors: too many arguments
 #+begin_src imp
 > 2 ! 10
 Error: [project] !: valence error: expected 1 args, got 2
@@ -950,8 +862,7 @@ Error: [project] !: valence error: expected 1 args, got 2
 
 When a function receives more arguments than its arity, the evaluator throws a valence error.
 
-* DONE GET/SET: full integration test
-#+name: get-set-integration
+* TEST get-set-integration : GET/SET: full integration test
 #+begin_src imp
 > x: 42
 42
@@ -967,8 +878,7 @@ When a function receives more arguments than its arity, the evaluator throws a v
 
 GET (:x) and SET (x: value) transformations integrate seamlessly with the rest of the language.
 
-* DONE dictionaries: basic creation and access
-#+name: dict-basic
+* TEST dict-basic : dictionaries: basic creation and access
 #+begin_src imp
 > d: :[`a 1; `b 2 + 2]
 :[`a 1; `b 4]
@@ -980,8 +890,7 @@ GET (:x) and SET (x: value) transformations integrate seamlessly with the rest o
 
 Dictionaries are key-value maps. Created with `:[key val; ...]` syntax where keys must be backtick symbols.
 
-* DONE dictionaries: backtick infix access
-#+name: dict-backtick-access
+* TEST dict-backtick-access : dictionaries: backtick infix access
 #+begin_src imp
 > d: :[`a 1; `b 4]
 :[`a 1; `b 4]
@@ -993,19 +902,17 @@ Dictionaries are key-value maps. Created with `:[key val; ...]` syntax where key
 
 Dictionary values can be accessed using backtick infix syntax: `dict`key`.
 
-* DONE dictionaries: multi-key access
-#+name: dict-multi-key
+* TEST dict-multi-key : dictionaries: multi-key access
 #+begin_src imp
 > d: :[`a 1; `b 2 + 2]
 :[`a 1; `b 4]
 > d[`a `b]
-1 4
+[1, 4]
 #+end_src
 
-Multiple keys can be accessed at once using space-separated strands. Returns a vector of values.
+Multiple keys can be accessed at once using space-separated strands. Returns a list of values.
 
-* DONE dictionaries: empty dictionary
-#+name: dict-empty
+* TEST dict-empty : dictionaries: empty dictionary
 #+begin_src imp
 > e: :[]
 :[]
@@ -1015,8 +922,7 @@ Multiple keys can be accessed at once using space-separated strands. Returns a v
 
 Empty dictionaries are created with `:[]` syntax.
 
-* DONE dictionaries: nested values
-#+name: dict-nested
+* TEST dict-nested : dictionaries: nested values
 #+begin_src imp
 > d: :[`x [1 2 3]; `y "hello"]
 :[`x [1 2 3]; `y "hello"]
@@ -1028,8 +934,7 @@ Empty dictionaries are created with `:[]` syntax.
 
 Dictionary values can be any implish type, including lists and strings.
 
-* DONE dictionaries: type check
-#+name: dict-type
+* TEST dict-type : dictionaries: type check
 #+begin_src imp
 > d: :[`a 1]
 :[`a 1]
@@ -1039,8 +944,7 @@ dct!
 
 The type? function returns dct! for dictionaries.
 
-* DONE dictionaries: symbol values with comma
-#+name: dict-symbol-values
+* TEST dict-symbol-values : dictionaries: symbol values with comma
 #+begin_src imp
 > d: :[`c `d; `e `f `g]
 :[`c, `d; `e, `f `g]
@@ -1073,8 +977,7 @@ x + y is addition,  + x is transpose or complex conjugate
 
 ** TODO tokenizer -> xml test?
 
-* DONE rln: read line from input
-#+name: rln
+* TEST rln : rln: read line from input
 #+begin_src imp
 > rln
 > hello
@@ -1084,8 +987,7 @@ x + y is addition,  + x is transpose or complex conjugate
 This test verifies that rln reads a line from the input stream.
 The input provider can be customized for different environments (Node.js, browser, testing, etc.)
 
-* DONE rln: store in variable
-#+name: rln-assign
+* TEST rln-assign : rln: store in variable
 #+begin_src imp
 > name: rln
 > Alice
@@ -1094,8 +996,7 @@ The input provider can be customized for different environments (Node.js, browse
 Alice
 #+end_src
 
-* DONE rln: multiple reads
-#+name: rln-multiple
+* TEST rln-multiple : rln: multiple reads
 #+begin_src imp
 > a: rln
 > first
