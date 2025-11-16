@@ -846,7 +846,8 @@ class ImpEvaluator {
       // Check if next item is a backtick symbol (or strand of backtick symbols)
       while (true) {
         let p = this.peek()
-        if (!p || p.wc !== ImpP.Q) break
+        // Accept both single backtick symbols (ImpP.Q) and SYMs vectors (strands)
+        if (!p || (p.wc !== ImpP.Q && p.item[0] !== ImpT.SYMs)) break
 
         let key = this.nextItem()
 
