@@ -605,6 +605,13 @@ export let impWords: Record<string, ImpVal> = {
   'imparse': imp.jsf((x) => imparse(x, impWords), 1),
 }
 
+// Add sourceName to all JSF entries in impWords for better display in partial applications
+for (const [name, value] of Object.entries(impWords)) {
+  if (value[0] === ImpT.JSF) {
+    (value as ImpJsf)[1].sourceName = name
+  }
+}
+
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
   let attrStr = Object.entries(attrs).map(([k,v])=>`${k}="${v}"`).join(' ')
   if (content) return `<${tag} ${attrStr}>${content}</${tag}>`
@@ -828,7 +835,8 @@ class ImpEvaluator {
             return [ImpT.JSF, {
               arity: 1,
               sourceIfn: originalFn,
-              capturedArgs: capturedArgs
+              capturedArgs: capturedArgs,
+              sourceName: originalFn[1].sourceName
             }, async (...remainingArgs: ImpVal[]) => {
               return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
             }]
@@ -903,7 +911,8 @@ class ImpEvaluator {
           return [ImpT.JSF, {
             arity: partialArity,
             sourceIfn: originalFn,
-            capturedArgs: capturedArgs
+            capturedArgs: capturedArgs,
+            sourceName: originalFn[1].sourceName
           }, async (...remainingArgs: ImpVal[]) => {
             return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
           }]
@@ -972,7 +981,8 @@ class ImpEvaluator {
           value = [ImpT.JSF, {
             arity: partialArity,
             sourceIfn: originalFn,
-            capturedArgs: capturedArgs
+            capturedArgs: capturedArgs,
+            sourceName: originalFn[1].sourceName
           }, async (...remainingArgs: ImpVal[]) => {
             return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
           }]
@@ -1361,7 +1371,8 @@ class ImpEvaluator {
               result = [ImpT.JSF, {
                 arity: partialArity,
                 sourceIfn: originalFn,
-                capturedArgs: capturedArgs
+                capturedArgs: capturedArgs,
+                sourceName: originalFn[1].sourceName
               }, async (...remainingArgs: ImpVal[]) => {
                 return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
               }]
@@ -1475,7 +1486,8 @@ class ImpEvaluator {
         return [ImpT.JSF, {
           arity: partialArity,
           sourceIfn: originalFn,
-          capturedArgs: capturedArgs
+          capturedArgs: capturedArgs,
+          sourceName: originalFn[1].sourceName
         }, async (...remainingArgs: ImpVal[]) => {
           return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
         }]

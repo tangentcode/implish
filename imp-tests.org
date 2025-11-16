@@ -165,7 +165,7 @@ hello
 #+name: projection.explicit
 #+begin_src
 > +[2]
-<fn[_; _]>[2]
++[2]
 #+end_src
 
 "verb[noun]", applies the noun as the verb's first argument.
@@ -174,7 +174,7 @@ hello
 #+name: projection.pre
 #+begin_src
 > 2 +
-<fn[_; _]>[2]
++[2]
 #+end_src
 
 "verb[noun]" also applies the noun as the verb's first argument.
