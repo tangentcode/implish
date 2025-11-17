@@ -2465,6 +2465,228 @@ export function createImpWords(): Record<string, ImpVal> {
         throw "bin: right argument must be numeric"
       }
     }, 2),
+
+    'join': imp.jsf((x: ImpVal, y: ImpVal) => {
+      // join[sep; list] - join strings with separator
+      // x is the separator (string or character)
+      // y is a list of strings to join
+
+      // Extract separator
+      let sep: string
+      if (x[0] === ImpT.STR) {
+        sep = x[2] as string
+      } else {
+        throw "join: left argument (separator) must be a string"
+      }
+
+      // Extract strings from y
+      if (!ImpQ.isLst(y)) {
+        throw "join: right argument must be a list of strings"
+      }
+
+      const items = y[2] as ImpVal[]
+      const strings: string[] = []
+
+      for (const item of items) {
+        if (item[0] === ImpT.STR) {
+          strings.push(item[2] as string)
+        } else {
+          throw "join: right argument must be a list of strings"
+        }
+      }
+
+      return ImpC.str(strings.join(sep))
+    }, 2),
+
+    'encode': imp.jsf((x: ImpVal, y: ImpVal) => {
+      // encode[base; digits] - combine digits in base to single value
+      // x is the base(s) - can be a single number or list of bases
+      // y is the digits
+
+      // Extract bases
+      let bases: number[]
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+        // Single base - will be repeated
+        const base = x[2] as number
+        bases = []
+      } else if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        bases = x[2] as number[]
+      } else {
+        throw "encode: left argument must be numeric"
+      }
+
+      // Extract digits
+      let digits: number[]
+      if (y[0] === ImpT.INT || y[0] === ImpT.NUM) {
+        digits = [y[2] as number]
+      } else if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        digits = y[2] as number[]
+      } else {
+        throw "encode: right argument must be numeric"
+      }
+
+      // If x is a single number, repeat it for all digits
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+        const base = x[2] as number
+        bases = new Array(digits.length).fill(base)
+      }
+
+      // Encode from right to left
+      let result = 0
+      let multiplier = 1
+
+      for (let i = digits.length - 1; i >= 0; i--) {
+        result += digits[i] * multiplier
+        if (i > 0) {
+          multiplier *= bases[i]
+        }
+      }
+
+      return ImpC.int(result)
+    }, 2),
+
+    'split': imp.jsf((x: ImpVal, y: ImpVal) => {
+      // split[sep; str] - split string at separator
+      // x is the separator (string or character)
+      // y is the string to split
+
+      // Extract separator
+      let sep: string
+      if (x[0] === ImpT.STR) {
+        sep = x[2] as string
+      } else {
+        throw "split: left argument (separator) must be a string"
+      }
+
+      // Extract string to split
+      let str: string
+      if (y[0] === ImpT.STR) {
+        str = y[2] as string
+      } else {
+        throw "split: right argument must be a string"
+      }
+
+      // Split and convert to list of strings
+      const parts = str.split(sep)
+      const result: ImpVal[] = parts.map(s => ImpC.str(s))
+
+      return imp.lst(undefined, result)
+    }, 2),
+
+    'decode': imp.jsf((x: ImpVal, y: ImpVal) => {
+      // decode[base; value] - split value into base representation
+      // x is the base(s) - can be a single number or list of bases
+      // y is the value to decode
+
+      // Extract bases
+      let bases: number[]
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+        // Single base - will be used for all positions
+        const base = x[2] as number
+        bases = [base] // Will be extended as needed
+      } else if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        bases = x[2] as number[]
+      } else {
+        throw "decode: left argument must be numeric"
+      }
+
+      // Extract value
+      let value: number
+      if (y[0] === ImpT.INT || y[0] === ImpT.NUM) {
+        value = y[2] as number
+      } else {
+        throw "decode: right argument must be a number"
+      }
+
+      // If single base, extend to match number of digits needed
+      const singleBase = (x[0] === ImpT.INT || x[0] === ImpT.NUM) ? (x[2] as number) : null
+
+      if (singleBase !== null) {
+        // Determine how many digits we need
+        const numDigits = bases.length
+        const digits: number[] = []
+        let remaining = value
+
+        for (let i = numDigits - 1; i >= 0; i--) {
+          digits.unshift(remaining % singleBase)
+          remaining = Math.floor(remaining / singleBase)
+        }
+
+        return ImpC.ints(digits)
+      } else {
+        // Use provided bases from right to left
+        const digits: number[] = []
+        let remaining = value
+
+        for (let i = bases.length - 1; i >= 0; i--) {
+          digits.unshift(remaining % bases[i])
+          remaining = Math.floor(remaining / bases[i])
+        }
+
+        return ImpC.ints(digits)
+      }
+    }, 2),
+
+    'window': imp.jsf((x: ImpVal, y: ImpVal) => {
+      // window[size; list] - create sliding windows of size from list
+      // x is the window size
+      // y is the list to window
+
+      // Extract window size
+      let size: number
+      if (x[0] === ImpT.INT) {
+        size = x[2] as number
+      } else {
+        throw "window: left argument (window size) must be an integer"
+      }
+
+      // Handle special cases
+      if (size < 0) {
+        throw "window: negative window sizes not yet implemented"
+      }
+      if (size === 0) {
+        throw "window: zero window size not yet implemented"
+      }
+
+      // Extract elements from y
+      let elements: ImpVal[]
+      if (y[0] === ImpT.INTs) {
+        // Convert INTs to list of INTs
+        const nums = y[2] as number[]
+        elements = nums.map(n => ImpC.int(n))
+      } else if (y[0] === ImpT.NUMs) {
+        // Convert NUMs to list of NUMs
+        const nums = y[2] as number[]
+        elements = nums.map(n => ImpC.num(n))
+      } else if (ImpQ.isLst(y)) {
+        elements = y[2] as ImpVal[]
+      } else {
+        throw "window: right argument must be a list"
+      }
+
+      // Create sliding windows
+      const windows: ImpVal[] = []
+
+      for (let i = 0; i <= elements.length - size; i++) {
+        const windowItems = elements.slice(i, i + size)
+
+        // Check if all items are INTs or NUMs to create strands
+        const allInts = windowItems.every(item => item[0] === ImpT.INT)
+        const allNums = windowItems.every(item => item[0] === ImpT.NUM)
+
+        if (allInts) {
+          const nums = windowItems.map(item => item[2] as number)
+          windows.push(ImpC.ints(nums))
+        } else if (allNums) {
+          const nums = windowItems.map(item => item[2] as number)
+          windows.push(ImpC.nums(nums))
+        } else {
+          windows.push(imp.lst(undefined, windowItems))
+        }
+      }
+
+      return imp.lst(undefined, windows)
+    }, 2),
   }
 
   // Add sourceName to all JSF entries for better display in partial applications

@@ -720,20 +720,7 @@ map[`a; 125]
 Dyadic =.= treats the dictionary as new global scope for function (oK-specific).
 NOTE: Not yet implemented. This is oK-specific functionality for binding closures.
 
-** TEST bin : bin (dyadic ' for lists)
-#+begin_src
-> bin[0 2 4 6 8 10; 5]
-2
-> bin[0 2 4 6 8 10; -10 0 4 5 6 20]
--1 0 2 2 3 5
-#+end_src
-
-Dyadic ='= with list left argument performs binary search for y in x.
-x must already be sorted. Right atomic.
-
 * Adverbs (Suffixes)
-
-
 ** TEST each : each (monadic ')
 #+begin_src
 > each[{times[2; x]}; 5 7 2]
@@ -885,15 +872,28 @@ Monadic =\= with number applies monad x times, accumulating results.
 
 Monadic =\= with two monads applies while condition true, accumulating results.
 
-** TODO join : join (dyadic / with atom/list)
+* verbs that reuse adverb symbols in k
+** TEST bin : bin (dyadic ' for lists)
 #+begin_src
-> join["|"; ("a"; "bc"; "def")]
+> bin[0 2 4 6 8 10; 5]
+2
+> bin[0 2 4 6 8 10; -10 0 4 5 6 20]
+-1 0 2 2 3 5
+#+end_src
+
+Dyadic ='= with list left argument performs binary search for y in x.
+x must already be sorted. Right atomic.
+
+** TEST join : join (dyadic / with atom/list)
+#+begin_src
+> join["|"; ["a"; "bc"; "def"]]
 "a|bc|def"
 #+end_src
 
 Dyadic =/= with character/string joins strings with separator.
+NOTE: Use square brackets for lists in implish.
 
-** TODO encode : encode (dyadic / with lists)
+** TEST encode : encode (dyadic / with lists)
 #+begin_src
 > encode[2 2 2; 1 0 1]
 5
@@ -903,15 +903,15 @@ Dyadic =/= with character/string joins strings with separator.
 
 Dyadic =/= combines digits y in base x into single value.
 
-** TODO split : split (dyadic \ with atom/list)
+** TEST split : split (dyadic \ with atom/list)
 #+begin_src
 > split[","; "cat,dog,banana"]
-("cat"; "dog"; "banana")
+["cat" "dog" "banana"]
 #+end_src
 
 Dyadic =\= breaks string y at instances of character x.
 
-** TODO decode : decode (dyadic \ with lists)
+** TEST decode : decode (dyadic \ with lists)
 #+begin_src
 > decode[2 2 2; 5]
 1 0 1
@@ -921,12 +921,12 @@ Dyadic =\= breaks string y at instances of character x.
 
 Dyadic =\= splits number y into base x representation.
 
-** TODO window : window (dyadic ': with number)
+** TEST window : window (dyadic ': with number)
 #+begin_src
 > window[3; int 5]
-(0 1 2; 1 2 3; 2 3 4)
+[0 1 2, 1 2 3, 2 3 4]
 > window[2; int 5]
-(0 1; 1 2; 2 3; 3 4)
+[0 1, 1 2, 2 3, 3 4]
 #+end_src
 
 Dyadic =':= creates sliding window of length x from y.
