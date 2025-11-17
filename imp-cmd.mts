@@ -164,8 +164,40 @@ async function quietRepl() {
   setInputProvider(null);
 }
 
+// Print welcome banner with version info
+function printBanner() {
+  const pkg = JSON.parse(fs.readFileSync('./package.json', 'utf-8'));
+  const version = pkg.version;
+  const date = new Date().toISOString().split('T')[0];
+
+  // Try to get git hash
+  let gitHash = '';
+  try {
+    gitHash = fs.readFileSync('.git/HEAD', 'utf-8').trim();
+    if (gitHash.startsWith('ref:')) {
+      const ref = gitHash.substring(5).trim();
+      gitHash = fs.readFileSync(`.git/${ref}`, 'utf-8').trim().substring(0, 7);
+    } else {
+      gitHash = gitHash.substring(0, 7);
+    }
+  } catch (e) {
+    gitHash = 'unknown';
+  }
+
+  const bannerColor = '\x1b[38;5;139m';  // Purple
+  const linkColor = '\x1b[38;5;114m';     // Green
+  const resetColor = '\x1b[0m';
+
+  if (isTerminal) {
+    console.log(`${bannerColor}implish${resetColor} (c) ${date} ${linkColor}http://implish.org${resetColor} (v:${gitHash}) | 'words' shows known words\n`);
+  } else {
+    console.log(`implish (c) ${date} http://implish.org (v:${gitHash}) | 'words' shows known words\n`);
+  }
+}
+
 // Interactive mode REPL: full readline with prompt, completion, history
 async function interactiveRepl() {
+  printBanner();
   // Create readline without automatic echoing if we're in a terminal
   // so we can do our own syntax-highlighted rendering
   const rl = readline.createInterface({
@@ -333,6 +365,7 @@ async function interactiveRepl() {
   }
 
   // Clean up when REPL exits
+  console.log(); // Add final newline on exit (e.g., when Ctrl+D is pressed)
   setInputProvider(null);
 }
 
