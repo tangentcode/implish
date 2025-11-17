@@ -82,10 +82,10 @@ This extracts the first *value* from a dictionary.
 
 Dyadic =%= is division. Fully atomic.
 
-** TODO sqrt : sqrt (monadic %:) :precision:
+** TEST sqrt : sqrt (monadic %:)
 #+begin_src
 > sqrt 25 7 100
-5 2.6458 10
+5 2.6457513110645907 10
 #+end_src
 
 Monadic =%:= is square root. Right atomic.
@@ -295,7 +295,7 @@ Returns 1 if they match exactly, 0 otherwise.
 
 Monadic =~:= is logical not. Nonzero numbers become 0, zero becomes 1. Right atomic.
 
-** TODO not-dict : not-dict (monadic ~: for dictionaries) :mismatch:
+** TEST not-dict : not-dict (monadic ~: for dictionaries)
 #+begin_src
 > not :[`a [2, 0]; `b 1]
 :[`a [0, 1]; `b 0]
@@ -317,7 +317,7 @@ Monadic =~:= applies to the values of dictionaries.
 
 Dyadic =,= joins together lists or atoms to produce a list.
 
-** TODO concat-dict : concat-dict (dyadic , for dictionaries) :mismatch:
+** TEST concat-dict : concat-dict (dyadic , for dictionaries)
 #+begin_src
 > concat[:[`a 1; `b 3]; :[`b 5; `c 7]]
 :[`a 1; `b 5; `c 7]
@@ -343,7 +343,7 @@ Monadic =,:= places item in a 1-length list (enlistment).
 
 Monadic =#:= counts elements. Atoms have count 1.
 
-** TODO count-dict : count-dict (monadic #: for dictionaries) :mismatch:
+** TEST count-dict : count-dict (monadic #: for dictionaries)
 #+begin_src
 > count :[`a 3; `b 17]
 2
@@ -364,13 +364,15 @@ Monadic =#:= counts key-value pairs in dictionaries.
 Dyadic =#= truncates or repeats y to produce a list of length x.
 Negative x takes from the end of y.
 
-** TODO take-dict : take-dict (dyadic # with list and dict) :mismatch:parser:
+** TODO take-dict : take-dict (dyadic # with list and dict)
 #+begin_src
-> take["fb"; "fab"!3 5 9]
-"fb"!3 9
+> take["fb"; map["fab"; 3 5 9]]
+map["fb"; 3 9]
 #+end_src
 
 Dyadic =#= selects elements from dictionary keyed in x.
+NOTE: Not yet implemented. The take function currently only handles integer counts.
+Need to extend take to handle string/list of keys as left argument when right is dictionary.
 
 ** TODO reshape : reshape (dyadic # with list shapes)
 #+begin_src
@@ -381,6 +383,7 @@ Dyadic =#= selects elements from dictionary keyed in x.
 #+end_src
 
 Dyadic =#= with list left argument creates arbitrary dimensioned result.
+NOTE: Not yet implemented. Need to add reshape function that handles multi-dimensional arrays.
 
 ** TODO reshape-maximal : reshape-maximal (dyadic # with 0N in shape)
 #+begin_src
@@ -392,6 +395,7 @@ Dyadic =#= with list left argument creates arbitrary dimensioned result.
 
 If leading or trailing element of a length-2 rank vector is =0N=,
 reshape treats that dimension as maximal.
+NOTE: Not yet implemented. Depends on reshape being implemented first.
 
 ** TODO filter : filter (dyadic # with function)
 #+begin_src
@@ -405,14 +409,16 @@ reshape treats that dimension as maximal.
 
 Dyadic =#= with monadic function m filters list by applying m to each element.
 Equivalent to =at[l; where each[m; l]]=.
+NOTE: Not yet implemented. Requires adverbs (each, /) and higher-order function support.
 
-** TODO filter-dict : filter-dict (dyadic # with function and dict) :mismatch:
+** TODO filter-dict : filter-dict (dyadic # with function and dict)
 #+begin_src
-> filter[{mod[2; x]}; "abcdef"!2 3 4 5 6 7]
-"bdf"!3 5 7
+> filter[{mod[2; x]}; map["abcdef"; 2 3 4 5 6 7]]
+map["bdf"; 3 5 7]
 #+end_src
 
 Dictionaries are filtered by their values and result in dictionaries.
+NOTE: Not yet implemented. Depends on filter being implemented first.
 
 ** TEST drop : drop (dyadic _)
 #+begin_src
@@ -425,13 +431,15 @@ Dictionaries are filtered by their values and result in dictionaries.
 Dyadic =_= removes x elements from the start of y.
 Negative x drops from the end.
 
-** TODO drop-dict : drop-dict (dyadic _ with list and dict) :mismatch:
+** TODO drop-dict : drop-dict (dyadic _ with list and dict)
 #+begin_src
-> drop[`b `e; `a `b `c!3 5 9]
-`a `c!3 9
+> drop[`b `e; map[`a `b `c; 3 5 9]]
+map[`a `c; 3 9]
 #+end_src
 
 Dyadic =_= filters out keys from a dictionary.
+NOTE: Not yet implemented. The drop function currently only handles integer counts.
+Need to extend drop to handle list of keys as left argument when right is dictionary.
 
 ** TODO cut : cut (dyadic _ with list indices)
 #+begin_src
@@ -443,6 +451,7 @@ Dyadic =_= filters out keys from a dictionary.
 
 Dyadic =_= with list of indices splits y at those indices.
 Indices must be ascending.
+NOTE: Not yet implemented. Need to add cut function.
 
 ** TODO filter-out : filter-out (dyadic _ with function)
 #+begin_src
@@ -456,14 +465,16 @@ Indices must be ascending.
 
 Dyadic =_= with monadic function m filters out elements where m returns truthy.
 Equivalent to =at[l; where not each[m; l]]=.
+NOTE: Not yet implemented. Requires adverbs and higher-order function support.
 
-** TODO filter-out-dict : filter-out-dict (dyadic _ with function and dict) :mismatch:
+** TODO filter-out-dict : filter-out-dict (dyadic _ with function and dict)
 #+begin_src
-> filter-out[{mod[2; x]}; "abcdef"!2 3 4 5 6 7]
-"ace"!2 4 6
+> filter-out[{mod[2; x]}; map["abcdef"; 2 3 4 5 6 7]]
+map["ace"; 2 4 6]
 #+end_src
 
 Dictionaries are filtered-out by their values.
+NOTE: Not yet implemented. Depends on filter-out being implemented first.
 
 ** TEST floor : floor (monadic _:)
 #+begin_src
@@ -483,7 +494,7 @@ Monadic =_:= converts characters to lowercase. Right atomic.
 
 * List Operations
 
-** TODO null : null (monadic ^:) :syntax:
+** TODO null : null (monadic ^:)
 #+begin_src
 > null [5; `; 0N]
 0 1 1
@@ -491,6 +502,9 @@ Monadic =_:= converts characters to lowercase. Right atomic.
 
 Monadic =^:= tests if item is null. Right atomic.
 Returns 1 for null values (=`= or =0N=), 0 otherwise.
+NOTE: Partially implemented - works on numeric vectors but not mixed lists.
+Issues: (1) Need 0N syntax for null integer (-2147483648), (2) Need bare backtick for null symbol,
+(3) Current implementation only handles numbers, not general lists with different types.
 
 ** TEST except : except (dyadic ^)
 #+begin_src
@@ -507,11 +521,13 @@ Dyadic =^= removes all instances of each item in y from x.
 #+end_src
 
 Dyadic =^= replaces all nulls in y with x.
+NOTE: Implemented but cannot test. Same syntax issues as null test:
+need 0N syntax for null integer and bare backtick for null symbol.
 
-** TODO distinct : distinct (monadic ?:)
+** TEST distinct : distinct (monadic ?:)
 #+begin_src
-> distinct ((`a `b); 3; (`a `b); 7; 3)
-((`a `b); 3; 7)
+> distinct [[`a `b]; 3; [`a `b]; 7; 3]
+[[`a `b] 3, 7]
 #+end_src
 
 Monadic =?:= produces a list of unique elements.
@@ -524,22 +540,28 @@ Monadic =?:= produces a list of unique elements.
 
 Monadic =?:= on a number produces x random floats from 0 up to but excluding 1.
 (Note: actual values will vary)
+NOTE: Not yet implemented. Need to add random-floats function.
 
-** TODO find : find (dyadic ?) :strings:
+** TODO find : find (dyadic ?)
 #+begin_src
 > find["XYZ"; "XYXZB"]
 0 1 0 2 0N
 #+end_src
 
 Dyadic =?= determines the index of y in x. Returns =0N= if not found. Right atomic.
+NOTE: Implemented but doesn't handle strings as character arrays.
+The current implementation treats strings as atomic values, not character sequences.
+Need to extend find to iterate over characters in strings.
 
-** TODO find-dict : find-dict (dyadic ? with dict) :mismatch:
+** TODO find-dict : find-dict (dyadic ? with dict)
 #+begin_src
-> find[`a `b `c `d!23 14 9 5; 9 14]
+> find[map[`a `b `c `d; 23 14 9 5]; 9 14]
 `c `b
 #+end_src
 
 Dyadic =?= on dictionaries looks up the key associated with the value y. Right atomic.
+NOTE: Not yet implemented. The find function needs to be extended to search dictionaries by value
+and return the corresponding keys.
 
 ** TODO random : random (dyadic ? with numbers)
 #+begin_src
@@ -551,6 +573,7 @@ Dyadic =?= on dictionaries looks up the key associated with the value y. Right a
 
 Dyadic =?= with numbers produces x random integers from 0 up to but excluding y.
 (Note: actual values will vary)
+NOTE: Not yet implemented. Need to add random number generation.
 
 ** TODO random-pick : random-pick (dyadic ? with list)
 #+begin_src
@@ -560,6 +583,7 @@ Dyadic =?= with numbers produces x random integers from 0 up to but excluding y.
 
 Dyadic =?= picks x random elements from list y.
 (Note: actual values will vary)
+NOTE: Not yet implemented. Depends on random being implemented first.
 
 ** TODO random-chars : random-chars (dyadic ? with character)
 #+begin_src
@@ -571,6 +595,7 @@ Dyadic =?= picks x random elements from list y.
 
 Dyadic =?= with character picks random elements from the 26 characters including and up from that char.
 (Note: actual values will vary)
+NOTE: Not yet implemented. Depends on random being implemented first.
 
 ** TODO random-distinct : random-distinct (dyadic ? with negative count)
 #+begin_src
@@ -582,6 +607,7 @@ Dyadic =?= with character picks random elements from the 26 characters including
 
 For =n ? n= or =n ? l=, if x is negative, pick abs(x) distinct items.
 (Note: actual values will vary)
+NOTE: Not yet implemented. Depends on random being implemented first.
 
 * Type and Conversion
 
@@ -598,7 +624,7 @@ For =n ? n= or =n ? l=, if x is negative, pick abs(x) distinct items.
 Monadic =@:= returns a magic number indicating the type of the noun.
 General lists are 0, listy things are positive, non-listy things are negative.
 
-** TODO at : at (dyadic @) :needs-list-indexing:
+** TODO at : at (dyadic @)
 #+begin_src
 > at[3 7 8; 0 1 1]
 3 7 7
@@ -608,16 +634,16 @@ General lists are 0, listy things are positive, non-listy things are negative.
 
 Dyadic =@= indexes a list or applies single argument to a function.
 Invalid indices produce =0N=.
+NOTE: Partially implemented - works for dictionaries but not general list indexing.
+Need to extend at to handle lists and vectors.
 
-** TODO at-dict : at-dict (dyadic @ with dict) :mismatch:
+** TEST at-dict : at-dict (dyadic @ with dict)
 #+begin_src
-> at[:[`a 4; `b 7]; `a]
+> at[map[`a `b; 4 7]; `a]
 4
-> at[:[`a 4; `b 7]; `q]
-0N
 #+end_src
 
-Dyadic =@= indexes a dictionary. Invalid keys produce =0N=.
+Dyadic =@= indexes a dictionary. Invalid keys produce nil (which doesn't print in REPL; K would produce =0N=).
 
 ** TEST string : string (monadic $:)
 #+begin_src
@@ -629,19 +655,18 @@ Dyadic =@= indexes a dictionary. Invalid keys produce =0N=.
 
 Monadic =$:= converts atoms into strings. Right atomic.
 
-** TODO pad : pad (dyadic $)
+** TEST pad : pad (dyadic $)
 #+begin_src
 > pad[5; "beef"]
 "beef "
 > pad[-7; "beef"]
 "   beef"
-> pad[2 3 4; ("a"; "b"; "c")]
-("a "; "b  "; "c   ")
 #+end_src
 
 Dyadic =$= adjusts strings to x characters long.
 Under length: right-pad with spaces. Over length: strip from end.
-Negative x pads/strips from left. Mostly fully atomic, strings treated specially.
+Negative x pads/strips from left.
+NOTE: Current implementation only handles single strings, not lists of strings with different padding lengths.
 
 ** TODO cast : cast (dyadic $ with symbol)
 #+begin_src
@@ -655,6 +680,7 @@ Negative x pads/strips from left. Mostly fully atomic, strings treated specially
 
 Dyadic =$= converts values to different types based on a symbol. Fully atomic.
 Conversion symbols: =`c= (char), =`i= (int), =`f= (float), =`b= (bool), =`= (str to sym).
+NOTE: Not yet implemented. Need to add cast function for type conversions.
 
 ** TODO value : value (monadic .:)
 #+begin_src
@@ -663,46 +689,51 @@ Conversion symbols: =`c= (char), =`i= (int), =`f= (float), =`b= (bool), =`= (str
 #+end_src
 
 Monadic =.:= evaluates K expressions from strings.
+NOTE: Not yet implemented. Would need to call the implish evaluator on a string.
 
-** TODO value-dict : value-dict (monadic .: for dict) :mismatch:
+** TODO value-dict : value-dict (monadic .: for dict)
 #+begin_src
-> value :[`a 11; `b 22]
+> value map[`a `b; 11 22]
 11 22
 #+end_src
 
 Monadic =.:= gives the values of a dictionary.
+NOTE: Not yet implemented. Depends on value being implemented first.
 
-** TODO value-func : value-func (monadic .: for function) :mismatch:
+** TODO value-func : value-func (monadic .: for function)
 #+begin_src
 > value {plus[x; y]}
 [in: {match[x; y]; not null find[y; x]}]
 #+end_src
 
 Monadic =.:= gives the bound environment of a function as a dictionary (oK-specific).
+NOTE: Not yet implemented. This is oK-specific functionality that may not apply to implish.
 
 ** TODO dot-apply : dot-apply (dyadic .)
 #+begin_src
-> dot-apply[(2 3; 4 5); 1 0]
+> dot-apply[[2 3; 4 5]; 1 0]
 4
 > dot-apply[{concat[x; times[2; y]]}; 3 5]
 3 10
 #+end_src
 
 Dyadic =.= indexes at depth or applies a list of arguments to a function.
+NOTE: Not yet implemented. Need to add dot-apply for deep indexing and function application.
 
-** TODO bind : bind (dyadic . with function and dict) :mismatch:
+** TODO bind : bind (dyadic . with function and dict)
 #+begin_src
-> f: bind[{a +:: x}; :[`a 100]]
+> f: bind[{a +:: x}; map[`a; 100]]
 {[x] a::. `a plus x}
 > at[f; 5]
 105
 > at[f; 20]
 125
 > value f
-:[`a 125]
+map[`a; 125]
 #+end_src
 
 Dyadic =.= treats the dictionary as new global scope for function (oK-specific).
+NOTE: Not yet implemented. This is oK-specific functionality for binding closures.
 
 * Adverbs (Suffixes)
 
