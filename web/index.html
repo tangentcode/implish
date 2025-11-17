@@ -261,6 +261,15 @@
     .token-brace {
       color: #f97c7c;
     }
+    .token-symbol {
+      color: #b18bb1;
+    }
+    .token-backtick {
+      color: #d7ba7d;
+    }
+    .token-file {
+      color: #87c38a;
+    }
     .input-placeholder {
       color: #5f6b7c;
     }
@@ -433,6 +442,46 @@
             const comment = rest
             result += `<span class="token-comment">${escapeHtml(comment)}</span>`
             i += comment.length
+            continue
+          }
+        }
+
+        // Handle file paths: %/path/to/file
+        if (char === '%') {
+          const fileMatch = rest.match(/^%[^\s\[\]\{\}\(\)]+/)
+          if (fileMatch) {
+            result += `<span class="token-file">${escapeHtml(fileMatch[0])}</span>`
+            i += fileMatch[0].length
+            continue
+          }
+        }
+
+        // Handle backtick symbols: `sym
+        if (char === '`') {
+          const symMatch = rest.match(/^`[^\s\[\]\{\}\(\)]*/)
+          if (symMatch) {
+            result += `<span class="token-backtick">${escapeHtml(symMatch[0])}</span>`
+            i += symMatch[0].length
+            continue
+          }
+        }
+
+        // Handle single-quote symbols: 'sym
+        if (char === "'") {
+          const symMatch = rest.match(/^'[^\s\[\]\{\}\(\)]*/)
+          if (symMatch) {
+            result += `<span class="token-symbol">${escapeHtml(symMatch[0])}</span>`
+            i += symMatch[0].length
+            continue
+          }
+        }
+
+        // Handle get-words: :word
+        if (char === ':' && rest.length > 1 && rest[1].match(/[A-Za-z_]/)) {
+          const getMatch = rest.match(/^:[A-Za-z_][\w-]*/)
+          if (getMatch) {
+            result += `<span class="token-symbol">${escapeHtml(getMatch[0])}</span>`
+            i += getMatch[0].length
             continue
           }
         }

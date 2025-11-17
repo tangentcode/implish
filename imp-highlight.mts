@@ -9,6 +9,7 @@ const colors = {
   comment: '\x1b[38;5;244m',     // dark gray (like #808080)
   brace: '\x1b[38;5;210m',       // red (like #f97c7c)
   symbol: '\x1b[38;5;139m',      // purple for special symbols
+  backtick: '\x1b[38;5;179m',    // tan/gold for backtick symbols
   file: '\x1b[38;5;114m',        // light green for file paths
 }
 
@@ -63,9 +64,19 @@ export function highlightCode(code: string): string {
       }
     }
 
-    // Handle quoted symbols: `sym or 'sym
-    if (char === '`' || char === "'") {
-      const symMatch = rest.match(/^[`'][^\s\[\]\{\}\(\)]*/)
+    // Handle backtick symbols: `sym
+    if (char === '`') {
+      const symMatch = rest.match(/^`[^\s\[\]\{\}\(\)]*/)
+      if (symMatch) {
+        result += colors.backtick + symMatch[0] + colors.reset
+        i += symMatch[0].length
+        continue
+      }
+    }
+
+    // Handle single-quote symbols: 'sym
+    if (char === "'") {
+      const symMatch = rest.match(/^'[^\s\[\]\{\}\(\)]*/)
       if (symMatch) {
         result += colors.symbol + symMatch[0] + colors.reset
         i += symMatch[0].length
