@@ -377,23 +377,24 @@ Need to extend take to handle string/list of keys as left argument when right is
 ** TEST reshape : reshape (dyadic # with list shapes)
 #+begin_src
 > reshape[3 2; 1 2 3]
-[[1, 2] [3, 1] [2, 3]]
+[1 2, 3 1, 2 3]
 > reshape[3 2 2; 1 2 3]
-[[[1, 2] [3, 1]] [[2, 3] [1, 2]] [[3, 1] [2, 3]]]
+[[1 2, 3 1] [2 3, 1 2] [3 1, 2 3]]
 #+end_src
 
 Dyadic =#= with list left argument creates arbitrary dimensioned result.
+Produces strands (INTs/NUMs/SYMs) at the innermost level for vector inputs.
 
 ** TEST reshape-maximal : reshape-maximal (dyadic # with 0N in shape)
 #+begin_src
 > reshape[0N 3; int 6]
-[[0, 1, 2] [3, 4, 5]]
+[0 1 2, 3 4 5]
 > reshape[2 0N; int 8]
-[[0, 1, 2, 3] [4, 5, 6, 7]]
+[0 1 2 3, 4 5 6 7]
 #+end_src
 
 If leading or trailing element of a length-2 rank vector is =0N=,
-reshape treats that dimension as maximal.
+reshape treats that dimension as maximal. Produces strands at the innermost level.
 
 ** TODO filter : filter (dyadic # with function)
 #+begin_src
