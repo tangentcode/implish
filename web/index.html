@@ -428,6 +428,12 @@
             result += `<span class="token-comment">${escapeHtml(comment)}</span>`
             i += comment.length
             continue
+          } else {
+            // Unclosed comment - highlight to end of line
+            const comment = rest
+            result += `<span class="token-comment">${escapeHtml(comment)}</span>`
+            i += comment.length
+            continue
           }
         }
 

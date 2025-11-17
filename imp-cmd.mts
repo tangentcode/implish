@@ -4,6 +4,7 @@ import { ImpLoader, lexerTable, TokT } from "./imp-load.mjs";
 import { impShow } from "./imp-show.mjs";
 import { impEval, impWords, setInputProvider } from "./imp-eval.mjs";
 import { parsePartialPath, reconstructImplishPath } from "./lib-file.mjs";
+import { highlightCode } from "./imp-highlight.mjs";
 import * as readline from "readline";
 import * as fs from "fs";
 import * as os from "os";
@@ -11,12 +12,19 @@ import * as path from "path";
 
 // Parse command-line arguments
 let quietMode = false;
+let forceColor = false;
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '-q' || args[i] === '--quiet') {
     quietMode = true;
+  } else if (args[i] === '--color') {
+    forceColor = true;
   }
 }
+
+// Detect if output is to a terminal (for syntax highlighting)
+// Can be overridden with --color flag
+const isTerminal = forceColor || process.stdout.isTTY;
 
 let il = new ImpLoader();
 
@@ -158,13 +166,96 @@ async function quietRepl() {
 
 // Interactive mode REPL: full readline with prompt, completion, history
 async function interactiveRepl() {
+  // Create readline without automatic echoing if we're in a terminal
+  // so we can do our own syntax-highlighted rendering
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
-    completer: completer
+    completer: completer,
+    terminal: true
   });
 
-  rl.setPrompt('> ');
+  // Set prompt with color if terminal supports it (matches web version's #cc7832)
+  const promptColor = '\x1b[38;5;173m';  // Orange color (same as keywords)
+  const resetColor = '\x1b[0m';
+  const promptText = isTerminal ? `${promptColor}>${resetColor} ` : '> ';
+  rl.setPrompt(promptText);
+
+  // Add syntax highlighting to input line if we're in a terminal
+  if (isTerminal) {
+    const rlAny = rl as any;
+
+    // Override _refreshLine to add syntax highlighting
+    const originalRefreshLine = rlAny._refreshLine;
+
+    rlAny._refreshLine = function() {
+      // Save the original state
+      const savedLine = this.line;
+      const savedCursor = this.cursor;
+
+      // Don't highlight if line is empty
+      if (!savedLine) {
+        originalRefreshLine.call(this);
+        return;
+      }
+
+      // Highlight the entire line
+      const highlighted = highlightCode(savedLine);
+
+      // Count visible characters before cursor (excluding ANSI codes)
+      // We need to calculate where the cursor appears in the highlighted string
+      let visibleCount = 0;
+      let highlightedCursor = 0;
+      let inAnsiCode = false;
+
+      for (let i = 0; i < highlighted.length && visibleCount < savedCursor; i++) {
+        if (highlighted[i] === '\x1b') {
+          inAnsiCode = true;
+        }
+        if (inAnsiCode) {
+          highlightedCursor++;
+          if (highlighted[i] === 'm') {
+            inAnsiCode = false;
+          }
+        } else {
+          visibleCount++;
+          highlightedCursor++;
+        }
+      }
+
+      // Set the highlighted line and adjusted cursor position
+      this.line = highlighted;
+      this.cursor = highlightedCursor;
+
+      // Refresh with highlighted content
+      originalRefreshLine.call(this);
+
+      // Restore original values for the actual buffer
+      this.line = savedLine;
+      this.cursor = savedCursor;
+    };
+
+    // Force refresh on every input character
+    // This ensures highlighting updates as you type
+    const originalInsertString = rlAny._insertString;
+    rlAny._insertString = function(c: string) {
+      originalInsertString.call(this, c);
+      // Force a refresh to trigger highlighting
+      this._refreshLine();
+    };
+
+    const originalDeleteLeft = rlAny._deleteLeft;
+    rlAny._deleteLeft = function() {
+      originalDeleteLeft.call(this);
+      this._refreshLine();
+    };
+
+    const originalDeleteRight = rlAny._deleteRight;
+    rlAny._deleteRight = function() {
+      originalDeleteRight.call(this);
+      this._refreshLine();
+    };
+  }
 
   // Only enable history persistence when running interactively (TTY)
   const isInteractive = process.stdin.isTTY && process.stdout.isTTY;
@@ -230,7 +321,10 @@ async function interactiveRepl() {
       let r = il.read()
       if (r) {
         let e = await impEval(r)
-        if (e[0] !== ImpT.NIL) console.log(impShow(e))
+        if (e[0] !== ImpT.NIL) {
+          const output = impShow(e)
+          console.log(isTerminal ? highlightCode(output) : output)
+        }
       }
     } catch (e) {
       console.log("Error: " + e)
