@@ -2687,6 +2687,247 @@ export function createImpWords(): Record<string, ImpVal> {
 
       return imp.lst(undefined, windows)
     }, 2),
+
+    // Special Forms
+    'splice': imp.jsf(async function(this: any, list: ImpVal, interval: ImpVal, value: ImpVal) {
+      // splice[list; [start end]; value] - replaces elements in interval with value
+      // splice[list; [start end]; fn] - applies fn to interval elements
+      // Examples:
+      //   splice[1 2 3; 1 1; 4] → 1 4 2 3
+      //   splice["test"; 1 3; "u"] → "tut"
+      //   splice["hello world"; 0 5; "goodbye"] → "goodbye world"
+      //   splice[2 7 9; 1 2; {times[2; x]}] → 2 14 9
+      //   splice["a look back"; 2 6; reverse] → "a kool back"
+
+      // Extract interval bounds
+      if (!ImpQ.isLst(interval) && interval[0] !== ImpT.INTs) {
+        throw "splice: interval must be a list [start end]"
+      }
+
+      let start: number, end: number
+      if (interval[0] === ImpT.INTs) {
+        const bounds = interval[2] as number[]
+        if (bounds.length !== 2) {
+          throw "splice: interval must have exactly 2 elements [start end]"
+        }
+        start = bounds[0]
+        end = bounds[1]
+      } else if (ImpQ.isLst(interval)) {
+        const bounds = interval[2] as ImpVal[]
+        if (bounds.length !== 2) {
+          throw "splice: interval must have exactly 2 elements [start end]"
+        }
+        if (bounds[0][0] !== ImpT.INT || bounds[1][0] !== ImpT.INT) {
+          throw "splice: interval elements must be integers"
+        }
+        start = bounds[0][2] as number
+        end = bounds[1][2] as number
+      } else {
+        throw "splice: invalid interval format"
+      }
+
+      // Check if value is a function
+      const isFunction = value[0] === ImpT.JSF || ImpQ.isIfn(value)
+
+      // Handle string splicing
+      if (list[0] === ImpT.STR) {
+        const str = list[2] as string
+        if (isFunction) {
+          // Apply function to the substring
+          const substring = ImpC.str(str.slice(start, end))
+          let transformedVal: ImpVal
+          if (value[0] === ImpT.JSF) {
+            const fn = value[2] as any
+            transformedVal = await fn.call(this, substring)
+          } else {
+            // IFN - need to implement
+            throw "splice with implish function not yet implemented"
+          }
+          const newStr = transformedVal[0] === ImpT.STR ? (transformedVal[2] as string) : String(transformedVal[2])
+          const result = str.slice(0, start) + newStr + str.slice(end)
+          return ImpC.str(result)
+        } else {
+          const newStr = value[0] === ImpT.STR ? (value[2] as string) : String(value[2])
+          const result = str.slice(0, start) + newStr + str.slice(end)
+          return ImpC.str(result)
+        }
+      }
+
+      // Handle list/vector splicing
+      let elements: ImpVal[]
+      if (list[0] === ImpT.INTs) {
+        const nums = list[2] as number[]
+        elements = nums.map(n => ImpC.int(n))
+      } else if (list[0] === ImpT.NUMs) {
+        const nums = list[2] as number[]
+        elements = nums.map(n => ImpC.num(n))
+      } else if (ImpQ.isLst(list)) {
+        elements = list[2] as ImpVal[]
+      } else {
+        throw "splice: first argument must be a list or string"
+      }
+
+      // Build the result by replacing the interval
+      let result: ImpVal[]
+
+      if (isFunction) {
+        // Apply function to the interval elements
+        const intervalElements = elements.slice(start, end)
+
+        // Create appropriate input for the function
+        let fnInput: ImpVal
+        if (list[0] === ImpT.INTs) {
+          fnInput = ImpC.ints(intervalElements.map(x => x[2] as number))
+        } else if (list[0] === ImpT.NUMs) {
+          fnInput = ImpC.nums(intervalElements.map(x => x[2] as number))
+        } else {
+          fnInput = imp.lst(undefined, intervalElements)
+        }
+
+        if (value[0] === ImpT.JSF) {
+          const fn = value[2] as any
+          const transformedVal = await fn.call(this, fnInput)
+
+          // Convert result back to elements array
+          let replacementElements: ImpVal[]
+          if (transformedVal[0] === ImpT.INTs) {
+            const nums = transformedVal[2] as number[]
+            replacementElements = nums.map(n => ImpC.int(n))
+          } else if (transformedVal[0] === ImpT.NUMs) {
+            const nums = transformedVal[2] as number[]
+            replacementElements = nums.map(n => ImpC.num(n))
+          } else if (ImpQ.isLst(transformedVal)) {
+            replacementElements = transformedVal[2] as ImpVal[]
+          } else {
+            // Single element result
+            replacementElements = [transformedVal]
+          }
+
+          result = [
+            ...elements.slice(0, start),
+            ...replacementElements,
+            ...elements.slice(end)
+          ]
+        } else {
+          // IFN - need to implement
+          throw "splice with implish function not yet implemented"
+        }
+      } else {
+        // Simple replacement with value
+        result = [
+          ...elements.slice(0, start),
+          value,
+          ...elements.slice(end)
+        ]
+      }
+
+      // Try to preserve strand type
+      if (list[0] === ImpT.INTs && result.every(x => x[0] === ImpT.INT)) {
+        return ImpC.ints(result.map(x => x[2] as number))
+      } else if (list[0] === ImpT.NUMs && result.every(x => x[0] === ImpT.NUM)) {
+        return ImpC.nums(result.map(x => x[2] as number))
+      }
+
+      return imp.lst(undefined, result)
+    }, 3),
+
+    'try': imp.jsf(async function(this: any, fn: ImpVal, args: ImpVal) {
+      // try[fn; args] - calls fn with args, catches errors
+      // Returns [0; result] on success, [1; error-message] on failure
+      // Examples:
+      //   try[{plus[1; x]}; (1)] → [0 2]
+      //   try[{plus[1; x]}; (`a)] → [1; ?type]
+
+      try {
+        // Apply function to arguments
+        let result: ImpVal
+
+        if (fn[0] === ImpT.JSF) {
+          // For JSF, need to extract arguments from the list/tuple
+          let argList: ImpVal[]
+          if (ImpQ.isLst(args)) {
+            argList = args[2] as ImpVal[]
+          } else {
+            argList = [args]
+          }
+
+          const jsfn = fn[2] as any
+          result = await jsfn.call(this, ...argList)
+        } else if (ImpQ.isIfn(fn)) {
+          // For implish functions, use the same pattern as 'at'
+          const arity = fn[1].arity
+          if (arity !== 1) throw `try with implish function expects arity 1, got ${arity}`
+
+          const body = fn[2] as ImpVal[]
+          throw "try with implish function not yet implemented"
+        } else {
+          throw "try: first argument must be a function"
+        }
+
+        // Success: return [0; result]
+        return imp.lst(undefined, [ImpC.int(0), result])
+      } catch (error) {
+        // Failure: return [1; error-message]
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        return imp.lst(undefined, [ImpC.int(1), ImpC.str(errorMsg)])
+      }
+    }, 2),
+
+    'cond': imp.jsf(async function(this: ImpEvaluator, ...args: ImpVal[]) {
+      // cond[condition1; value1; condition2; value2; ...; default]
+      // Like Lisp cond: evaluates conditions in pairs, returns first matching value
+      // If no conditions match, returns final value
+      // Examples:
+      //   cond[1; "A"; 0; "B"; "C"] → "A"
+      //   cond[0; "A"; 0; "B"; "C"] → "C"
+
+      if (args.length < 3) {
+        throw "cond: requires at least 3 arguments (condition, value, default)"
+      }
+
+      // Process pairs of (condition, value)
+      for (let i = 0; i < args.length - 1; i += 2) {
+        const condArg = args[i]
+        const valueArg = args[i + 1]
+
+        // Evaluate condition if it's an expression
+        let condResult: ImpVal
+        if (ImpQ.isLst(condArg) || ImpQ.isTop(condArg)) {
+          condResult = await this.lastEval(condArg)
+        } else {
+          condResult = condArg
+        }
+
+        // Check if truthy (K semantics: 0, 0x00, nil are falsy)
+        let isTruthy = false
+        if (condResult[0] === ImpT.INT || condResult[0] === ImpT.NUM) {
+          isTruthy = (condResult[2] as number) !== 0
+        } else if (condResult[0] === ImpT.NIL) {
+          isTruthy = false
+        } else if (condResult[0] === ImpT.STR && condResult[2] === "\x00") {
+          isTruthy = false
+        } else {
+          isTruthy = true
+        }
+
+        // If truthy, evaluate and return the value
+        if (isTruthy) {
+          if (ImpQ.isLst(valueArg) || ImpQ.isTop(valueArg)) {
+            return await this.lastEval(valueArg)
+          } else {
+            return valueArg
+          }
+        }
+      }
+
+      // No conditions matched, return default (last argument)
+      const defaultArg = args[args.length - 1]
+      if (ImpQ.isLst(defaultArg) || ImpQ.isTop(defaultArg)) {
+        return await this.lastEval(defaultArg)
+      } else {
+        return defaultArg
+      }
+    }, -1),  // -1 indicates variadic
   }
 
   // Add sourceName to all JSF entries for better display in partial applications

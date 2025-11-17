@@ -933,8 +933,8 @@ export class ImpEvaluator {
       else imp.push(arg,x)}
     args.push(arg)
 
-    // Special forms (ite, while) need lazy evaluation - pass unevaluated args
-    let lazyEvalForms = ['ite', 'while']
+    // Special forms (ite, while, cond) need lazy evaluation - pass unevaluated args
+    let lazyEvalForms = ['ite', 'while', 'cond']
     let evaluatedArgs = []
     if (lazyEvalForms.includes(sym)) {
       // Pass arguments as-is (unevaluated LST values)
@@ -952,7 +952,10 @@ export class ImpEvaluator {
     } else if (f[0] === ImpT.JSF) {
       // Check arity for JSF functions
       const expectedArity = (f as ImpJsf)[1].arity
-      if (evaluatedArgs.length < expectedArity) {
+      // Variadic functions have arity -1 and accept any number of arguments
+      if (expectedArity === -1) {
+        return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
+      } else if (evaluatedArgs.length < expectedArity) {
         // Partial application - create a new function with captured arguments
         let partialArity = expectedArity - evaluatedArgs.length
         let capturedArgs = evaluatedArgs

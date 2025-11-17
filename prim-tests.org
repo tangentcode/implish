@@ -9,7 +9,6 @@ Each primitive shows examples from the K language (oK manual) for reference.
 
 
 * Arithmetic Operators
-
 ** TEST plus : plus (dyadic +)
 #+begin_src
 > plus[3; 4 5 6]
@@ -147,7 +146,6 @@ Monadic =!:= on a dictionary returns list of keys.
 NOTE: Depends on implish dictionary implementation.
 
 * Comparison Operators
-
 ** TEST less : less (dyadic <)
 #+begin_src
 > less[2 3 5; 1 0 6]
@@ -224,7 +222,6 @@ NOTE: Depends on implish dictionary implementation.
 Monadic =:= on a number generates an NxN identity matrix.
 
 * Logical/Bitwise Operators
-
 ** TEST min : min (dyadic &)
 #+begin_src
 > min[3 5 7; 0 6 9]
@@ -304,7 +301,6 @@ Monadic =~:= is logical not. Nonzero numbers become 0, zero becomes 1. Right ato
 Monadic =~:= applies to the values of dictionaries.
 
 * List Construction
-
 ** TEST concat : concat (dyadic ,)
 #+begin_src
 > concat[1; 2 3]
@@ -491,7 +487,6 @@ Monadic =_:= is floor function. Right atomic.
 Monadic =_:= converts characters to lowercase. Right atomic.
 
 * List Operations
-
 ** TEST null : null (monadic ^:)
 #+begin_src
 > null? [5; `; 0N]
@@ -599,7 +594,6 @@ For =n ? n= or =n ? l=, if x is negative, pick abs(x) distinct items.
 NOTE: Not yet implemented. Depends on random being implemented first.
 
 * Type and Conversion
-
 ** TEST type : type (monadic @:)
 #+begin_src
 > type `a
@@ -934,8 +928,7 @@ If x < 0: equivalent to =window[3; concat[0; concat[y; 0]]]=.
 If x = 0: equivalent to =reshape[plus[1; count y]; nil]=.
 
 * Special Forms
-
-** TODO splice : splice (ternadic ?) :mismatch:
+** TEST splice : splice (ternadic ?)
 #+begin_src
 > splice[1 2 3; 1 1; 4]
 1 4 2 3
@@ -948,29 +941,29 @@ If x = 0: equivalent to =reshape[plus[1; count y]; nil]=.
 Ternadic =?= replaces elements in interval [start end] with value.
 NOTE: May require special parsing in implish.
 
-** TODO splice-transform : splice-transform (ternadic ? with function) :mismatch:
+** TEST splice-transform : splice-transform (ternadic ? with function)
 #+begin_src
-> splice[2 7 9; 1 2; {times[2; x]}]
+> splice[2 7 9; 1 2; times[2]]
 2 14 9
 > splice["a look back"; 2 6; reverse]
 "a kool back"
 #+end_src
 
 If third arg is monadic function, applies to interval instead of replacing.
-
-** TODO error-trap : error-trap (ternadic .) :mismatch:
+NOTE: K uses ={times[2; x]}= lambda syntax, implish uses partial application =times[2]=.
+** TEST try : error-trap
 #+begin_src
-> error-trap[{plus[1; x]}; (1); :]
-(0 2)
-> error-trap[{plus[1; x]}; (`a); :]
-(1; "number expected, found symbol.")
+> try[plus; [1; 2]]
+[0, 3]
+> try[plus; [`a; 2]]
+[1 "expected number or vector, got: SYM"]
 #+end_src
 
-Ternadic =.= calls function with args, catches errors.
-Returns =(0; result)= on success, =(1; error-message)= on failure.
-NOTE: Colon =:= used as placeholder. May need different syntax in implish.
+Calls function with args, catches errors.
+Returns =[0; result]= on success, =[1; error-message]= on failure.
+NOTE: K uses ={plus[1; x]}= lambda syntax with single arg =(1)=. Implish uses =plus= with arg list =[1; 2]=.
 
-** TODO cond : cond (special $) :mismatch:
+** TEST cond : cond (special $)
 #+begin_src
 > cond[1; "A"; 0; "B"; "C"]
 "A"
@@ -985,7 +978,6 @@ NOTE: Already described in ok-manual but under special section, not verbs.
 Truthy: anything except 0, 0x00, or nil.
 
 * Named Builtins
-
 ** TEST sin : sin (monadic)
 #+begin_src
 > sin 0 0.5 3.141
