@@ -174,14 +174,19 @@ async function readContent(x: ImpVal): Promise<string> {
   }
 }
 
-// Helper function to get numeric value from INT, NUM, or vector types
+// Helper function to get numeric value from INT, NUM, STR (as char codes), or vector types
 function getNum(x: ImpVal): number | number[] {
   if (x[0] === ImpT.INT || x[0] === ImpT.NUM) return x[2] as number
   if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) return x[2] as number[]
+  // Handle strings as character code vectors (K behavior)
+  if (x[0] === ImpT.STR) {
+    const str = x[2] as string
+    return str.split('').map(c => c.charCodeAt(0))
+  }
   throw "expected number or vector, got: " + x[0]
 }
 
-// Helper function to apply binary operation element-wise
+// Helper function to apply binary operation element-wise (fully atomic)
 function elemWise(op: (a: number, b: number) => number, x: ImpVal, y: ImpVal): ImpVal {
   let xVal = getNum(x)
   let yVal = getNum(y)
@@ -205,6 +210,49 @@ function elemWise(op: (a: number, b: number) => number, x: ImpVal, y: ImpVal): I
   if (Array.isArray(xVal) && Array.isArray(yVal)) {
     if (xVal.length !== yVal.length) throw "vector length mismatch"
     return ImpC.ints(xVal.map((a, i) => op(a, yVal[i])))
+  }
+
+  throw "invalid operands"
+}
+
+// Helper for right-atomic operations (monadic functions applied element-wise to right arg)
+function rightAtomic(op: (a: number) => number, x: ImpVal): ImpVal {
+  let xVal = getNum(x)
+
+  // Scalar
+  if (typeof xVal === 'number') {
+    return ImpC.int(op(xVal))
+  }
+
+  // Vector - apply to each element
+  if (Array.isArray(xVal)) {
+    return ImpC.ints(xVal.map(a => op(a)))
+  }
+
+  throw "invalid operand"
+}
+
+// Helper for left-atomic operations (dyadic function applied element-wise to left arg)
+function leftAtomic(op: (a: number, b: any) => any, x: ImpVal, y: ImpVal): ImpVal {
+  let xVal = getNum(x)
+
+  // x is scalar
+  if (typeof xVal === 'number') {
+    return op(xVal, y)
+  }
+
+  // x is vector - apply to each element
+  if (Array.isArray(xVal)) {
+    const results: any[] = []
+    for (const a of xVal) {
+      results.push(op(a, y))
+    }
+    // Return results as appropriate type
+    if (results.every(r => typeof r === 'number')) {
+      return ImpC.ints(results as number[])
+    }
+    // Otherwise return as list
+    return imp.lst(undefined, results)
   }
 
   throw "invalid operands"
@@ -697,6 +745,928 @@ export function createImpWords(): Record<string, ImpVal> {
       newMap.set(keyName, v)
       return imp.dct(newMap)
     }, 3),
+
+    // K Primitives - Phase 1: Foundation
+    // (English names for K operators)
+
+    // Arithmetic operators - English names
+    'plus': imp.jsf((x,y)=>elemWise((a,b)=>a+b, x, y), 2),
+    'minus': imp.jsf((x,y)=>elemWise((a,b)=>a-b, x, y), 2),
+    'times': imp.jsf((x,y)=>elemWise((a,b)=>a*b, x, y), 2),
+    'divide': imp.jsf((x,y)=>elemWise((a,b)=>a/b, x, y), 2),
+
+    // Comparison operators - English names
+    'less': imp.jsf((x,y)=>elemWise((a,b)=>a<b ? 1 : 0, x, y), 2),
+    'more': imp.jsf((x,y)=>elemWise((a,b)=>a>b ? 1 : 0, x, y), 2),
+    'equal': imp.jsf((x,y)=>elemWise((a,b)=>a===b ? 1 : 0, x, y), 2),
+
+    // negate (monadic -:) - flip sign, right atomic
+    'negate': imp.jsf(x => rightAtomic(a => -a, x), 1),
+
+    // sqrt (monadic %:) - square root, right atomic
+    'sqrt': imp.jsf(x => rightAtomic(a => Math.sqrt(a), x), 1),
+
+    // first (monadic *:) - extract first element
+    'first': imp.jsf(x => {
+      // Handle dictionaries - return first value
+      if (ImpQ.isDct(x)) {
+        const dct = x[2] as Map<string, ImpVal>
+        const firstVal = dct.values().next().value
+        return firstVal !== undefined ? firstVal : NIL
+      }
+      // Handle lists
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        return items.length > 0 ? items[0] : NIL
+      }
+      // Handle vectors
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        return nums.length > 0 ? ImpC.int(nums[0]) : NIL
+      }
+      if (x[0] === ImpT.SYMs) {
+        const syms = x[2] as symbol[]
+        return syms.length > 0 ? ImpC.sym(syms[0], SymT.BQT) : NIL
+      }
+      // Handle strings
+      if (x[0] === ImpT.STR) {
+        const str = x[2] as string
+        return str.length > 0 ? ImpC.str(str[0]) : NIL
+      }
+      // Scalar - return itself
+      return x
+    }, 1),
+
+    // floor (monadic _:) - floor function, right atomic (also handles lowercase for chars)
+    'floor': imp.jsf(x => {
+      // Handle strings - convert to lowercase
+      if (x[0] === ImpT.STR) {
+        return ImpC.str((x[2] as string).toLowerCase())
+      }
+      // Handle numbers - floor
+      return rightAtomic(a => Math.floor(a), x)
+    }, 1),
+
+    // string (monadic $:) - convert atoms to strings, right atomic
+    'string': imp.jsf(x => {
+      // Handle scalars
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+        return ImpC.str(x[2].toString())
+      }
+      if (ImpQ.isSym(x)) {
+        return ImpC.str(x[2].description || '')
+      }
+      // Handle vectors - apply to each element
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        return imp.lst(undefined, nums.map(n => ImpC.str(n.toString())))
+      }
+      if (x[0] === ImpT.SYMs) {
+        const syms = x[2] as symbol[]
+        return imp.lst(undefined, syms.map(s => ImpC.str(s.description || '')))
+      }
+      throw "string expects atom or vector"
+    }, 1),
+
+    // type (monadic @:) - return type magic number
+    'type': imp.jsf(x => {
+      // K type codes: negative for atoms, positive for lists, 0 for general
+      const typeMap: Record<string, number> = {
+        [ImpT.NIL]: 0,
+        [ImpT.INT]: -6,   // integer atom
+        [ImpT.NUM]: -9,   // float atom
+        [ImpT.STR]: -10,  // char (treating string as char)
+        [ImpT.SYM]: -11,  // symbol atom
+        [ImpT.INTs]: 6,   // integer vector
+        [ImpT.NUMs]: 9,   // float vector
+        [ImpT.SYMs]: 11,  // symbol vector
+        [ImpT.LST]: 0,    // general list
+        [ImpT.DCT]: 99,   // dictionary
+        [ImpT.JSF]: 100,  // function
+        [ImpT.IFN]: 100,  // function
+      }
+      const typeCode = typeMap[x[0]] !== undefined ? typeMap[x[0]] : 0
+      return ImpC.int(typeCode)
+    }, 1),
+
+    // not (monadic ~:) - logical not, right atomic
+    'not': imp.jsf(function(this: any, x: ImpVal): ImpVal {
+      // Handle dictionaries - apply to values
+      if (ImpQ.isDct(x)) {
+        const dct = x[2] as Map<string, ImpVal>
+        const newMap = new Map<string, ImpVal>()
+        for (const [k, v] of dct.entries()) {
+          // Recursively apply not to value
+          const notFn = this.words?.['not'] || words['not']
+          if (notFn && notFn[0] === ImpT.JSF) {
+            newMap.set(k, (notFn[2] as any)(v))
+          } else {
+            // Fallback - apply right atomic directly
+            newMap.set(k, rightAtomic(a => a === 0 ? 1 : 0, v))
+          }
+        }
+        return imp.dct(newMap)
+      }
+
+      // Handle lists - apply recursively to each element
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const notFn = this.words?.['not'] || words['not']
+        const result: ImpVal[] = []
+        for (const item of items) {
+          if (notFn && notFn[0] === ImpT.JSF) {
+            result.push((notFn[2] as any)(item))
+          } else {
+            result.push(rightAtomic(a => a === 0 ? 1 : 0, item))
+          }
+        }
+        return imp.lst(x[1], result)
+      }
+
+      // Numbers: 0 becomes 1, non-zero becomes 0
+      return rightAtomic(a => a === 0 ? 1 : 0, x)
+    }, 1),
+
+    // flip (monadic +:) - transpose/flip matrices
+    'flip': imp.jsf(x => {
+      if (!ImpQ.isLst(x)) throw "flip expects a list"
+      const items = x[2] as ImpVal[]
+      if (items.length === 0) return x
+
+      // Get max length from all items
+      let maxLen = 0
+      for (const item of items) {
+        if (ImpQ.isLst(item)) {
+          maxLen = Math.max(maxLen, (item[2] as ImpVal[]).length)
+        } else if (item[0] === ImpT.INTs || item[0] === ImpT.NUMs) {
+          maxLen = Math.max(maxLen, (item[2] as number[]).length)
+        } else {
+          // Scalar - will be spread
+          maxLen = Math.max(maxLen, 1)
+        }
+      }
+
+      // Build transposed result
+      const result: ImpVal[] = []
+      for (let i = 0; i < maxLen; i++) {
+        const row: ImpVal[] = []
+        for (const item of items) {
+          if (ImpQ.isLst(item)) {
+            const itemList = item[2] as ImpVal[]
+            row.push(i < itemList.length ? itemList[i] : itemList[0])
+          } else if (item[0] === ImpT.INTs) {
+            const nums = item[2] as number[]
+            row.push(ImpC.int(i < nums.length ? nums[i] : nums[0]))
+          } else if (item[0] === ImpT.NUMs) {
+            const nums = item[2] as number[]
+            row.push(ImpC.num(i < nums.length ? nums[i] : nums[0]))
+          } else {
+            // Scalar - repeat it
+            row.push(item)
+          }
+        }
+        result.push(imp.lst(undefined, row))
+      }
+      return imp.lst(x[1], result)
+    }, 1),
+
+    // concat (dyadic ,) - join lists/atoms
+    'concat': imp.jsf((x, y) => {
+      // Handle NIL - concatenating with nil just returns the other value
+      if (x[0] === ImpT.NIL) return y
+      if (y[0] === ImpT.NIL) return x
+
+      // Handle dictionaries - merge them (y takes precedence)
+      if (ImpQ.isDct(x) && ImpQ.isDct(y)) {
+        const xMap = x[2] as Map<string, ImpVal>
+        const yMap = y[2] as Map<string, ImpVal>
+        const merged = new Map(xMap)
+        for (const [k, v] of yMap.entries()) {
+          merged.set(k, v)
+        }
+        return imp.dct(merged)
+      }
+
+      // Convert to lists if needed
+      const toList = (v: ImpVal): ImpVal[] => {
+        if (ImpQ.isLst(v)) return v[2] as ImpVal[]
+        if (v[0] === ImpT.INTs) return (v[2] as number[]).map(n => ImpC.int(n))
+        if (v[0] === ImpT.NUMs) return (v[2] as number[]).map(n => ImpC.num(n))
+        if (v[0] === ImpT.SYMs) return (v[2] as symbol[]).map(s => ImpC.sym(s, SymT.BQT))
+        return [v]  // Wrap scalar
+      }
+
+      const xList = toList(x)
+      const yList = toList(y)
+      return imp.lst(undefined, [...xList, ...yList])
+    }, 2),
+
+    // enlist (monadic ,:) - wrap in 1-length list
+    'enlist': imp.jsf(x => imp.lst(undefined, [x]), 1),
+
+    // count (monadic #:) - count elements
+    'count': imp.jsf(x => {
+      if (ImpQ.isDct(x)) {
+        return ImpC.int((x[2] as Map<string, ImpVal>).size)
+      }
+      if (ImpQ.isLst(x)) {
+        return ImpC.int((x[2] as ImpVal[]).length)
+      }
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs || x[0] === ImpT.SYMs) {
+        return ImpC.int((x[2] as any[]).length)
+      }
+      if (x[0] === ImpT.STR) {
+        return ImpC.int((x[2] as string).length)
+      }
+      // Atoms have count 1
+      return ImpC.int(1)
+    }, 1),
+
+    // null (monadic ^:) - test if null
+    'null': imp.jsf(x => {
+      return rightAtomic(a => (a === imp.NULL_INT || isNaN(a)) ? 1 : 0, x)
+    }, 1),
+
+    // distinct (monadic ?:) - unique elements
+    'distinct': imp.jsf(x => {
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const seen = new Set<string>()
+        const result: ImpVal[] = []
+        for (const item of items) {
+          const key = impShow(item)
+          if (!seen.has(key)) {
+            seen.add(key)
+            result.push(item)
+          }
+        }
+        return imp.lst(x[1], result)
+      }
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        const seen = new Set<number>()
+        const result: number[] = []
+        for (const n of nums) {
+          if (!seen.has(n)) {
+            seen.add(n)
+            result.push(n)
+          }
+        }
+        return x[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
+      }
+      if (x[0] === ImpT.SYMs) {
+        const syms = x[2] as symbol[]
+        const seen = new Set<string>()
+        const result: symbol[] = []
+        for (const s of syms) {
+          const key = s.description || ''
+          if (!seen.has(key)) {
+            seen.add(key)
+            result.push(s)
+          }
+        }
+        return ImpC.syms(result)
+      }
+      // Scalar - already unique
+      return x
+    }, 1),
+
+    // lowercase (monadic _: for characters) - already handled in 'floor'
+    'lowercase': imp.jsf(x => {
+      if (x[0] === ImpT.STR) {
+        return ImpC.str((x[2] as string).toLowerCase())
+      }
+      throw "lowercase expects a string"
+    }, 1),
+
+    // K Primitives - Phase 2: Core List Operations
+
+    // take (dyadic #) - truncate/repeat to length, negative takes from end
+    'take': imp.jsf((x, y) => {
+      if (x[0] !== ImpT.INT) throw "take expects integer count"
+      let count = x[2] as number
+
+      // Handle negative count - take from end
+      const fromEnd = count < 0
+      if (fromEnd) count = -count
+
+      // Handle lists
+      if (ImpQ.isLst(y)) {
+        const items = y[2] as ImpVal[]
+        if (items.length === 0) throw "cannot take from empty list"
+        const result: ImpVal[] = []
+
+        if (fromEnd) {
+          // Take from end
+          const start = Math.max(0, items.length - count)
+          return imp.lst(y[1], items.slice(start))
+        } else {
+          // Take from start, cycling if needed
+          for (let i = 0; i < count; i++) {
+            result.push(items[i % items.length])
+          }
+          return imp.lst(y[1], result)
+        }
+      }
+
+      // Handle vectors
+      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const nums = y[2] as number[]
+        if (nums.length === 0) throw "cannot take from empty vector"
+        const result: number[] = []
+
+        if (fromEnd) {
+          const start = Math.max(0, nums.length - count)
+          return y[0] === ImpT.INTs ? ImpC.ints(nums.slice(start)) : ImpC.nums(nums.slice(start))
+        } else {
+          for (let i = 0; i < count; i++) {
+            result.push(nums[i % nums.length])
+          }
+          return y[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
+        }
+      }
+
+      // Handle strings
+      if (y[0] === ImpT.STR) {
+        const str = y[2] as string
+        if (str.length === 0) throw "cannot take from empty string"
+        let result = ""
+
+        if (fromEnd) {
+          const start = Math.max(0, str.length - count)
+          return ImpC.str(str.slice(start))
+        } else {
+          for (let i = 0; i < count; i++) {
+            result += str[i % str.length]
+          }
+          return ImpC.str(result)
+        }
+      }
+
+      throw "take expects list, vector, or string as second argument"
+    }, 2),
+
+    // drop (dyadic _) - remove elements from start/end
+    'drop': imp.jsf((x, y) => {
+      if (x[0] !== ImpT.INT) throw "drop expects integer count"
+      let count = x[2] as number
+
+      // Handle lists
+      if (ImpQ.isLst(y)) {
+        const items = y[2] as ImpVal[]
+        if (count >= 0) {
+          return imp.lst(y[1], items.slice(count))
+        } else {
+          return imp.lst(y[1], items.slice(0, items.length + count))
+        }
+      }
+
+      // Handle vectors
+      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const nums = y[2] as number[]
+        const result = count >= 0 ? nums.slice(count) : nums.slice(0, nums.length + count)
+        return y[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
+      }
+
+      // Handle strings
+      if (y[0] === ImpT.STR) {
+        const str = y[2] as string
+        const result = count >= 0 ? str.slice(count) : str.slice(0, str.length + count)
+        return ImpC.str(result)
+      }
+
+      throw "drop expects list, vector, or string as second argument"
+    }, 2),
+
+    // except (dyadic ^) - remove all instances of y from x
+    'except': imp.jsf((x, y) => {
+      // Get items to remove
+      const toRemove = new Set<string>()
+      if (ImpQ.isLst(y)) {
+        for (const item of y[2] as ImpVal[]) {
+          toRemove.add(impShow(item))
+        }
+      } else if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        for (const n of y[2] as number[]) {
+          toRemove.add(n.toString())
+        }
+      } else {
+        toRemove.add(impShow(y))
+      }
+
+      // Filter x
+      if (ImpQ.isLst(x)) {
+        const result: ImpVal[] = []
+        for (const item of x[2] as ImpVal[]) {
+          if (!toRemove.has(impShow(item))) {
+            result.push(item)
+          }
+        }
+        return imp.lst(x[1], result)
+      }
+
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const result: number[] = []
+        for (const n of x[2] as number[]) {
+          if (!toRemove.has(n.toString())) {
+            result.push(n)
+          }
+        }
+        return x[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
+      }
+
+      throw "except expects list or vector as first argument"
+    }, 2),
+
+    // fill (dyadic ^ with atom left) - replace nulls with x
+    'fill': imp.jsf((x, y) => {
+      if (ImpQ.isLst(y)) {
+        const result: ImpVal[] = []
+        for (const item of y[2] as ImpVal[]) {
+          result.push(item[0] === ImpT.NIL ? x : item)
+        }
+        return imp.lst(y[1], result)
+      }
+
+      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const nums = y[2] as number[]
+        const result = nums.map(n => n === imp.NULL_INT ? (x[2] as number) : n)
+        return y[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
+      }
+
+      return y
+    }, 2),
+
+    // find (dyadic ?) - index of y in x, returns 0N if not found
+    'find': imp.jsf((x, y) => {
+      // Right atomic - apply to each element of y
+      const findOne = (searchIn: ImpVal, searchFor: ImpVal): number => {
+        if (ImpQ.isLst(searchIn)) {
+          const items = searchIn[2] as ImpVal[]
+          for (let i = 0; i < items.length; i++) {
+            if (impShow(items[i]) === impShow(searchFor)) {
+              return i
+            }
+          }
+          return imp.NULL_INT
+        }
+
+        if (searchIn[0] === ImpT.INTs || searchIn[0] === ImpT.NUMs) {
+          const nums = searchIn[2] as number[]
+          if (searchFor[0] === ImpT.INT || searchFor[0] === ImpT.NUM) {
+            const target = searchFor[2] as number
+            const idx = nums.indexOf(target)
+            return idx >= 0 ? idx : imp.NULL_INT
+          }
+          return imp.NULL_INT
+        }
+
+        if (searchIn[0] === ImpT.STR && searchFor[0] === ImpT.STR) {
+          const str = searchIn[2] as string
+          const char = (searchFor[2] as string)[0]
+          const idx = str.indexOf(char)
+          return idx >= 0 ? idx : imp.NULL_INT
+        }
+
+        return imp.NULL_INT
+      }
+
+      // Handle right atomic behavior
+      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const results: number[] = []
+        for (const n of y[2] as number[]) {
+          results.push(findOne(x, ImpC.int(n)))
+        }
+        return ImpC.ints(results)
+      }
+
+      if (ImpQ.isLst(y)) {
+        const results: number[] = []
+        for (const item of y[2] as ImpVal[]) {
+          results.push(findOne(x, item))
+        }
+        return ImpC.ints(results)
+      }
+
+      return ImpC.int(findOne(x, y))
+    }, 2),
+
+    // match (dyadic ~) - recursive equality test
+    'match': imp.jsf((x, y) => {
+      const matches = impShow(x) === impShow(y)
+      return ImpC.int(matches ? 1 : 0)
+    }, 2),
+
+    // pad (dyadic $) - adjust string length
+    'pad': imp.jsf((x, y) => {
+      if (y[0] !== ImpT.STR) throw "pad expects string as second argument"
+
+      const padAmount = (xVal: number, str: string): string => {
+        if (xVal >= 0) {
+          // Right pad or truncate
+          if (str.length < xVal) {
+            return str + ' '.repeat(xVal - str.length)
+          } else {
+            return str.slice(0, xVal)
+          }
+        } else {
+          // Left pad or truncate
+          const absX = -xVal
+          if (str.length < absX) {
+            return ' '.repeat(absX - str.length) + str
+          } else {
+            return str.slice(str.length - absX)
+          }
+        }
+      }
+
+      const str = y[2] as string
+
+      // Handle vector of pad amounts
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const amounts = x[2] as number[]
+        const result: ImpVal[] = []
+        for (const amt of amounts) {
+          result.push(ImpC.str(padAmount(amt, str)))
+        }
+        return imp.lst(undefined, result)
+      }
+
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+        return ImpC.str(padAmount(x[2] as number, str))
+      }
+
+      throw "pad expects number or number vector as first argument"
+    }, 2),
+
+    // K Primitives - Phase 3: Sorting & Type Operations
+
+    // asc (monadic <:) - grade up (ascending sort indices)
+    'asc': imp.jsf(x => {
+      // Handle dictionaries - sort keys by values
+      if (ImpQ.isDct(x)) {
+        const dct = x[2] as Map<string, ImpVal>
+        const entries = Array.from(dct.entries())
+        entries.sort((a, b) => {
+          const aVal = impShow(a[1])
+          const bVal = impShow(b[1])
+          return aVal < bVal ? -1 : aVal > bVal ? 1 : 0
+        })
+        return ImpC.syms(entries.map(([k, _]) => Symbol(k)))
+      }
+
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        const indices = nums.map((_, i) => i)
+        indices.sort((a, b) => nums[a] - nums[b])
+        return ImpC.ints(indices)
+      }
+
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const indices = items.map((_, i) => i)
+        indices.sort((a, b) => {
+          const aStr = impShow(items[a])
+          const bStr = impShow(items[b])
+          return aStr < bStr ? -1 : aStr > bStr ? 1 : 0
+        })
+        return ImpC.ints(indices)
+      }
+
+      throw "asc expects vector, list, or dictionary"
+    }, 1),
+
+    // desc (monadic >:) - grade down (descending sort indices)
+    'desc': imp.jsf(x => {
+      // Handle dictionaries - sort keys by values (descending)
+      if (ImpQ.isDct(x)) {
+        const dct = x[2] as Map<string, ImpVal>
+        const entries = Array.from(dct.entries())
+        entries.sort((a, b) => {
+          const aVal = impShow(a[1])
+          const bVal = impShow(b[1])
+          return aVal > bVal ? -1 : aVal < bVal ? 1 : 0
+        })
+        return ImpC.syms(entries.map(([k, _]) => Symbol(k)))
+      }
+
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        const indices = nums.map((_, i) => i)
+        indices.sort((a, b) => nums[b] - nums[a])
+        return ImpC.ints(indices)
+      }
+
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const indices = items.map((_, i) => i)
+        indices.sort((a, b) => {
+          const aStr = impShow(items[a])
+          const bStr = impShow(items[b])
+          return aStr > bStr ? -1 : aStr < bStr ? 1 : 0
+        })
+        return ImpC.ints(indices)
+      }
+
+      throw "desc expects vector, list, or dictionary"
+    }, 1),
+
+    // where (monadic &:) - replicate indices or gather nonzero
+    'where': imp.jsf(x => {
+      // Handle dictionaries - replicate keys by their values
+      if (ImpQ.isDct(x)) {
+        const dct = x[2] as Map<string, ImpVal>
+        const result: symbol[] = []
+        for (const [key, val] of dct.entries()) {
+          let count = 0
+          if (val[0] === ImpT.INT || val[0] === ImpT.NUM) {
+            count = val[2] as number
+          }
+          for (let j = 0; j < count; j++) {
+            result.push(Symbol(key))
+          }
+        }
+        return ImpC.syms(result)
+      }
+
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        const result: number[] = []
+        for (let i = 0; i < nums.length; i++) {
+          const count = nums[i]
+          for (let j = 0; j < count; j++) {
+            result.push(i)
+          }
+        }
+        return ImpC.ints(result)
+      }
+
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const result: number[] = []
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]
+          let count = 0
+          if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+            count = item[2] as number
+          }
+          for (let j = 0; j < count; j++) {
+            result.push(i)
+          }
+        }
+        return ImpC.ints(result)
+      }
+
+      throw "where expects vector, list, or dictionary"
+    }, 1),
+
+    // reverse (monadic |:) - reverse a list
+    'reverse': imp.jsf(x => {
+      // Handle dictionaries - reverse order of keys and values
+      if (ImpQ.isDct(x)) {
+        const dct = x[2] as Map<string, ImpVal>
+        const entries = Array.from(dct.entries()).reverse()
+        const newMap = new Map<string, ImpVal>()
+        for (const [k, v] of entries) {
+          newMap.set(k, v)
+        }
+        return imp.dct(newMap)
+      }
+
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        return imp.lst(x[1], [...items].reverse())
+      }
+
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        return x[0] === ImpT.INTs ? ImpC.ints([...nums].reverse()) : ImpC.nums([...nums].reverse())
+      }
+
+      if (x[0] === ImpT.STR) {
+        const str = x[2] as string
+        return ImpC.str(str.split('').reverse().join(''))
+      }
+
+      if (x[0] === ImpT.SYMs) {
+        const syms = x[2] as symbol[]
+        return ImpC.syms([...syms].reverse())
+      }
+
+      return x  // Scalar - return as is
+    }, 1),
+
+    // K Primitives - Phase 4: Special Forms & Dict Ops
+
+    // mod (dyadic !) - modulo, right atomic
+    'mod': imp.jsf((x, y) => {
+      if (x[0] !== ImpT.INT && x[0] !== ImpT.NUM) throw "mod expects number as first argument"
+      const modulus = Math.abs(x[2] as number)
+      return rightAtomic(a => a % modulus, y)
+    }, 2),
+
+    // div (dyadic ! with negative left) - divide and truncate, right atomic
+    'div': imp.jsf((x, y) => {
+      if (x[0] !== ImpT.INT && x[0] !== ImpT.NUM) throw "div expects number as first argument"
+      const divisor = Math.abs(x[2] as number)
+      return rightAtomic(a => Math.floor(a / divisor), y)
+    }, 2),
+
+    // int (monadic !:) - range from 0 to N (or odometer for lists)
+    // Already implemented as '!' in base implish, but add as 'int' for K compatibility
+    'int': imp.jsf(x => {
+      if (x[0] === ImpT.INT) {
+        const n = x[2] as number
+        if (n >= 0) {
+          return ImpC.ints(Array.from({length: n}, (_, i) => i))
+        } else {
+          return ImpC.ints(Array.from({length: -n}, (_, i) => n + i))
+        }
+      }
+
+      // Handle odometer (cartesian product) for lists/vectors
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const dims = x[2] as number[]
+        if (dims.length === 0) return ImpC.ints([])
+
+        // Calculate total number of combinations
+        let total = 1
+        for (const dim of dims) {
+          total *= dim
+        }
+
+        // Generate each dimension's values
+        const result: number[][] = []
+        for (let d = 0; d < dims.length; d++) {
+          const dimension: number[] = []
+          const dim = dims[d]
+          const repeatCount = dims.slice(d + 1).reduce((a, b) => a * b, 1)
+          const cycleLength = dim * repeatCount
+
+          for (let i = 0; i < total; i++) {
+            dimension.push(Math.floor((i % cycleLength) / repeatCount))
+          }
+          result.push(dimension)
+        }
+
+        // Convert to list of vectors
+        return imp.lst(undefined, result.map(r => ImpC.ints(r)))
+      }
+
+      throw "int expects integer or vector"
+    }, 1),
+
+    // group (monadic =:) - dictionary from items to indices
+    'group': imp.jsf(x => {
+      const groups = new Map<string, number[]>()
+
+      if (x[0] === ImpT.SYMs) {
+        const syms = x[2] as symbol[]
+        for (let i = 0; i < syms.length; i++) {
+          const key = syms[i].description || ''
+          if (!groups.has(key)) groups.set(key, [])
+          groups.get(key)!.push(i)
+        }
+      } else if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        for (let i = 0; i < nums.length; i++) {
+          const key = nums[i].toString()
+          if (!groups.has(key)) groups.set(key, [])
+          groups.get(key)!.push(i)
+        }
+      } else if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        for (let i = 0; i < items.length; i++) {
+          const key = impShow(items[i])
+          if (!groups.has(key)) groups.set(key, [])
+          groups.get(key)!.push(i)
+        }
+      } else {
+        throw "group expects vector or list"
+      }
+
+      // Convert to dictionary
+      const result = new Map<string, ImpVal>()
+      for (const [key, indices] of groups.entries()) {
+        result.set(key, ImpC.ints(indices))
+      }
+      return imp.dct(result)
+    }, 1),
+
+    // identity-matrix (monadic =: for numbers) - NxN identity matrix
+    'identity-matrix': imp.jsf(x => {
+      if (x[0] !== ImpT.INT) throw "identity-matrix expects integer"
+      const n = x[2] as number
+      const result: ImpVal[] = []
+      for (let i = 0; i < n; i++) {
+        const row: number[] = []
+        for (let j = 0; j < n; j++) {
+          row.push(i === j ? 1 : 0)
+        }
+        result.push(ImpC.ints(row))
+      }
+      return imp.lst(undefined, result)
+    }, 1),
+
+    // map (dyadic !) - make dictionary from keys and values
+    'map': imp.jsf((x, y) => {
+      // x is keys, y is values
+      const result = new Map<string, ImpVal>()
+
+      // Handle symbol vectors as keys
+      if (x[0] === ImpT.SYMs) {
+        const keys = x[2] as symbol[]
+
+        // Handle values as vector
+        if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+          const vals = y[2] as number[]
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i].description || ''
+            const val = i < vals.length ? vals[i] : vals[vals.length - 1]
+            result.set(key, y[0] === ImpT.INTs ? ImpC.int(val) : ImpC.num(val))
+          }
+        } else if (ImpQ.isLst(y)) {
+          const vals = y[2] as ImpVal[]
+          for (let i = 0; i < keys.length; i++) {
+            const key = keys[i].description || ''
+            const val = i < vals.length ? vals[i] : vals[vals.length - 1]
+            result.set(key, val)
+          }
+        } else {
+          // Scalar value - use for all keys
+          for (const k of keys) {
+            result.set(k.description || '', y)
+          }
+        }
+
+        return imp.dct(result)
+      }
+
+      // For non-symbol keys, just return a special encoding (K behavior)
+      // In K: 4 5!6 7 returns the dict-like structure "4 5!6 7"
+      // For now, create a list representation
+      return imp.lst(undefined, [x, ImpC.sym(Symbol('!'), SymT.RAW), y])
+    }, 2),
+
+    // K Primitives - Phase 5: Math & Random
+
+    // sin (monadic) - sine, atomic
+    'sin': imp.jsf(x => rightAtomic(a => Math.sin(a), x), 1),
+
+    // cos (monadic) - cosine, atomic
+    'cos': imp.jsf(x => rightAtomic(a => Math.cos(a), x), 1),
+
+    // exp (monadic) - exponential, atomic
+    'exp': imp.jsf(x => rightAtomic(a => Math.exp(a), x), 1),
+
+    // log (monadic) - natural logarithm, atomic
+    'log': imp.jsf(x => rightAtomic(a => Math.log(a), x), 1),
+
+    // in (dyadic) - membership test, left atomic
+    'in': imp.jsf((x, y) => {
+      // Check if each element of x is in y
+      const checkIn = (item: ImpVal, haystack: ImpVal): number => {
+        const itemStr = impShow(item)
+
+        if (ImpQ.isLst(haystack)) {
+          for (const h of haystack[2] as ImpVal[]) {
+            if (impShow(h) === itemStr) return 1
+          }
+          return 0
+        }
+
+        if (haystack[0] === ImpT.INTs || haystack[0] === ImpT.NUMs) {
+          if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+            const nums = haystack[2] as number[]
+            return nums.includes(item[2] as number) ? 1 : 0
+          }
+          return 0
+        }
+
+        return 0
+      }
+
+      // Left atomic
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        const nums = x[2] as number[]
+        const results: number[] = []
+        for (const n of nums) {
+          results.push(checkIn(ImpC.int(n), y))
+        }
+        return ImpC.ints(results)
+      }
+
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const results: number[] = []
+        for (const item of items) {
+          results.push(checkIn(item, y))
+        }
+        return ImpC.ints(results)
+      }
+
+      return ImpC.int(checkIn(x, y))
+    }, 2),
   }
 
   // Add sourceName to all JSF entries for better display in partial applications

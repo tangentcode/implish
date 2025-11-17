@@ -22,10 +22,10 @@ Dyadic =+= is addition. Fully atomic.
 
 ** TEST flip : flip (monadic +:)
 #+begin_src
-> flip (1 2; 3 4)
-(1 3; 2 4)
-> flip (5; 3 4)
-(5 3; 5 4)
+> flip [1 2; 3 4]
+[[1, 3] [2, 4]]
+> flip [5; 3 4]
+[[5, 3] [5, 4]]
 #+end_src
 
 Monadic =+:= is transpose/flip. Takes the transpose of matrices.
@@ -67,7 +67,7 @@ Monadic =*:= extracts the first element of a list.
 
 ** TEST first-dict : first-dict (monadic *: for dictionaries) :mismatch:
 #+begin_src
-> first [a:23; b:34]
+> first :[`a 23; `b 34]
 23
 #+end_src
 
@@ -82,7 +82,7 @@ This extracts the first *value* from a dictionary.
 
 Dyadic =%= is division. Fully atomic.
 
-** TEST sqrt : sqrt (monadic %:)
+** TODO sqrt : sqrt (monadic %:) :precision:
 #+begin_src
 > sqrt 25 7 100
 5 2.6458 10
@@ -106,12 +106,12 @@ Dyadic =!= with positive left arg is modulo. Right atomic.
 
 Dyadic =!= with negative left arg divides y by x and truncates. Right atomic.
 
-** TEST map : map (dyadic ! for making dictionaries) :mismatch:
+** TEST map : map (dyadic ! for making dictionaries)
 #+begin_src
 > map[`a `b; 3 4]
-[a:3; b:4]
+:[`a 3; `b 4]
 > map[4 5; 6 7]
-4 5!6 7
+[4 5 ! 6 7]
 #+end_src
 
 Dyadic =!= can make a dictionary from x keys and y value(s).
@@ -132,14 +132,14 @@ If N is negative, count up and exclude zero.
 ** TEST odometer : odometer (monadic !: for lists)
 #+begin_src
 > int 2 3
-(0 0 0 1 1 1; 0 1 2 0 1 2)
+[0 0 0 1 1 1, 0 1 2 0 1 2]
 #+end_src
 
 Monadic =!:= on a list generates ranged permutations (odometer/cartesian product).
 
-** TEST keys : keys (monadic !: for dictionaries) :mismatch:
+** TEST keys : keys (monadic !: for dictionaries)
 #+begin_src
-> keys [a:3; b:4]
+> keys :[`a 3; `b 4]
 `a `b
 #+end_src
 
@@ -165,9 +165,9 @@ Dyadic =<= tests less-than. Fully atomic. Returns boolean (0 or 1).
 Monadic =<:= is "grade up" or ascending sort indices.
 Generates a permutation vector which would sort argument into ascending order.
 
-** TEST asc-dict : asc-dict (monadic <: for dictionaries) :mismatch:
+** TEST asc-dict : asc-dict (monadic <: for dictionaries)
 #+begin_src
-> asc [a:2; b:5; c:1]
+> asc :[`a 2; `b 5; `c 1]
 `c `a `b
 #+end_src
 
@@ -192,7 +192,7 @@ Generates a permutation vector which would sort argument into descending order.
 
 ** TEST desc-dict : desc-dict (monadic >: for dictionaries) :mismatch:
 #+begin_src
-> desc [a:2; b:5; c:1]
+> desc :[`a 2; `b 5; `c 1]
 `b `a `c
 #+end_src
 
@@ -206,10 +206,10 @@ Monadic =>:= on dictionaries sorts keys by their values (descending).
 
 Dyadic === tests equality. Fully atomic. Returns boolean (0 or 1).
 
-** TEST group : group (monadic =:) :mismatch:
+** TEST group : group (monadic =:)
 #+begin_src
 > group `c `a `b `b `a `c `a
-[c: 0 5; a: 1 4 6; b: 2 3]
+:[`c 0 5; `a 1 4 6; `b 2 3]
 #+end_src
 
 Monadic =:= generates a dictionary from items to the indices where they were found.
@@ -218,7 +218,7 @@ NOTE: Depends on implish dictionary implementation.
 ** TEST identity-matrix : identity-matrix (monadic =: for numbers)
 #+begin_src
 > identity-matrix 3
-(1 0 0; 0 1 0; 0 0 1)
+[1 0 0, 0 1 0, 0 0 1]
 #+end_src
 
 Monadic =:= on a number generates an NxN identity matrix.
@@ -244,9 +244,9 @@ Dyadic =&= is minimum. Fully atomic. For booleans, effectively logical AND.
 Monadic =&:= makes N copies of sequential indices.
 For boolean lists, gathers indices of nonzero elements.
 
-** TEST where-dict : where-dict (monadic &: for dictionaries) :mismatch:
+** TEST where-dict : where-dict (monadic &: for dictionaries)
 #+begin_src
-> where [`a `b `c ! 1 0 2]
+> where map[`a `b `c; 1 0 2]
 `a `c `c
 #+end_src
 
@@ -268,10 +268,10 @@ Dyadic =|= is maximum. Fully atomic. For booleans, effectively logical OR.
 
 Monadic =|:= reverses a list.
 
-** TEST reverse-dict : reverse-dict (monadic |: for dictionaries) :mismatch:
+** TEST reverse-dict : reverse-dict (monadic |: for dictionaries)
 #+begin_src
-> reverse [a:3; b:4]
-[b:4; a:3]
+> reverse :[`a 3; `b 4]
+:[`b 4; `a 3]
 #+end_src
 
 Monadic =|:= reverses both keys and values in a dictionary.
@@ -289,16 +289,16 @@ Returns 1 if they match exactly, 0 otherwise.
 
 ** TEST not : not (monadic ~:)
 #+begin_src
-> not (0 1; 3 7 -1)
-(1 0; 0 0 0)
+> not [0 1; 3 7 -1]
+[1 0, 0 0 0]
 #+end_src
 
 Monadic =~:= is logical not. Nonzero numbers become 0, zero becomes 1. Right atomic.
 
-** TEST not-dict : not-dict (monadic ~: for dictionaries) :mismatch:
+** TODO not-dict : not-dict (monadic ~: for dictionaries) :mismatch:
 #+begin_src
-> not [a: 2 0; b:1]
-[a: 0 1; b:0]
+> not :[`a [2, 0]; `b 1]
+:[`a [0, 1]; `b 0]
 #+end_src
 
 Monadic =~:= applies to the values of dictionaries.
@@ -308,19 +308,19 @@ Monadic =~:= applies to the values of dictionaries.
 ** TEST concat : concat (dyadic ,)
 #+begin_src
 > concat[1; 2 3]
-1 2 3
+[1, 2, 3]
 > concat[2; 3]
-2 3
+[2, 3]
 > concat[1; nil]
 1
 #+end_src
 
 Dyadic =,= joins together lists or atoms to produce a list.
 
-** TEST concat-dict : concat-dict (dyadic , for dictionaries) :mismatch:
+** TODO concat-dict : concat-dict (dyadic , for dictionaries) :mismatch:
 #+begin_src
-> concat[[a:1; b:3]; [b:5; c:7]]
-[a:1; b:5; c:7]
+> concat[:[`a 1; `b 3]; :[`b 5; `c 7]]
+:[`a 1; `b 5; `c 7]
 #+end_src
 
 Concatenating dictionaries favors values of y (right argument).
@@ -328,7 +328,7 @@ Concatenating dictionaries favors values of y (right argument).
 ** TEST enlist : enlist (monadic ,:)
 #+begin_src
 > enlist 1 2 3
-(1 2 3)
+[1 2 3]
 #+end_src
 
 Monadic =,:= places item in a 1-length list (enlistment).
@@ -343,9 +343,9 @@ Monadic =,:= places item in a 1-length list (enlistment).
 
 Monadic =#:= counts elements. Atoms have count 1.
 
-** TEST count-dict : count-dict (monadic #: for dictionaries) :mismatch:
+** TODO count-dict : count-dict (monadic #: for dictionaries) :mismatch:
 #+begin_src
-> count [a:3; b:17]
+> count :[`a 3; `b 17]
 2
 #+end_src
 
@@ -364,7 +364,7 @@ Monadic =#:= counts key-value pairs in dictionaries.
 Dyadic =#= truncates or repeats y to produce a list of length x.
 Negative x takes from the end of y.
 
-** TEST take-dict : take-dict (dyadic # with list and dict) :mismatch:
+** TODO take-dict : take-dict (dyadic # with list and dict) :mismatch:parser:
 #+begin_src
 > take["fb"; "fab"!3 5 9]
 "fb"!3 9
@@ -372,7 +372,7 @@ Negative x takes from the end of y.
 
 Dyadic =#= selects elements from dictionary keyed in x.
 
-** TEST reshape : reshape (dyadic # with list shapes)
+** TODO reshape : reshape (dyadic # with list shapes)
 #+begin_src
 > reshape[3 2; 1 2 3]
 (1 2; 3 1; 2 3)
@@ -382,7 +382,7 @@ Dyadic =#= selects elements from dictionary keyed in x.
 
 Dyadic =#= with list left argument creates arbitrary dimensioned result.
 
-** TEST reshape-maximal : reshape-maximal (dyadic # with 0N in shape)
+** TODO reshape-maximal : reshape-maximal (dyadic # with 0N in shape)
 #+begin_src
 > reshape[0N 3; int 6]
 (0 1 2; 3 4 5)
@@ -393,7 +393,7 @@ Dyadic =#= with list left argument creates arbitrary dimensioned result.
 If leading or trailing element of a length-2 rank vector is =0N=,
 reshape treats that dimension as maximal.
 
-** TEST filter : filter (dyadic # with function)
+** TODO filter : filter (dyadic # with function)
 #+begin_src
 > filter[{mod[2; x]}; int 8]
 1 3 5 7
@@ -406,7 +406,7 @@ reshape treats that dimension as maximal.
 Dyadic =#= with monadic function m filters list by applying m to each element.
 Equivalent to =at[l; where each[m; l]]=.
 
-** TEST filter-dict : filter-dict (dyadic # with function and dict) :mismatch:
+** TODO filter-dict : filter-dict (dyadic # with function and dict) :mismatch:
 #+begin_src
 > filter[{mod[2; x]}; "abcdef"!2 3 4 5 6 7]
 "bdf"!3 5 7
@@ -425,7 +425,7 @@ Dictionaries are filtered by their values and result in dictionaries.
 Dyadic =_= removes x elements from the start of y.
 Negative x drops from the end.
 
-** TEST drop-dict : drop-dict (dyadic _ with list and dict) :mismatch:
+** TODO drop-dict : drop-dict (dyadic _ with list and dict) :mismatch:
 #+begin_src
 > drop[`b `e; `a `b `c!3 5 9]
 `a `c!3 9
@@ -433,7 +433,7 @@ Negative x drops from the end.
 
 Dyadic =_= filters out keys from a dictionary.
 
-** TEST cut : cut (dyadic _ with list indices)
+** TODO cut : cut (dyadic _ with list indices)
 #+begin_src
 > cut[0 4; "feedface"]
 ("feed"; "face")
@@ -444,7 +444,7 @@ Dyadic =_= filters out keys from a dictionary.
 Dyadic =_= with list of indices splits y at those indices.
 Indices must be ascending.
 
-** TEST filter-out : filter-out (dyadic _ with function)
+** TODO filter-out : filter-out (dyadic _ with function)
 #+begin_src
 > filter-out[{mod[2; x]}; int 8]
 0 2 4 6
@@ -457,7 +457,7 @@ Indices must be ascending.
 Dyadic =_= with monadic function m filters out elements where m returns truthy.
 Equivalent to =at[l; where not each[m; l]]=.
 
-** TEST filter-out-dict : filter-out-dict (dyadic _ with function and dict) :mismatch:
+** TODO filter-out-dict : filter-out-dict (dyadic _ with function and dict) :mismatch:
 #+begin_src
 > filter-out[{mod[2; x]}; "abcdef"!2 3 4 5 6 7]
 "ace"!2 4 6
@@ -483,9 +483,9 @@ Monadic =_:= converts characters to lowercase. Right atomic.
 
 * List Operations
 
-** TEST null : null (monadic ^:)
+** TODO null : null (monadic ^:) :syntax:
 #+begin_src
-> null (5; `; 0N)
+> null [5; `; 0N]
 0 1 1
 #+end_src
 
@@ -500,7 +500,7 @@ Returns 1 for null values (=`= or =0N=), 0 otherwise.
 
 Dyadic =^= removes all instances of each item in y from x.
 
-** TEST fill : fill (dyadic ^ with atom left)
+** TODO fill : fill (dyadic ^ with atom left)
 #+begin_src
 > fill["c"; (5; `; 0N)]
 (5; "c"; "c")
@@ -508,7 +508,7 @@ Dyadic =^= removes all instances of each item in y from x.
 
 Dyadic =^= replaces all nulls in y with x.
 
-** TEST distinct : distinct (monadic ?:)
+** TODO distinct : distinct (monadic ?:)
 #+begin_src
 > distinct ((`a `b); 3; (`a `b); 7; 3)
 ((`a `b); 3; 7)
@@ -516,7 +516,7 @@ Dyadic =^= replaces all nulls in y with x.
 
 Monadic =?:= produces a list of unique elements.
 
-** TEST random-floats : random-floats (monadic ?: for numbers)
+** TODO random-floats : random-floats (monadic ?: for numbers)
 #+begin_src
 > random-floats 6
 0.197 0.8382 0.1811 0.9084 0.6113 0.1958
@@ -525,7 +525,7 @@ Monadic =?:= produces a list of unique elements.
 Monadic =?:= on a number produces x random floats from 0 up to but excluding 1.
 (Note: actual values will vary)
 
-** TEST find : find (dyadic ?)
+** TODO find : find (dyadic ?) :strings:
 #+begin_src
 > find["XYZ"; "XYXZB"]
 0 1 0 2 0N
@@ -533,7 +533,7 @@ Monadic =?:= on a number produces x random floats from 0 up to but excluding 1.
 
 Dyadic =?= determines the index of y in x. Returns =0N= if not found. Right atomic.
 
-** TEST find-dict : find-dict (dyadic ? with dict) :mismatch:
+** TODO find-dict : find-dict (dyadic ? with dict) :mismatch:
 #+begin_src
 > find[`a `b `c `d!23 14 9 5; 9 14]
 `c `b
@@ -541,7 +541,7 @@ Dyadic =?= determines the index of y in x. Returns =0N= if not found. Right atom
 
 Dyadic =?= on dictionaries looks up the key associated with the value y. Right atomic.
 
-** TEST random : random (dyadic ? with numbers)
+** TODO random : random (dyadic ? with numbers)
 #+begin_src
 > random[5; 10]
 0 3 3 7 7
@@ -552,7 +552,7 @@ Dyadic =?= on dictionaries looks up the key associated with the value y. Right a
 Dyadic =?= with numbers produces x random integers from 0 up to but excluding y.
 (Note: actual values will vary)
 
-** TEST random-pick : random-pick (dyadic ? with list)
+** TODO random-pick : random-pick (dyadic ? with list)
 #+begin_src
 > random-pick[8; "ABC"]
 "ACBBCBCB"
@@ -561,7 +561,7 @@ Dyadic =?= with numbers produces x random integers from 0 up to but excluding y.
 Dyadic =?= picks x random elements from list y.
 (Note: actual values will vary)
 
-** TEST random-chars : random-chars (dyadic ? with character)
+** TODO random-chars : random-chars (dyadic ? with character)
 #+begin_src
 > random-chars[10; "A"]
 "GHIJKLMNOP"
@@ -572,7 +572,7 @@ Dyadic =?= picks x random elements from list y.
 Dyadic =?= with character picks random elements from the 26 characters including and up from that char.
 (Note: actual values will vary)
 
-** TEST random-distinct : random-distinct (dyadic ? with negative count)
+** TODO random-distinct : random-distinct (dyadic ? with negative count)
 #+begin_src
 > random-distinct[-5; 10]
 3 7 1 9 2
@@ -598,7 +598,7 @@ For =n ? n= or =n ? l=, if x is negative, pick abs(x) distinct items.
 Monadic =@:= returns a magic number indicating the type of the noun.
 General lists are 0, listy things are positive, non-listy things are negative.
 
-** TEST at : at (dyadic @)
+** TODO at : at (dyadic @) :needs-list-indexing:
 #+begin_src
 > at[3 7 8; 0 1 1]
 3 7 7
@@ -609,11 +609,11 @@ General lists are 0, listy things are positive, non-listy things are negative.
 Dyadic =@= indexes a list or applies single argument to a function.
 Invalid indices produce =0N=.
 
-** TEST at-dict : at-dict (dyadic @ with dict) :mismatch:
+** TODO at-dict : at-dict (dyadic @ with dict) :mismatch:
 #+begin_src
-> at[[a:4; b:7]; `a]
+> at[:[`a 4; `b 7]; `a]
 4
-> at[[a:4; b:7]; `q]
+> at[:[`a 4; `b 7]; `q]
 0N
 #+end_src
 
@@ -622,14 +622,14 @@ Dyadic =@= indexes a dictionary. Invalid keys produce =0N=.
 ** TEST string : string (monadic $:)
 #+begin_src
 > string 120 4
-("120"; "4")
+["120" "4"]
 > string `beef
 "beef"
 #+end_src
 
 Monadic =$:= converts atoms into strings. Right atomic.
 
-** TEST pad : pad (dyadic $)
+** TODO pad : pad (dyadic $)
 #+begin_src
 > pad[5; "beef"]
 "beef "
@@ -643,7 +643,7 @@ Dyadic =$= adjusts strings to x characters long.
 Under length: right-pad with spaces. Over length: strip from end.
 Negative x pads/strips from left. Mostly fully atomic, strings treated specially.
 
-** TEST cast : cast (dyadic $ with symbol)
+** TODO cast : cast (dyadic $ with symbol)
 #+begin_src
 > cast[`i; "Hello."]
 72 101 108 108 111 46
@@ -656,7 +656,7 @@ Negative x pads/strips from left. Mostly fully atomic, strings treated specially
 Dyadic =$= converts values to different types based on a symbol. Fully atomic.
 Conversion symbols: =`c= (char), =`i= (int), =`f= (float), =`b= (bool), =`= (str to sym).
 
-** TEST value : value (monadic .:)
+** TODO value : value (monadic .:)
 #+begin_src
 > value "1 + 2"
 3
@@ -664,15 +664,15 @@ Conversion symbols: =`c= (char), =`i= (int), =`f= (float), =`b= (bool), =`= (str
 
 Monadic =.:= evaluates K expressions from strings.
 
-** TEST value-dict : value-dict (monadic .: for dict) :mismatch:
+** TODO value-dict : value-dict (monadic .: for dict) :mismatch:
 #+begin_src
-> value [a:11; b:22]
+> value :[`a 11; `b 22]
 11 22
 #+end_src
 
 Monadic =.:= gives the values of a dictionary.
 
-** TEST value-func : value-func (monadic .: for function) :mismatch:
+** TODO value-func : value-func (monadic .: for function) :mismatch:
 #+begin_src
 > value {plus[x; y]}
 [in: {match[x; y]; not null find[y; x]}]
@@ -680,7 +680,7 @@ Monadic =.:= gives the values of a dictionary.
 
 Monadic =.:= gives the bound environment of a function as a dictionary (oK-specific).
 
-** TEST dot-apply : dot-apply (dyadic .)
+** TODO dot-apply : dot-apply (dyadic .)
 #+begin_src
 > dot-apply[(2 3; 4 5); 1 0]
 4
@@ -690,23 +690,23 @@ Monadic =.:= gives the bound environment of a function as a dictionary (oK-speci
 
 Dyadic =.= indexes at depth or applies a list of arguments to a function.
 
-** TEST bind : bind (dyadic . with function and dict) :mismatch:
+** TODO bind : bind (dyadic . with function and dict) :mismatch:
 #+begin_src
-> f: bind[{a +:: x}; [a:100]]
+> f: bind[{a +:: x}; :[`a 100]]
 {[x] a::. `a plus x}
 > at[f; 5]
 105
 > at[f; 20]
 125
 > value f
-[a:125]
+:[`a 125]
 #+end_src
 
 Dyadic =.= treats the dictionary as new global scope for function (oK-specific).
 
 * Adverbs (Suffixes)
 
-** TEST each : each (monadic ')
+** TODO each : each (monadic ')
 #+begin_src
 > each[{times[2; x]}; 5 7 2]
 10 14 4
@@ -715,7 +715,7 @@ Dyadic =.= treats the dictionary as new global scope for function (oK-specific).
 Monadic ='= applies the monad to each element, producing a new list.
 If x is an atom, this is equivalent to =at[m; a]=.
 
-** TEST each-dyad : each-dyad (dyadic ')
+** TODO each-dyad : each-dyad (dyadic ')
 #+begin_src
 > each[{concat[x; times[2; y]]}; 2 7 9; 1 3 4]
 (2 2; 7 6; 9 8)
@@ -726,7 +726,7 @@ If x is an atom, this is equivalent to =at[m; a]=.
 Dyadic ='= pairs up values from x and y and applies them to the dyad.
 If x or y is an atom, spread it to the elements of the other sequence.
 
-** TEST bin : bin (dyadic ' for lists)
+** TODO bin : bin (dyadic ' for lists)
 #+begin_src
 > bin[0 2 4 6 8 10; 5]
 2
@@ -737,7 +737,7 @@ If x or y is an atom, spread it to the elements of the other sequence.
 Dyadic ='= with list left argument performs binary search for y in x.
 x must already be sorted. Right atomic.
 
-** TEST eachprior : eachprior (dyadic ':)
+** TODO eachprior : eachprior (dyadic ':)
 #+begin_src
 > eachprior[equal; 3 3 4 4 5]
 0 1 0 1 0
@@ -751,7 +751,7 @@ Dyadic =':= applies dyad to each element (left) and preceding element (right).
 First element paired with 0N, or special initial values for =plus=, =times=, =minus=, =min= (0, 1, 0, first element).
 Comma =concat= provided with only 1 parameter for first element.
 
-** TEST eachprior-init : eachprior-init (dyadic ': with initial value)
+** TODO eachprior-init : eachprior-init (dyadic ': with initial value)
 #+begin_src
 > eachprior[concat; 99; 2 3 4]
 (2 99; 3 2; 4 3)
@@ -759,7 +759,7 @@ Comma =concat= provided with only 1 parameter for first element.
 
 Dyadic =':= with atom left specifies explicit initial value for eachprior.
 
-** TEST stencil : stencil (monadic ': with count)
+** TODO stencil : stencil (monadic ': with count)
 #+begin_src
 > stencil[{over[join; string x]}; 3; 11 22 33 44]
 ("112233"; "223344")
@@ -768,7 +768,7 @@ Dyadic =':= with atom left specifies explicit initial value for eachprior.
 Monadic =':= with number applies monad to overlapping windows of specified size.
 Convenience for "each window".
 
-** TEST eachright : eachright (dyadic /:)
+** TODO eachright : eachright (dyadic /:)
 #+begin_src
 > eachright[concat; 2 3; 4 5 6]
 (2 3 4; 2 3 5; 2 3 6)
@@ -776,7 +776,7 @@ Convenience for "each window".
 
 Dyadic =/:= applies dyad to entire left argument and each right argument.
 
-** TEST eachleft : eachleft (dyadic \:)
+** TODO eachleft : eachleft (dyadic \:)
 #+begin_src
 > eachleft[concat; 2 3; 4 5 6]
 (2 4 5 6; 3 4 5 6)
@@ -784,7 +784,7 @@ Dyadic =/:= applies dyad to entire left argument and each right argument.
 
 Dyadic =\:= applies dyad to each left argument and entire right argument.
 
-** TEST over : over (dyadic /)
+** TODO over : over (dyadic /)
 #+begin_src
 > over[plus; 4 5 2]
 11
@@ -793,7 +793,7 @@ Dyadic =\:= applies dyad to each left argument and entire right argument.
 Dyadic =/= is fold/reduce. Applies dyad left-to-right, carrying result forward.
 Special initial values for empty lists: =plus= → 0, =times= → 1, =max= → -∞, =min= → +∞.
 
-** TEST over-init : over-init (dyadic / with initial value)
+** TODO over-init : over-init (dyadic / with initial value)
 #+begin_src
 > over[plus; 4; 5 2]
 11
@@ -801,7 +801,7 @@ Special initial values for empty lists: =plus= → 0, =times= → 1, =max= → -
 
 Dyadic =/= with initial value x applies fold starting from x.
 
-** TEST fixedpoint : fixedpoint (monadic /)
+** TODO fixedpoint : fixedpoint (monadic /)
 #+begin_src
 > fixedpoint[{divide[floor x; 2]}; 32]
 0
@@ -809,7 +809,7 @@ Dyadic =/= with initial value x applies fold starting from x.
 
 Monadic =/= repeatedly applies monad until value stops changing or repeats initial value.
 
-** TEST for : for (monadic / with count)
+** TODO for : for (monadic / with count)
 #+begin_src
 > for[enlist; 5; 7]
 (((((7)))))
@@ -817,7 +817,7 @@ Monadic =/= repeatedly applies monad until value stops changing or repeats initi
 
 Monadic =/= with number applies monad x times.
 
-** TEST while : while (monadic / with condition)
+** TODO while : while (monadic / with condition)
 #+begin_src
 > while[{less[x; 100]}; {times[x; 2]}; 1]
 128
@@ -825,7 +825,7 @@ Monadic =/= with number applies monad x times.
 
 Monadic =/= with two monads applies right monad while left monad returns true.
 
-** TEST scan : scan (dyadic \)
+** TODO scan : scan (dyadic \)
 #+begin_src
 > scan[plus; 4 5 6]
 4 9 15
@@ -833,7 +833,7 @@ Monadic =/= with two monads applies right monad while left monad returns true.
 
 Dyadic =\= is scan. Like over/fold, but accumulates intermediate results.
 
-** TEST scan-init : scan-init (dyadic \ with initial value)
+** TODO scan-init : scan-init (dyadic \ with initial value)
 #+begin_src
 > scan[times; 2; 3 2 9]
 6 12 108
@@ -842,7 +842,7 @@ Dyadic =\= is scan. Like over/fold, but accumulates intermediate results.
 Dyadic =\= with initial value x starts scan from x.
 Note: initial value not included in results.
 
-** TEST scan-fixedpoint : scan-fixedpoint (monadic \)
+** TODO scan-fixedpoint : scan-fixedpoint (monadic \)
 #+begin_src
 > scan-fixedpoint[{divide[floor x; 2]}; 32]
 32 16 8 4 2 1 0
@@ -852,7 +852,7 @@ Note: initial value not included in results.
 
 Monadic =\= repeatedly applies monad until stops changing, accumulating results.
 
-** TEST scan-for : scan-for (monadic \ with count)
+** TODO scan-for : scan-for (monadic \ with count)
 #+begin_src
 > scan-for[enlist; 5; 7]
 (7; (7); ((7)); (((7))); ((((7)))); (((((7))))))
@@ -860,7 +860,7 @@ Monadic =\= repeatedly applies monad until stops changing, accumulating results.
 
 Monadic =\= with number applies monad x times, accumulating results.
 
-** TEST scan-while : scan-while (monadic \ with condition)
+** TODO scan-while : scan-while (monadic \ with condition)
 #+begin_src
 > scan-while[{less[x; 100]}; {times[x; 2]}; 1]
 1 2 4 8 16 32 64 128
@@ -868,7 +868,7 @@ Monadic =\= with number applies monad x times, accumulating results.
 
 Monadic =\= with two monads applies while condition true, accumulating results.
 
-** TEST join : join (dyadic / with atom/list)
+** TODO join : join (dyadic / with atom/list)
 #+begin_src
 > join["|"; ("a"; "bc"; "def")]
 "a|bc|def"
@@ -876,7 +876,7 @@ Monadic =\= with two monads applies while condition true, accumulating results.
 
 Dyadic =/= with character/string joins strings with separator.
 
-** TEST encode : encode (dyadic / with lists)
+** TODO encode : encode (dyadic / with lists)
 #+begin_src
 > encode[2 2 2; 1 0 1]
 5
@@ -886,7 +886,7 @@ Dyadic =/= with character/string joins strings with separator.
 
 Dyadic =/= combines digits y in base x into single value.
 
-** TEST split : split (dyadic \ with atom/list)
+** TODO split : split (dyadic \ with atom/list)
 #+begin_src
 > split[","; "cat,dog,banana"]
 ("cat"; "dog"; "banana")
@@ -894,7 +894,7 @@ Dyadic =/= combines digits y in base x into single value.
 
 Dyadic =\= breaks string y at instances of character x.
 
-** TEST decode : decode (dyadic \ with lists)
+** TODO decode : decode (dyadic \ with lists)
 #+begin_src
 > decode[2 2 2; 5]
 1 0 1
@@ -904,7 +904,7 @@ Dyadic =\= breaks string y at instances of character x.
 
 Dyadic =\= splits number y into base x representation.
 
-** TEST window : window (dyadic ': with number)
+** TODO window : window (dyadic ': with number)
 #+begin_src
 > window[3; int 5]
 (0 1 2; 1 2 3; 2 3 4)
@@ -918,7 +918,7 @@ If x = 0: equivalent to =reshape[plus[1; count y]; nil]=.
 
 * Special Forms
 
-** TEST splice : splice (ternadic ?) :mismatch:
+** TODO splice : splice (ternadic ?) :mismatch:
 #+begin_src
 > splice[1 2 3; 1 1; 4]
 1 4 2 3
@@ -931,7 +931,7 @@ If x = 0: equivalent to =reshape[plus[1; count y]; nil]=.
 Ternadic =?= replaces elements in interval [start end] with value.
 NOTE: May require special parsing in implish.
 
-** TEST splice-transform : splice-transform (ternadic ? with function) :mismatch:
+** TODO splice-transform : splice-transform (ternadic ? with function) :mismatch:
 #+begin_src
 > splice[2 7 9; 1 2; {times[2; x]}]
 2 14 9
@@ -941,7 +941,7 @@ NOTE: May require special parsing in implish.
 
 If third arg is monadic function, applies to interval instead of replacing.
 
-** TEST error-trap : error-trap (ternadic .) :mismatch:
+** TODO error-trap : error-trap (ternadic .) :mismatch:
 #+begin_src
 > error-trap[{plus[1; x]}; (1); :]
 (0 2)
@@ -953,7 +953,7 @@ Ternadic =.= calls function with args, catches errors.
 Returns =(0; result)= on success, =(1; error-message)= on failure.
 NOTE: Colon =:= used as placeholder. May need different syntax in implish.
 
-** TEST cond : cond (special $) :mismatch:
+** TODO cond : cond (special $) :mismatch:
 #+begin_src
 > cond[1; "A"; 0; "B"; "C"]
 "A"
@@ -972,7 +972,7 @@ Truthy: anything except 0, 0x00, or nil.
 ** TEST sin : sin (monadic)
 #+begin_src
 > sin 0 0.5 3.141
-0 0.4794 0.0006
+0 0.479425538604203 0.0005926535550994539
 #+end_src
 
 Monadic =sin= calculates sine. Atomic.
@@ -980,7 +980,7 @@ Monadic =sin= calculates sine. Atomic.
 ** TEST cos : cos (monadic)
 #+begin_src
 > cos 0 0.5 3.141
-1 0.8776 -1
+1 0.8775825618903728 -0.9999998243808664
 #+end_src
 
 Monadic =cos= calculates cosine. Atomic.
@@ -988,7 +988,7 @@ Monadic =cos= calculates cosine. Atomic.
 ** TEST exp : exp (monadic)
 #+begin_src
 > exp 1 5 12
-2.7183 148.4132 162754.7914
+2.718281828459045 148.4131591025766 162754.79141900392
 #+end_src
 
 Monadic =exp= calculates exponential (e^x). Atomic.
@@ -996,12 +996,12 @@ Monadic =exp= calculates exponential (e^x). Atomic.
 ** TEST log : log (monadic)
 #+begin_src
 > log 2.7183 5 10
-1 1.6094 2.3026
+1.0000066849139877 1.6094379124341003 2.302585092994046
 #+end_src
 
 Monadic =log= calculates natural logarithm. Atomic.
 
-** TEST prm : prm (monadic)
+** TODO prm : prm (monadic)
 #+begin_src
 > prm "AB"
 ("AB"; "BA")
