@@ -123,6 +123,7 @@ export enum ImpP {  // parts of speech
 
 export const NIL:ImpVal = [ImpT.NIL, null, null];  // the empty value
 export const END:ImpVal = [ImpT.END, null, null];  // the virtual end token
+export const NULL_INT = -2147483648;              // K's 0N (null integer, using min i32 for JS compat)
 
 export class SymTable {
   symTab: Record<string, symbol> = {}

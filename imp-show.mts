@@ -1,4 +1,4 @@
-import { ImpT, ImpVal, SymT, ImpQ } from './imp-core.mjs'
+import { ImpT, ImpVal, SymT, ImpQ, NULL_INT } from './imp-core.mjs'
 
 function q(x:string):string {
   if (x.match(/^[a-zA-Z0-9_]*$/)) return x
@@ -57,12 +57,12 @@ export class ImpWriter {
       case ImpT.TOP: return showList(x[2])
       case ImpT.ERR: return `?${q(x[2])}`
       case ImpT.SEP: return x[2]
-      case ImpT.INT: return x[2].toString()
+      case ImpT.INT: return x[2] === NULL_INT ? '0N' : x[2].toString()
       case ImpT.NUM: return x[2].toString()
       case ImpT.STR: return JSON.stringify(x[2])
       case ImpT.NIL: return 'nil'
       case ImpT.MLS: return '```\n' + x[2] + '```\n'
-      case ImpT.INTs: return (x[2] as number[]).join(' ')
+      case ImpT.INTs: return (x[2] as number[]).map(n => n === NULL_INT ? '0N' : n.toString()).join(' ')
       case ImpT.NUMs: return (x[2] as number[]).join(' ')
       case ImpT.SYMs: return (x[2] as symbol[]).map(s => '`' + (s.description ?? '?')).join(' ')
       case ImpT.SYM: {
