@@ -2391,6 +2391,80 @@ export function createImpWords(): Record<string, ImpVal> {
       }
       return imp.lst(undefined, results)
     }, 3),
+
+    'bin': imp.jsf((x: ImpVal, y: ImpVal) => {
+      // bin[x; y] - binary search for y in sorted list x
+      // x must be a sorted list/vector
+      // y can be an atom or list (right atomic)
+      // Returns the index where y would be inserted to maintain sort order
+      // -1 if y < first element, count if y > last element
+
+      // Helper function to perform binary search on a sorted array
+      // Returns the index of the largest element <= target
+      const binarySearch = (arr: number[], target: number): number => {
+        // If target is less than first element, return -1
+        if (arr.length === 0 || target < arr[0]) {
+          return -1
+        }
+
+        let left = 0
+        let right = arr.length - 1
+
+        while (left < right) {
+          // Use mid biased toward right to find largest element <= target
+          const mid = Math.floor((left + right + 1) / 2)
+          if (arr[mid] <= target) {
+            left = mid
+          } else {
+            right = mid - 1
+          }
+        }
+
+        return left
+      }
+
+      // Extract numeric array from x
+      let arr: number[]
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        arr = x[2] as number[]
+      } else if (ImpQ.isLst(x)) {
+        // Try to extract numbers from list
+        const items = x[2] as ImpVal[]
+        arr = []
+        for (const item of items) {
+          if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+            arr.push(item[2] as number)
+          } else {
+            throw "bin: left argument must be a sorted numeric list"
+          }
+        }
+      } else {
+        throw "bin: left argument must be a sorted numeric list"
+      }
+
+      // Handle right-atomic behavior
+      if (y[0] === ImpT.INT || y[0] === ImpT.NUM) {
+        const target = y[2] as number
+        return ImpC.int(binarySearch(arr, target))
+      } else if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const targets = y[2] as number[]
+        const results = targets.map(t => binarySearch(arr, t))
+        return ImpC.ints(results)
+      } else if (ImpQ.isLst(y)) {
+        const items = y[2] as ImpVal[]
+        const results: number[] = []
+        for (const item of items) {
+          if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+            results.push(binarySearch(arr, item[2] as number))
+          } else {
+            throw "bin: right argument must be numeric"
+          }
+        }
+        return ImpC.ints(results)
+      } else {
+        throw "bin: right argument must be numeric"
+      }
+    }, 2),
   }
 
   // Add sourceName to all JSF entries for better display in partial applications

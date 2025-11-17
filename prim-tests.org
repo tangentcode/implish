@@ -720,7 +720,7 @@ map[`a; 125]
 Dyadic =.= treats the dictionary as new global scope for function (oK-specific).
 NOTE: Not yet implemented. This is oK-specific functionality for binding closures.
 
-** TODO bin : bin (dyadic ' for lists)
+** TEST bin : bin (dyadic ' for lists)
 #+begin_src
 > bin[0 2 4 6 8 10; 5]
 2
