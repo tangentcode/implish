@@ -5,6 +5,7 @@ import {
   NIL,
   SymT,
   ImpJsf,
+  ImpIfn,
   ImpC,
   ImpQ,
   ImpLst,
@@ -1028,7 +1029,39 @@ export function createImpWords(): Record<string, ImpVal> {
         return imp.dct(merged)
       }
 
-      // Convert to lists if needed
+      // Helper to check if value is or contains only integers
+      const isIntType = (v: ImpVal): boolean => {
+        return v[0] === ImpT.INT || v[0] === ImpT.INTs
+      }
+      const isNumType = (v: ImpVal): boolean => {
+        return v[0] === ImpT.NUM || v[0] === ImpT.NUMs
+      }
+      const isSymType = (v: ImpVal): boolean => {
+        return v[0] === ImpT.SYM || v[0] === ImpT.SYMs
+      }
+
+      // If both are integers (scalar or vector), return INTs vector
+      if (isIntType(x) && isIntType(y)) {
+        const xNums: number[] = x[0] === ImpT.INT ? [x[2] as number] : x[2] as number[]
+        const yNums: number[] = y[0] === ImpT.INT ? [y[2] as number] : y[2] as number[]
+        return ImpC.ints([...xNums, ...yNums])
+      }
+
+      // If both are numbers (scalar or vector), return NUMs vector
+      if ((isIntType(x) || isNumType(x)) && (isIntType(y) || isNumType(y))) {
+        const xNums: number[] = (x[0] === ImpT.INT || x[0] === ImpT.NUM) ? [x[2] as number] : x[2] as number[]
+        const yNums: number[] = (y[0] === ImpT.INT || y[0] === ImpT.NUM) ? [y[2] as number] : y[2] as number[]
+        return ImpC.nums([...xNums, ...yNums])
+      }
+
+      // If both are symbols (scalar or vector), return SYMs vector
+      if (isSymType(x) && isSymType(y)) {
+        const xSyms: symbol[] = x[0] === ImpT.SYM ? [x[2] as symbol] : x[2] as symbol[]
+        const ySyms: symbol[] = y[0] === ImpT.SYM ? [y[2] as symbol] : y[2] as symbol[]
+        return ImpC.syms([...xSyms, ...ySyms])
+      }
+
+      // Otherwise, convert to general lists
       const toList = (v: ImpVal): ImpVal[] => {
         if (ImpQ.isLst(v)) return v[2] as ImpVal[]
         if (v[0] === ImpT.INTs) return (v[2] as number[]).map(n => ImpC.int(n))
@@ -2209,6 +2242,155 @@ export function createImpWords(): Record<string, ImpVal> {
 
       throw "prm expects integer, string, or list"
     }, 1),
+
+    // Adverbs (higher-order functions)
+    'each': imp.jsf(async function(this: ImpEvaluator, f: ImpVal, x: ImpVal) {
+      // each[f; x] - apply function f to each element of x
+      // f must be a function (JSF or IFN)
+      if (f[0] !== ImpT.JSF && f[0] !== ImpT.IFN) {
+        throw "each: first argument must be a function"
+      }
+
+      // Handle atoms - apply directly
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM || x[0] === ImpT.STR) {
+        if (f[0] === ImpT.JSF) {
+          return await (f as ImpJsf)[2].apply(this, [x])
+        } else {
+          return await this.applyIfn(f as ImpIfn, [x])
+        }
+      }
+
+      // Handle vectors - map over each element
+      if (x[0] === ImpT.INTs) {
+        const vals = x[2] as number[]
+        const results: number[] = []
+        for (const val of vals) {
+          const arg = ImpC.int(val)
+          let result: ImpVal
+          if (f[0] === ImpT.JSF) {
+            result = await (f as ImpJsf)[2].apply(this, [arg])
+          } else {
+            result = await this.applyIfn(f as ImpIfn, [arg])
+          }
+          // Extract numeric result
+          if (result[0] === ImpT.INT) {
+            results.push(result[2] as number)
+          } else if (result[0] === ImpT.NUM) {
+            results.push(result[2] as number)
+          } else {
+            throw "each: function must return numeric values for numeric input"
+          }
+        }
+        return ImpC.ints(results)
+      }
+
+      if (x[0] === ImpT.NUMs) {
+        const vals = x[2] as number[]
+        const results: number[] = []
+        for (const val of vals) {
+          const arg = ImpC.num(val)
+          let result: ImpVal
+          if (f[0] === ImpT.JSF) {
+            result = await (f as ImpJsf)[2].apply(this, [arg])
+          } else {
+            result = await this.applyIfn(f as ImpIfn, [arg])
+          }
+          // Extract numeric result
+          if (result[0] === ImpT.INT) {
+            results.push(result[2] as number)
+          } else if (result[0] === ImpT.NUM) {
+            results.push(result[2] as number)
+          } else {
+            throw "each: function must return numeric values for numeric input"
+          }
+        }
+        return ImpC.nums(results)
+      }
+
+      // Handle general lists - map over elements
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const results: ImpVal[] = []
+        for (const item of items) {
+          let result: ImpVal
+          if (f[0] === ImpT.JSF) {
+            result = await (f as ImpJsf)[2].apply(this, [item])
+          } else {
+            result = await this.applyIfn(f as ImpIfn, [item])
+          }
+          results.push(result)
+        }
+        return imp.lst(x[1], results)
+      }
+
+      throw "each: second argument must be a list, vector, or atom"
+    }, 2),
+
+    'each2': imp.jsf(async function(this: ImpEvaluator, f: ImpVal, x: ImpVal, y: ImpVal) {
+      // each2[f; x; y] - apply dyadic function f pairwise to x and y
+      // f must be a function (JSF or IFN)
+      if (f[0] !== ImpT.JSF && f[0] !== ImpT.IFN) {
+        throw "each2: first argument must be a function"
+      }
+
+      // Helper to get length of a value
+      const getLength = (v: ImpVal): number => {
+        if (v[0] === ImpT.INTs || v[0] === ImpT.NUMs || v[0] === ImpT.SYMs) {
+          return (v[2] as any[]).length
+        }
+        if (ImpQ.isLst(v)) {
+          return (v[2] as ImpVal[]).length
+        }
+        return 1  // Atoms have length 1
+      }
+
+      // Helper to get element at index (with atom spreading)
+      const getAt = (v: ImpVal, i: number): ImpVal => {
+        if (v[0] === ImpT.INTs) {
+          const vals = v[2] as number[]
+          return ImpC.int(vals.length === 1 ? vals[0] : vals[i])
+        }
+        if (v[0] === ImpT.NUMs) {
+          const vals = v[2] as number[]
+          return ImpC.num(vals.length === 1 ? vals[0] : vals[i])
+        }
+        if (v[0] === ImpT.SYMs) {
+          const vals = v[2] as symbol[]
+          return ImpC.sym(vals.length === 1 ? vals[0] : vals[i], SymT.RAW)
+        }
+        if (ImpQ.isLst(v)) {
+          const vals = v[2] as ImpVal[]
+          return vals.length === 1 ? vals[0] : vals[i]
+        }
+        // Atom - always return itself
+        return v
+      }
+
+      // Determine result length (max of x and y lengths, or 1 if both atoms)
+      const xLen = getLength(x)
+      const yLen = getLength(y)
+      const resultLen = Math.max(xLen, yLen)
+
+      // Build result list
+      const results: ImpVal[] = []
+      for (let i = 0; i < resultLen; i++) {
+        const xArg = getAt(x, i)
+        const yArg = getAt(y, i)
+        let result: ImpVal
+        if (f[0] === ImpT.JSF) {
+          result = await (f as ImpJsf)[2].apply(this, [xArg, yArg])
+        } else {
+          result = await this.applyIfn(f as ImpIfn, [xArg, yArg])
+        }
+        results.push(result)
+      }
+
+      // Return as list (or single value if only one result)
+      if (results.length === 1) {
+        return results[0]
+      }
+      return imp.lst(undefined, results)
+    }, 3),
   }
 
   // Add sourceName to all JSF entries for better display in partial applications

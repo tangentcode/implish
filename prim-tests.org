@@ -308,9 +308,9 @@ Monadic =~:= applies to the values of dictionaries.
 ** TEST concat : concat (dyadic ,)
 #+begin_src
 > concat[1; 2 3]
-[1, 2, 3]
+1 2 3
 > concat[2; 3]
-[2, 3]
+2 3
 > concat[1; nil]
 1
 #+end_src
@@ -720,28 +720,6 @@ map[`a; 125]
 Dyadic =.= treats the dictionary as new global scope for function (oK-specific).
 NOTE: Not yet implemented. This is oK-specific functionality for binding closures.
 
-* Adverbs (Suffixes)
-
-** TODO each : each (monadic ')
-#+begin_src
-> each[{times[2; x]}; 5 7 2]
-10 14 4
-#+end_src
-
-Monadic ='= applies the monad to each element, producing a new list.
-If x is an atom, this is equivalent to =at[m; a]=.
-
-** TODO each-dyad : each-dyad (dyadic ')
-#+begin_src
-> each[{concat[x; times[2; y]]}; 2 7 9; 1 3 4]
-(2 2; 7 6; 9 8)
-> each[concat; 5; 1 3 4]
-(5 1; 5 3; 5 4)
-#+end_src
-
-Dyadic ='= pairs up values from x and y and applies them to the dyad.
-If x or y is an atom, spread it to the elements of the other sequence.
-
 ** TODO bin : bin (dyadic ' for lists)
 #+begin_src
 > bin[0 2 4 6 8 10; 5]
@@ -752,6 +730,29 @@ If x or y is an atom, spread it to the elements of the other sequence.
 
 Dyadic ='= with list left argument performs binary search for y in x.
 x must already be sorted. Right atomic.
+
+* Adverbs (Suffixes)
+
+
+** TEST each : each (monadic ')
+#+begin_src
+> each[{times[2; x]}; 5 7 2]
+10 14 4
+#+end_src
+
+Monadic ='= applies the monad to each element, producing a new list.
+If x is an atom, this is equivalent to =at[m; a]=.
+
+** TEST each2 : each-dyad (dyadic ')
+#+begin_src
+> each2[{concat[x; times[2; y]]}; 2 7 9; 1 3 4]
+[2 2, 7 6, 9 8]
+> each2[concat; 5; 1 3 4]
+[5 1, 5 3, 5 4]
+#+end_src
+
+Dyadic ='= pairs up values from x and y and applies them to the dyad.
+If x or y is an atom, spread it to the elements of the other sequence.
 
 ** TODO eachprior : eachprior (dyadic ':)
 #+begin_src
