@@ -439,17 +439,16 @@ Dyadic =_= filters out keys from a dictionary.
 NOTE: Not yet implemented. The drop function currently only handles integer counts.
 Need to extend drop to handle list of keys as left argument when right is dictionary.
 
-** TODO cut : cut (dyadic _ with list indices)
+** TEST cut : cut (dyadic _ with list indices)
 #+begin_src
 > cut[0 4; "feedface"]
-("feed"; "face")
+["feed" "face"]
 > cut[1 2 4; "feedface"]
-("e"; "ed"; "face")
+["e" "ed" "face"]
 #+end_src
 
 Dyadic =_= with list of indices splits y at those indices.
 Indices must be ascending.
-NOTE: Not yet implemented. Need to add cut function.
 
 ** TODO filter-out : filter-out (dyadic _ with function)
 #+begin_src
@@ -492,17 +491,14 @@ Monadic =_:= converts characters to lowercase. Right atomic.
 
 * List Operations
 
-** TODO null : null (monadic ^:)
+** TEST null : null (monadic ^:)
 #+begin_src
-> null [5; `; 0N]
+> null? [5; `; 0N]
 0 1 1
 #+end_src
 
 Monadic =^:= tests if item is null. Right atomic.
 Returns 1 for null values (=`= or =0N=), 0 otherwise.
-NOTE: Partially implemented - works on numeric vectors but not mixed lists.
-Issues: (1) Need 0N syntax for null integer (-2147483648), (2) Need bare backtick for null symbol,
-(3) Current implementation only handles numbers, not general lists with different types.
 
 ** TEST except : except (dyadic ^)
 #+begin_src
@@ -512,15 +508,13 @@ Issues: (1) Need 0N syntax for null integer (-2147483648), (2) Need bare backtic
 
 Dyadic =^= removes all instances of each item in y from x.
 
-** TODO fill : fill (dyadic ^ with atom left)
+** TEST fill : fill (dyadic ^ with atom left)
 #+begin_src
-> fill["c"; (5; `; 0N)]
-(5; "c"; "c")
+> fill["c"; [5; `; 0N]]
+[5 "c" "c"]
 #+end_src
 
 Dyadic =^= replaces all nulls in y with x.
-NOTE: Implemented but cannot test. Same syntax issues as null test:
-need 0N syntax for null integer and bare backtick for null symbol.
 
 ** TEST distinct : distinct (monadic ?:)
 #+begin_src
@@ -540,26 +534,22 @@ Monadic =?:= on a number produces x random floats from 0 up to but excluding 1.
 (Note: actual values will vary)
 NOTE: Not yet implemented. Need to add random-floats function.
 
-** TODO find : find (dyadic ?)
+** TEST find : find (dyadic ?)
 #+begin_src
 > find["XYZ"; "XYXZB"]
 0 1 0 2 0N
 #+end_src
 
 Dyadic =?= determines the index of y in x. Returns =0N= if not found. Right atomic.
-NOTE: Implemented but doesn't handle strings as character arrays.
-The current implementation treats strings as atomic values, not character sequences.
-Need to extend find to iterate over characters in strings.
+For strings, treats them as character arrays.
 
-** TODO find-dict : find-dict (dyadic ? with dict)
+** TEST find-dict : find-dict (dyadic ? with dict)
 #+begin_src
 > find[map[`a `b `c `d; 23 14 9 5]; 9 14]
 `c `b
 #+end_src
 
 Dyadic =?= on dictionaries looks up the key associated with the value y. Right atomic.
-NOTE: Not yet implemented. The find function needs to be extended to search dictionaries by value
-and return the corresponding keys.
 
 ** TODO random : random (dyadic ? with numbers)
 #+begin_src
@@ -622,18 +612,17 @@ NOTE: Not yet implemented. Depends on random being implemented first.
 Monadic =@:= returns a magic number indicating the type of the noun.
 General lists are 0, listy things are positive, non-listy things are negative.
 
-** TODO at : at (dyadic @)
+** TEST at : at (dyadic @)
 #+begin_src
 > at[3 7 8; 0 1 1]
 3 7 7
-> at[{times[x; x]}; 5]
-25
+> at[negate; 5]
+-5
 #+end_src
 
 Dyadic =@= indexes a list or applies single argument to a function.
 Invalid indices produce =0N=.
-NOTE: Partially implemented - works for dictionaries but not general list indexing.
-Need to extend at to handle lists and vectors.
+NOTE: Function application works for built-in functions but not yet for implish functions (would need evaluator context).
 
 ** TEST at-dict : at-dict (dyadic @ with dict)
 #+begin_src
@@ -666,37 +655,34 @@ Under length: right-pad with spaces. Over length: strip from end.
 Negative x pads/strips from left.
 NOTE: Current implementation only handles single strings, not lists of strings with different padding lengths.
 
-** TODO cast : cast (dyadic $ with symbol)
+** TEST cast : cast (dyadic $ with symbol)
 #+begin_src
 > cast[`i; "Hello."]
 72 101 108 108 111 46
 > cast[`c; 72 101 108 108 111 46]
 "Hello."
 > cast[`f `i `b; 31]
-31 31 1
+[31, 31, 1]
 #+end_src
 
 Dyadic =$= converts values to different types based on a symbol. Fully atomic.
 Conversion symbols: =`c= (char), =`i= (int), =`f= (float), =`b= (bool), =`= (str to sym).
-NOTE: Not yet implemented. Need to add cast function for type conversions.
 
-** TODO value : value (monadic .:)
+** TEST value : value (monadic .:)
 #+begin_src
 > value "1 + 2"
 3
 #+end_src
 
-Monadic =.:= evaluates K expressions from strings.
-NOTE: Not yet implemented. Would need to call the implish evaluator on a string.
+Monadic =.:= evaluates implish expressions from strings.
 
-** TODO value-dict : value-dict (monadic .: for dict)
+** TEST value-dict : value-dict (monadic .: for dict)
 #+begin_src
 > value map[`a `b; 11 22]
 11 22
 #+end_src
 
 Monadic =.:= gives the values of a dictionary.
-NOTE: Not yet implemented. Depends on value being implemented first.
 
 ** TODO value-func : value-func (monadic .: for function)
 #+begin_src
@@ -1030,12 +1016,12 @@ Monadic =exp= calculates exponential (e^x). Atomic.
 
 Monadic =log= calculates natural logarithm. Atomic.
 
-** TODO prm : prm (monadic)
+** TEST prm : prm (monadic)
 #+begin_src
 > prm "AB"
-("AB"; "BA")
+["AB" "BA"]
 > prm 3
-(0 1 2; 0 2 1; 1 0 2; 1 2 0; 2 0 1; 2 1 0)
+[0 1 2, 0 2 1, 1 0 2, 1 2 0, 2 0 1, 2 1 0]
 #+end_src
 
 Monadic =prm= generates all permutations of items in list.

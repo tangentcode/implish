@@ -45,6 +45,7 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.REFN, /^\/[^\s\[\](){}:;!]+/,                [1, 0]], // refinement: /foo (strip /)
   [TokT.LIT,  /^'[^\s\[\](){}:;!]+/,                 [1, 0]], // lit-word: 'foo (strip ')
   [TokT.GET,  /^:[^\s\[\](){}:;!]+/,                 [1, 0]], // get-word: :foo (strip :)
+  [TokT.BQT,  /^`(?=[\s\[\](){}:;,]|$)/,             [1, 0]], // bare backtick: ` (null symbol, strip `)
   [TokT.BQT,  /^`[^\s\[\](){}:;!`]+/,                [1, 0]], // backtick: `foo (strip `, stops at next `)
   [TokT.ANN,  /^@[^\s\[\](){}:;!]+/,                 [1, 0]], // annotation: @foo (strip @)
   [TokT.MSG,  /^\.[^\s\[\](){}:;!]+/,                [1, 0]], // message: .foo (strip .)

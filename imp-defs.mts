@@ -12,6 +12,7 @@ import {
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
 import {load} from './imp-load.mjs'
+import {impEval} from './imp-eval.mjs'
 import {imparse} from './im-parse.mjs'
 import {toNativePath} from './lib-file.mjs'
 
@@ -727,12 +728,92 @@ export function createImpWords(): Record<string, ImpVal> {
       return imp.lst(undefined, Array.from(dct.values()))
     }, 1),
 
-    'at': imp.jsf((d, k) => {
-      if (!ImpQ.isDct(d)) throw "at expects dictionary as first argument"
-      if (!ImpQ.isSym(k)) throw "at expects symbol as second argument"
-      const dct = d[2] as Map<string, ImpVal>
-      const keyName = k[2].description || ''
-      return dct.get(keyName) || NIL
+    'at': imp.jsf(async function(this: any, x: ImpVal, y: ImpVal): Promise<ImpVal> {
+      // Apply function with single argument
+      if (x[0] === ImpT.JSF || ImpQ.isIfn(x)) {
+        // Check arity
+        const arity = x[1].arity
+        if (arity !== 1) throw `at with function expects arity 1, got ${arity}`
+
+        if (x[0] === ImpT.JSF) {
+          const fn = x[2] as any
+          return await fn.call(this, y)
+        } else {
+          // IFN - implish function
+          const body = x[2] as ImpVal[]
+          // Need to evaluate the function body with y as argument
+          // This would require access to the evaluator context
+          throw "at with implish function not yet implemented"
+        }
+      }
+
+      // Index into dictionary with symbol
+      if (ImpQ.isDct(x)) {
+        if (!ImpQ.isSym(y)) throw "at with dictionary expects symbol as index"
+        const dct = x[2] as Map<string, ImpVal>
+        const keyName = y[2].description || ''
+        return dct.get(keyName) || NIL
+      }
+
+      // Index into list or vector
+      const indexOne = (source: ImpVal, idx: number): ImpVal => {
+        if (ImpQ.isLst(source)) {
+          const items = source[2] as ImpVal[]
+          if (idx < 0 || idx >= items.length) return ImpC.int(imp.NULL_INT)
+          return items[idx]
+        }
+        if (source[0] === ImpT.INTs || source[0] === ImpT.NUMs) {
+          const nums = source[2] as number[]
+          if (idx < 0 || idx >= nums.length) return ImpC.int(imp.NULL_INT)
+          return source[0] === ImpT.INTs ? ImpC.int(nums[idx]) : ImpC.num(nums[idx])
+        }
+        if (source[0] === ImpT.SYMs) {
+          const syms = source[2] as symbol[]
+          if (idx < 0 || idx >= syms.length) return ImpC.int(imp.NULL_INT)
+          return ImpC.sym(syms[idx], SymT.BQT)
+        }
+        if (source[0] === ImpT.STR) {
+          const str = source[2] as string
+          if (idx < 0 || idx >= str.length) return ImpC.int(imp.NULL_INT)
+          return ImpC.str(str[idx])
+        }
+        throw "at expects list, vector, string, or dictionary"
+      }
+
+      // Right atomic - apply index to each element of index list/vector
+      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const indices = y[2] as number[]
+        const results: ImpVal[] = []
+        for (const idx of indices) {
+          results.push(indexOne(x, idx))
+        }
+        // Try to return as vector if all results are same type
+        const allInts = results.every(r => r[0] === ImpT.INT)
+        if (allInts) {
+          return ImpC.ints(results.map(r => r[2] as number))
+        }
+        return imp.lst(undefined, results)
+      }
+
+      if (ImpQ.isLst(y)) {
+        const items = y[2] as ImpVal[]
+        const results: ImpVal[] = []
+        for (const item of items) {
+          if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+            results.push(indexOne(x, item[2] as number))
+          } else {
+            throw "at index list must contain only integers"
+          }
+        }
+        return imp.lst(undefined, results)
+      }
+
+      // Single index
+      if (y[0] === ImpT.INT || y[0] === ImpT.NUM) {
+        return indexOne(x, y[2] as number)
+      }
+
+      throw "at expects integer or list of integers as index"
     }, 2),
 
     'put': imp.jsf((d, k, v) => {
@@ -1251,6 +1332,64 @@ export function createImpWords(): Record<string, ImpVal> {
       throw "drop expects list, vector, or string as second argument"
     }, 2),
 
+    // cut (dyadic _ with list of indices) - split at indices
+    'cut': imp.jsf((x, y) => {
+      // x should be a list of indices (or vector)
+      let indices: number[]
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        indices = x[2] as number[]
+      } else if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        indices = items.map(item => {
+          if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
+            return item[2] as number
+          }
+          throw "cut indices must be integers"
+        })
+      } else {
+        throw "cut expects list of indices as first argument"
+      }
+
+      // Split string at indices
+      if (y[0] === ImpT.STR) {
+        const str = y[2] as string
+        const result: string[] = []
+        for (let i = 0; i < indices.length; i++) {
+          const start = indices[i]
+          const end = i < indices.length - 1 ? indices[i + 1] : str.length
+          result.push(str.slice(start, end))
+        }
+        return imp.lst(undefined, result.map(s => ImpC.str(s)))
+      }
+
+      // Split list at indices
+      if (ImpQ.isLst(y)) {
+        const items = y[2] as ImpVal[]
+        const result: ImpVal[][] = []
+        for (let i = 0; i < indices.length; i++) {
+          const start = indices[i]
+          const end = i < indices.length - 1 ? indices[i + 1] : items.length
+          result.push(items.slice(start, end))
+        }
+        return imp.lst(undefined, result.map(arr => imp.lst(y[1], arr)))
+      }
+
+      // Split vector at indices
+      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+        const nums = y[2] as number[]
+        const result: number[][] = []
+        for (let i = 0; i < indices.length; i++) {
+          const start = indices[i]
+          const end = i < indices.length - 1 ? indices[i + 1] : nums.length
+          result.push(nums.slice(start, end))
+        }
+        const vecType = y[0]
+        return imp.lst(undefined, result.map(arr => vecType === ImpT.INTs ? ImpC.ints(arr) : ImpC.nums(arr)))
+      }
+
+      throw "cut expects string, list, or vector as second argument"
+    }, 2),
+
     // except (dyadic ^) - remove all instances of y from x
     'except': imp.jsf((x, y) => {
       // Get items to remove
@@ -1293,18 +1432,41 @@ export function createImpWords(): Record<string, ImpVal> {
 
     // fill (dyadic ^ with atom left) - replace nulls with x
     'fill': imp.jsf((x, y) => {
+      // Helper to check if a value is null
+      const isNull = (val: ImpVal): boolean => {
+        if (val[0] === ImpT.NIL) return true
+        if (val[0] === ImpT.INT && val[2] === imp.NULL_INT) return true
+        if (val[0] === ImpT.NUM && isNaN(val[2] as number)) return true
+        if (val[0] === ImpT.SYM && val[1].kind === SymT.BQT) {
+          return (val[2].description ?? '') === ''
+        }
+        return false
+      }
+
       if (ImpQ.isLst(y)) {
         const result: ImpVal[] = []
         for (const item of y[2] as ImpVal[]) {
-          result.push(item[0] === ImpT.NIL ? x : item)
+          result.push(isNull(item) ? x : item)
         }
         return imp.lst(y[1], result)
       }
 
       if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
         const nums = y[2] as number[]
-        const result = nums.map(n => n === imp.NULL_INT ? (x[2] as number) : n)
-        return y[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
+        const fillVal = x[2]
+        const result = nums.map(n =>
+          (n === imp.NULL_INT || isNaN(n)) ? fillVal : n
+        )
+        return y[0] === ImpT.INTs ? ImpC.ints(result as number[]) : ImpC.nums(result as number[])
+      }
+
+      if (y[0] === ImpT.SYMs) {
+        const syms = y[2] as symbol[]
+        const fillSym = x[0] === ImpT.SYM ? x[2] as symbol : Symbol(x[2] as string)
+        const result = syms.map(s =>
+          (s.description ?? '') === '' ? fillSym : s
+        )
+        return ImpC.syms(result)
       }
 
       return y
@@ -1312,6 +1474,50 @@ export function createImpWords(): Record<string, ImpVal> {
 
     // find (dyadic ?) - index of y in x, returns 0N if not found
     'find': imp.jsf((x, y) => {
+      // For dictionaries, find value and return key (right atomic)
+      if (ImpQ.isDct(x)) {
+        const map = x[2] as Map<string, ImpVal>
+
+        const findKey = (searchFor: ImpVal): ImpVal => {
+          for (const [key, val] of map.entries()) {
+            if (impShow(val) === impShow(searchFor)) {
+              return ImpC.sym(Symbol(key), SymT.BQT)
+            }
+          }
+          return ImpC.sym(Symbol(''), SymT.BQT) // null symbol for not found
+        }
+
+        // Right atomic for multiple values
+        if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
+          const results: symbol[] = []
+          for (const n of y[2] as number[]) {
+            const key = findKey(ImpC.int(n))
+            results.push(key[2] as symbol)
+          }
+          return ImpC.syms(results)
+        }
+
+        if (y[0] === ImpT.SYMs) {
+          const results: symbol[] = []
+          for (const sym of y[2] as symbol[]) {
+            const key = findKey(ImpC.sym(sym, SymT.BQT))
+            results.push(key[2] as symbol)
+          }
+          return ImpC.syms(results)
+        }
+
+        if (ImpQ.isLst(y)) {
+          const results: symbol[] = []
+          for (const item of y[2] as ImpVal[]) {
+            const key = findKey(item)
+            results.push(key[2] as symbol)
+          }
+          return ImpC.syms(results)
+        }
+
+        return findKey(y)
+      }
+
       // Right atomic - apply to each element of y
       const findOne = (searchIn: ImpVal, searchFor: ImpVal): number => {
         if (ImpQ.isLst(searchIn)) {
@@ -1342,6 +1548,18 @@ export function createImpWords(): Record<string, ImpVal> {
         }
 
         return imp.NULL_INT
+      }
+
+      // Handle strings as character arrays (right atomic over characters)
+      if (x[0] === ImpT.STR && y[0] === ImpT.STR) {
+        const searchStr = x[2] as string
+        const targetStr = y[2] as string
+        const results: number[] = []
+        for (const char of targetStr) {
+          const idx = searchStr.indexOf(char)
+          results.push(idx >= 0 ? idx : imp.NULL_INT)
+        }
+        return ImpC.ints(results)
       }
 
       // Handle right atomic behavior
@@ -1780,6 +1998,155 @@ export function createImpWords(): Record<string, ImpVal> {
 
       return ImpC.int(checkIn(x, y))
     }, 2),
+
+    // cast (dyadic $ with symbol) - type conversion
+    'cast': imp.jsf((typeSpec, value) => {
+      // Single type conversion
+      const convertOne = (typeSymbol: symbol, val: ImpVal): ImpVal => {
+        const typeName = typeSymbol.description || ''
+
+        switch (typeName) {
+          case 'c': // to char (string)
+            if (val[0] === ImpT.INT || val[0] === ImpT.NUM) {
+              return ImpC.str(String.fromCharCode(val[2] as number))
+            }
+            throw "cast to char expects number"
+
+          case 'i': // to int
+            if (val[0] === ImpT.INT) return val
+            if (val[0] === ImpT.NUM) return ImpC.int(Math.floor(val[2] as number))
+            if (val[0] === ImpT.STR) {
+              const str = val[2] as string
+              return ImpC.int(str.charCodeAt(0))
+            }
+            throw "cast to int expects number or char"
+
+          case 'f': // to float
+            if (val[0] === ImpT.NUM) return val
+            if (val[0] === ImpT.INT) return ImpC.num(val[2] as number)
+            throw "cast to float expects number"
+
+          case 'b': // to bool (0 or 1)
+            if (val[0] === ImpT.INT || val[0] === ImpT.NUM) {
+              return ImpC.int((val[2] as number) !== 0 ? 1 : 0)
+            }
+            throw "cast to bool expects number"
+
+          default:
+            throw `unknown cast type: ${typeName}`
+        }
+      }
+
+      // Handle string to int vector
+      if (ImpQ.isSym(typeSpec) && typeSpec[2].description === 'i' && value[0] === ImpT.STR) {
+        const str = value[2] as string
+        const codes = Array.from(str).map(c => c.charCodeAt(0))
+        return ImpC.ints(codes)
+      }
+
+      // Handle int vector to string
+      if (ImpQ.isSym(typeSpec) && typeSpec[2].description === 'c' && (value[0] === ImpT.INTs || value[0] === ImpT.NUMs)) {
+        const nums = value[2] as number[]
+        const str = nums.map(n => String.fromCharCode(n)).join('')
+        return ImpC.str(str)
+      }
+
+      // Handle vector of type symbols applied to single value
+      if (typeSpec[0] === ImpT.SYMs) {
+        const types = typeSpec[2] as symbol[]
+        const results: ImpVal[] = []
+        for (const t of types) {
+          results.push(convertOne(t, value))
+        }
+        // Return as vector if all same type
+        const allInts = results.every(r => r[0] === ImpT.INT)
+        const allNums = results.every(r => r[0] === ImpT.NUM)
+        if (allInts) return ImpC.ints(results.map(r => r[2] as number))
+        if (allNums) return ImpC.nums(results.map(r => r[2] as number))
+        return imp.lst(undefined, results)
+      }
+
+      // Single type, single value
+      if (ImpQ.isSym(typeSpec)) {
+        return convertOne(typeSpec[2], value)
+      }
+
+      throw "cast expects symbol or symbol vector as first argument"
+    }, 2),
+
+    // value (monadic) - evaluate implish string or get dict values
+    'value': imp.jsf(async x => {
+      // For dictionaries, return the values
+      if (ImpQ.isDct(x)) {
+        const map = x[2] as Map<string, ImpVal>
+        const values = Array.from(map.values())
+
+        // Check if all values are the same type
+        if (values.length === 0) return imp.lst(undefined, [])
+
+        const firstType = values[0][0]
+        if (firstType === ImpT.INT && values.every(v => v[0] === ImpT.INT)) {
+          return ImpC.ints(values.map(v => v[2] as number))
+        }
+        if (firstType === ImpT.NUM && values.every(v => v[0] === ImpT.NUM)) {
+          return ImpC.nums(values.map(v => v[2] as number))
+        }
+        if (firstType === ImpT.SYM && values.every(v => v[0] === ImpT.SYM)) {
+          return ImpC.syms(values.map(v => v[2] as symbol))
+        }
+
+        // Mixed types, return as list
+        return imp.lst(undefined, values)
+      }
+
+      // For strings, evaluate as implish code
+      if (x[0] !== ImpT.STR) throw "value expects a string or dictionary"
+      const str = x[2] as string
+      const parsed = load(ImpC.str(str))
+      return await impEval(parsed as any)
+    }, 1),
+
+    // prm (monadic) - generate all permutations
+    'prm': imp.jsf(x => {
+      // Helper to generate permutations
+      const permute = <T,>(arr: T[]): T[][] => {
+        if (arr.length <= 1) return [arr]
+        const result: T[][] = []
+        for (let i = 0; i < arr.length; i++) {
+          const rest = [...arr.slice(0, i), ...arr.slice(i + 1)]
+          const perms = permute(rest)
+          for (const perm of perms) {
+            result.push([arr[i], ...perm])
+          }
+        }
+        return result
+      }
+
+      // Handle integer - generate permutations of int x
+      if (x[0] === ImpT.INT) {
+        const n = x[2] as number
+        const indices = Array.from({length: n}, (_, i) => i)
+        const perms = permute(indices)
+        return imp.lst(undefined, perms.map(p => ImpC.ints(p)))
+      }
+
+      // Handle string - generate permutations of characters
+      if (x[0] === ImpT.STR) {
+        const str = x[2] as string
+        const chars = str.split('')
+        const perms = permute(chars)
+        return imp.lst(undefined, perms.map(p => ImpC.str(p.join(''))))
+      }
+
+      // Handle list - generate permutations of elements
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const perms = permute(items)
+        return imp.lst(undefined, perms.map(p => imp.lst(x[1], p)))
+      }
+
+      throw "prm expects integer, string, or list"
+    }, 1),
   }
 
   // Add sourceName to all JSF entries for better display in partial applications
