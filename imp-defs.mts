@@ -982,9 +982,33 @@ export function createImpWords(): Record<string, ImpVal> {
       return ImpC.int(1)
     }, 1),
 
-    // null (monadic ^:) - test if null
-    'null': imp.jsf(x => {
-      return rightAtomic(a => (a === imp.NULL_INT || isNaN(a)) ? 1 : 0, x)
+    // null? (monadic ^:) - test if null
+    'null?': imp.jsf(x => {
+      // Check if a single value is null
+      const isNull = (val: ImpVal): boolean => {
+        if (val[0] === ImpT.INT) return val[2] === imp.NULL_INT
+        if (val[0] === ImpT.NUM) return isNaN(val[2] as number)
+        if (val[0] === ImpT.SYM && val[1].kind === SymT.BQT) {
+          // Bare backtick symbol (null symbol)
+          return (val[2].description ?? '') === ''
+        }
+        return false
+      }
+
+      // Handle lists
+      if (ImpQ.isLst(x)) {
+        const items = x[2] as ImpVal[]
+        const result = items.map(item => isNull(item) ? 1 : 0)
+        return ImpC.ints(result)
+      }
+
+      // Handle vectors
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        return rightAtomic(a => (a === imp.NULL_INT || isNaN(a)) ? 1 : 0, x)
+      }
+
+      // Handle single values
+      return ImpC.int(isNull(x) ? 1 : 0)
     }, 1),
 
     // distinct (monadic ?:) - unique elements
@@ -1104,6 +1128,95 @@ export function createImpWords(): Record<string, ImpVal> {
       }
 
       throw "take expects list, vector, or string as second argument"
+    }, 2),
+
+    // reshape (dyadic # with list shape) - create multi-dimensional array
+    'reshape': imp.jsf((shape, data) => {
+      // Helper to flatten data into a cyclic source
+      const flattenData = (val: ImpVal): ImpVal[] => {
+        if (ImpQ.isLst(val)) {
+          return val[2] as ImpVal[]
+        } else if (val[0] === ImpT.INTs || val[0] === ImpT.NUMs) {
+          const nums = val[2] as number[]
+          return nums.map(n => val[0] === ImpT.INTs ? ImpC.int(n) : ImpC.num(n))
+        } else if (val[0] === ImpT.SYMs) {
+          const syms = val[2] as symbol[]
+          return syms.map(s => ImpC.sym(s, SymT.BQT))
+        } else {
+          // Single value - wrap in array
+          return [val]
+        }
+      }
+
+      // Get shape dimensions
+      let dims: number[]
+      if (shape[0] === ImpT.INT) {
+        // Single dimension
+        dims = [shape[2] as number]
+      } else if (shape[0] === ImpT.INTs) {
+        dims = shape[2] as number[]
+      } else if (ImpQ.isLst(shape)) {
+        // Convert list of integers to array
+        const items = shape[2] as ImpVal[]
+        dims = items.map(item => {
+          if (item[0] === ImpT.INT) return item[2] as number
+          throw "reshape shape must contain only integers"
+        })
+      } else {
+        throw "reshape expects integer or list of integers as shape"
+      }
+
+      // Flatten data source
+      const source = flattenData(data)
+      if (source.length === 0) throw "reshape cannot work with empty data"
+
+      // Handle 0N (maximal dimension) in shape
+      // Only supported for length-2 shapes with 0N at start or end
+      if (dims.length === 2) {
+        if (dims[0] === imp.NULL_INT) {
+          // 0N at start: calculate rows needed for given column count
+          const cols = dims[1]
+          if (cols <= 0) throw "reshape column count must be positive"
+          const rows = Math.ceil(source.length / cols)
+          dims = [rows, cols]
+        } else if (dims[1] === imp.NULL_INT) {
+          // 0N at end: calculate columns for given row count
+          const rows = dims[0]
+          if (rows <= 0) throw "reshape row count must be positive"
+          const cols = Math.ceil(source.length / rows)
+          dims = [rows, cols]
+        }
+      } else if (dims.includes(imp.NULL_INT)) {
+        throw "reshape 0N only supported for 2-dimensional shapes"
+      }
+
+      // Build the reshaped result
+      const buildShape = (dims: number[], sourceIdx: number): [ImpVal, number] => {
+        if (dims.length === 1) {
+          // Base case: create a flat list/vector
+          const count = dims[0]
+          const result: ImpVal[] = []
+          for (let i = 0; i < count; i++) {
+            result.push(source[sourceIdx % source.length])
+            sourceIdx++
+          }
+          return [imp.lst(undefined, result), sourceIdx]
+        } else {
+          // Recursive case: create nested structure
+          const outerCount = dims[0]
+          const innerDims = dims.slice(1)
+          const result: ImpVal[] = []
+          for (let i = 0; i < outerCount; i++) {
+            const [inner, newIdx] = buildShape(innerDims, sourceIdx)
+            result.push(inner)
+            sourceIdx = newIdx
+          }
+          return [imp.lst(undefined, result), sourceIdx]
+        }
+      }
+
+      const [result, _] = buildShape(dims, 0)
+      return result
     }, 2),
 
     // drop (dyadic _) - remove elements from start/end

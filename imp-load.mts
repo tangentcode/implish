@@ -1,7 +1,7 @@
 /** Implish loader ("code-as-data" parser)
  * Converts strings to implish token-trees.
  */
-import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop, SymT} from './imp-core.mjs'
+import {type ImpVal, ImpT, ok, SymTable, TreeBuilder, NIL, ImpStr, ImpC, ImpErr, ImpTop, SymT, NULL_INT} from './imp-core.mjs'
 import * as imp from './imp-core.mjs'
 
 let closer: Record<string, string> = { '[': ']', '(': ')', '{': '}', '.:' : ':.' }
@@ -25,6 +25,7 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.WS,   /^((?!\n)\s)+/s,                        null],
   [TokT.NUM,  /^-?\d+\.\d+([eE][+-]?\d+)?/,          null], // decimal with optional scientific notation
   [TokT.NUM,  /^-?\d+[eE][+-]?\d+/,                  null], // integer with scientific notation
+  [TokT.INT,  /^0N\b/,                                null], // null integer (must come before general INT)
   [TokT.INT,  /^-?\d+/,                               null],
   [TokT.STR,  /^"(\\.|[^"])*"/,                       [1, 1]],
   [TokT.NODE, /^(((?![[({])\S)*[[({]|\.:)/,          null],
@@ -116,7 +117,7 @@ export class ImpLoader {
     [TokT.WS]:   () => {},  // ignore whitespace
     [TokT.SEP]:  (tok) => this.emit(ImpC.sep(tok)),
     [TokT.NUM]:  (tok) => this.emit(ImpC.num(parseFloat(tok))),
-    [TokT.INT]:  (tok) => this.emit(ImpC.int(parseInt(tok))),
+    [TokT.INT]:  (tok) => this.emit(ImpC.int(tok === '0N' ? NULL_INT : parseInt(tok))),
     [TokT.STR]:  (tok, trim) => this.emit(ImpC.str(trim ? tok.slice(trim[0], -trim[1]) : tok)),
     [TokT.NODE]: (tok) => this.node(tok),
     [TokT.DONE]: (tok) => this.done(tok),
