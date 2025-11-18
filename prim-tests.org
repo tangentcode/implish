@@ -64,7 +64,7 @@ Dyadic =*= is multiplication. Fully atomic.
 
 Monadic =*:= extracts the first element of a list.
 
-** TEST first-dict : first-dict (monadic *: for dictionaries) :mismatch:
+** TEST first-dict : first-dict (monadic *: for dictionaries)
 #+begin_src
 > first :[`a 23; `b 34]
 23
@@ -188,7 +188,7 @@ Dyadic =>= tests greater-than. Fully atomic. Returns boolean (0 or 1).
 Monadic =>:= is "grade down" or descending sort indices.
 Generates a permutation vector which would sort argument into descending order.
 
-** TEST desc-dict : desc-dict (monadic >: for dictionaries) :mismatch:
+** TEST desc-dict : desc-dict (monadic >: for dictionaries)
 #+begin_src
 > desc :[`a 2; `b 5; `c 1]
 `b `a `c

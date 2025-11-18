@@ -260,6 +260,63 @@ function leftAtomic(op: (a: number, b: any) => any, x: ImpVal, y: ImpVal): ImpVa
   throw "invalid operands"
 }
 
+// Helper to convert a value to an array representation
+// Returns [elements, isString] where isString indicates if we should convert back to string
+function toArray(x: ImpVal): [ImpVal[], boolean] {
+  if (x[0] === ImpT.STR) {
+    const str = x[2] as string
+    const chars = str.split('').map(c => ImpC.str(c))
+    return [chars, true]
+  }
+  if (ImpQ.isLst(x)) {
+    return [x[2] as ImpVal[], false]
+  }
+  if (x[0] === ImpT.INTs) {
+    const nums = x[2] as number[]
+    return [nums.map(n => ImpC.int(n)), false]
+  }
+  if (x[0] === ImpT.NUMs) {
+    const nums = x[2] as number[]
+    return [nums.map(n => ImpC.num(n)), false]
+  }
+  if (x[0] === ImpT.SYMs) {
+    const syms = x[2] as symbol[]
+    return [syms.map(s => ImpC.sym(s, SymT.BQT)), false]
+  }
+  throw "toArray expects list, vector, or string"
+}
+
+// Helper to convert array back to appropriate type
+function fromArray(items: ImpVal[], wasString: boolean, attrs?: any): ImpVal {
+  if (wasString) {
+    // Convert back to string
+    const str = items.map(item => {
+      if (item[0] === ImpT.STR) return item[2] as string
+      if (item[0] === ImpT.INT || item[0] === ImpT.NUM) return String.fromCharCode(item[2] as number)
+      return String(item[2])
+    }).join('')
+    return ImpC.str(str)
+  }
+
+  // Try to preserve vector types
+  const allInts = items.every(item => item[0] === ImpT.INT)
+  const allNums = items.every(item => item[0] === ImpT.NUM)
+  const allSyms = items.every(item => item[0] === ImpT.SYM)
+
+  if (allInts) {
+    return ImpC.ints(items.map(item => item[2] as number))
+  }
+  if (allNums) {
+    return ImpC.nums(items.map(item => item[2] as number))
+  }
+  if (allSyms) {
+    return ImpC.syms(items.map(item => item[2] as symbol))
+  }
+
+  // Return as general list
+  return imp.lst(attrs, items)
+}
+
 // Type-safe toXml using utility object for syntactic sugar
 function toXml(x: ImpVal): string {
   if (x[0] === ImpT.NIL) return '<nil/>';
@@ -567,39 +624,16 @@ export function createImpWords(): Record<string, ImpVal> {
       return imp.lst(undefined, result)
     }, 2),
     'rev': imp.jsf(x => {
-      if (x[0] === ImpT.INTs) {
-        let nums = x[2] as number[]
-        return ImpC.ints([...nums].reverse())
-      }
-      if (x[0] === ImpT.NUMs) {
-        let nums = x[2] as number[]
-        return ImpC.nums([...nums].reverse())
-      }
-      if (x[0] === ImpT.SYMs) {
-        let syms = x[2] as symbol[]
-        return ImpC.syms([...syms].reverse())
-      }
-      if (ImpQ.isLst(x)) {
-        const xList = x as ImpLst
-        return imp.lst(xList[1], [...xList[2]].reverse())
-      }
-      throw "rev expects a vector (INTs, NUMs, SYMs) or list (LST)"
+      const [items, wasString] = toArray(x)
+      return fromArray([...items].reverse(), wasString, ImpQ.isLst(x) ? x[1] : undefined)
     }, 1),
     'len': imp.jsf(x => {
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs || x[0] === ImpT.SYMs) {
-        return ImpC.int((x[2] as any[]).length)
-      }
-      if (ImpQ.isLst(x)) {
-        return ImpC.int(x[2].length)
-      }
-      if (x[0] === ImpT.STR) {
-        return ImpC.int((x[2] as string).length)
-      }
       // Scalars have length 1
       if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM) {
         return ImpC.int(1)
       }
-      throw "len expects a number, symbol, vector, list, or string"
+      const [items, _] = toArray(x)
+      return ImpC.int(items.length)
     }, 1),
     '!'   : imp.jsf(x=>{
       let n = x[2] as number
@@ -1083,17 +1117,12 @@ export function createImpWords(): Record<string, ImpVal> {
       if (ImpQ.isDct(x)) {
         return ImpC.int((x[2] as Map<string, ImpVal>).size)
       }
-      if (ImpQ.isLst(x)) {
-        return ImpC.int((x[2] as ImpVal[]).length)
-      }
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs || x[0] === ImpT.SYMs) {
-        return ImpC.int((x[2] as any[]).length)
-      }
-      if (x[0] === ImpT.STR) {
-        return ImpC.int((x[2] as string).length)
-      }
       // Atoms have count 1
-      return ImpC.int(1)
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM) {
+        return ImpC.int(1)
+      }
+      const [items, _] = toArray(x)
+      return ImpC.int(items.length)
     }, 1),
 
     // null? (monadic ^:) - test if null
@@ -1127,46 +1156,21 @@ export function createImpWords(): Record<string, ImpVal> {
 
     // distinct (monadic ?:) - unique elements
     'distinct': imp.jsf(x => {
-      if (ImpQ.isLst(x)) {
-        const items = x[2] as ImpVal[]
-        const seen = new Set<string>()
-        const result: ImpVal[] = []
-        for (const item of items) {
-          const key = impShow(item)
-          if (!seen.has(key)) {
-            seen.add(key)
-            result.push(item)
-          }
-        }
-        return imp.lst(x[1], result)
-      }
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-        const nums = x[2] as number[]
-        const seen = new Set<number>()
-        const result: number[] = []
-        for (const n of nums) {
-          if (!seen.has(n)) {
-            seen.add(n)
-            result.push(n)
-          }
-        }
-        return x[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
-      }
-      if (x[0] === ImpT.SYMs) {
-        const syms = x[2] as symbol[]
-        const seen = new Set<string>()
-        const result: symbol[] = []
-        for (const s of syms) {
-          const key = s.description || ''
-          if (!seen.has(key)) {
-            seen.add(key)
-            result.push(s)
-          }
-        }
-        return ImpC.syms(result)
-      }
       // Scalar - already unique
-      return x
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM) {
+        return x
+      }
+      const [items, wasString] = toArray(x)
+      const seen = new Set<string>()
+      const result: ImpVal[] = []
+      for (const item of items) {
+        const key = impShow(item)
+        if (!seen.has(key)) {
+          seen.add(key)
+          result.push(item)
+        }
+      }
+      return fromArray(result, wasString, ImpQ.isLst(x) ? x[1] : undefined)
     }, 1),
 
     // lowercase (monadic _: for characters) - already handled in 'floor'
@@ -1188,60 +1192,23 @@ export function createImpWords(): Record<string, ImpVal> {
       const fromEnd = count < 0
       if (fromEnd) count = -count
 
-      // Handle lists
-      if (ImpQ.isLst(y)) {
-        const items = y[2] as ImpVal[]
-        if (items.length === 0) throw "cannot take from empty list"
-        const result: ImpVal[] = []
+      const [items, wasString] = toArray(y)
+      if (items.length === 0) throw "cannot take from empty sequence"
 
-        if (fromEnd) {
-          // Take from end
-          const start = Math.max(0, items.length - count)
-          return imp.lst(y[1], items.slice(start))
-        } else {
-          // Take from start, cycling if needed
-          for (let i = 0; i < count; i++) {
-            result.push(items[i % items.length])
-          }
-          return imp.lst(y[1], result)
+      let result: ImpVal[]
+      if (fromEnd) {
+        // Take from end
+        const start = Math.max(0, items.length - count)
+        result = items.slice(start)
+      } else {
+        // Take from start, cycling if needed
+        result = []
+        for (let i = 0; i < count; i++) {
+          result.push(items[i % items.length])
         }
       }
 
-      // Handle vectors
-      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
-        const nums = y[2] as number[]
-        if (nums.length === 0) throw "cannot take from empty vector"
-        const result: number[] = []
-
-        if (fromEnd) {
-          const start = Math.max(0, nums.length - count)
-          return y[0] === ImpT.INTs ? ImpC.ints(nums.slice(start)) : ImpC.nums(nums.slice(start))
-        } else {
-          for (let i = 0; i < count; i++) {
-            result.push(nums[i % nums.length])
-          }
-          return y[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
-        }
-      }
-
-      // Handle strings
-      if (y[0] === ImpT.STR) {
-        const str = y[2] as string
-        if (str.length === 0) throw "cannot take from empty string"
-        let result = ""
-
-        if (fromEnd) {
-          const start = Math.max(0, str.length - count)
-          return ImpC.str(str.slice(start))
-        } else {
-          for (let i = 0; i < count; i++) {
-            result += str[i % str.length]
-          }
-          return ImpC.str(result)
-        }
-      }
-
-      throw "take expects list, vector, or string as second argument"
+      return fromArray(result, wasString, ImpQ.isLst(y) ? y[1] : undefined)
     }, 2),
 
     // reshape (dyadic # with list shape) - create multi-dimensional array
@@ -1400,31 +1367,9 @@ export function createImpWords(): Record<string, ImpVal> {
       if (x[0] !== ImpT.INT) throw "drop expects integer count"
       let count = x[2] as number
 
-      // Handle lists
-      if (ImpQ.isLst(y)) {
-        const items = y[2] as ImpVal[]
-        if (count >= 0) {
-          return imp.lst(y[1], items.slice(count))
-        } else {
-          return imp.lst(y[1], items.slice(0, items.length + count))
-        }
-      }
-
-      // Handle vectors
-      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
-        const nums = y[2] as number[]
-        const result = count >= 0 ? nums.slice(count) : nums.slice(0, nums.length + count)
-        return y[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
-      }
-
-      // Handle strings
-      if (y[0] === ImpT.STR) {
-        const str = y[2] as string
-        const result = count >= 0 ? str.slice(count) : str.slice(0, str.length + count)
-        return ImpC.str(result)
-      }
-
-      throw "drop expects list, vector, or string as second argument"
+      const [items, wasString] = toArray(y)
+      const result = count >= 0 ? items.slice(count) : items.slice(0, items.length + count)
+      return fromArray(result, wasString, ImpQ.isLst(y) ? y[1] : undefined)
     }, 2),
 
     // cut (dyadic _ with list of indices) - split at indices
@@ -1445,84 +1390,40 @@ export function createImpWords(): Record<string, ImpVal> {
         throw "cut expects list of indices as first argument"
       }
 
-      // Split string at indices
-      if (y[0] === ImpT.STR) {
-        const str = y[2] as string
-        const result: string[] = []
-        for (let i = 0; i < indices.length; i++) {
-          const start = indices[i]
-          const end = i < indices.length - 1 ? indices[i + 1] : str.length
-          result.push(str.slice(start, end))
-        }
-        return imp.lst(undefined, result.map(s => ImpC.str(s)))
+      const [items, wasString] = toArray(y)
+      const result: ImpVal[][] = []
+      for (let i = 0; i < indices.length; i++) {
+        const start = indices[i]
+        const end = i < indices.length - 1 ? indices[i + 1] : items.length
+        result.push(items.slice(start, end))
       }
 
-      // Split list at indices
-      if (ImpQ.isLst(y)) {
-        const items = y[2] as ImpVal[]
-        const result: ImpVal[][] = []
-        for (let i = 0; i < indices.length; i++) {
-          const start = indices[i]
-          const end = i < indices.length - 1 ? indices[i + 1] : items.length
-          result.push(items.slice(start, end))
-        }
-        return imp.lst(undefined, result.map(arr => imp.lst(y[1], arr)))
-      }
-
-      // Split vector at indices
-      if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
-        const nums = y[2] as number[]
-        const result: number[][] = []
-        for (let i = 0; i < indices.length; i++) {
-          const start = indices[i]
-          const end = i < indices.length - 1 ? indices[i + 1] : nums.length
-          result.push(nums.slice(start, end))
-        }
-        const vecType = y[0]
-        return imp.lst(undefined, result.map(arr => vecType === ImpT.INTs ? ImpC.ints(arr) : ImpC.nums(arr)))
-      }
-
-      throw "cut expects string, list, or vector as second argument"
+      // Convert each slice back to appropriate type
+      return imp.lst(undefined, result.map(arr => fromArray(arr, wasString, ImpQ.isLst(y) ? y[1] : undefined)))
     }, 2),
 
     // except (dyadic ^) - remove all instances of y from x
     'except': imp.jsf((x, y) => {
       // Get items to remove
       const toRemove = new Set<string>()
-      if (ImpQ.isLst(y)) {
-        for (const item of y[2] as ImpVal[]) {
+      if (ImpQ.isLst(y) || y[0] === ImpT.INTs || y[0] === ImpT.NUMs || y[0] === ImpT.SYMs || y[0] === ImpT.STR) {
+        const [yItems, _] = toArray(y)
+        for (const item of yItems) {
           toRemove.add(impShow(item))
-        }
-      } else if (y[0] === ImpT.INTs || y[0] === ImpT.NUMs) {
-        for (const n of y[2] as number[]) {
-          toRemove.add(n.toString())
         }
       } else {
         toRemove.add(impShow(y))
       }
 
       // Filter x
-      if (ImpQ.isLst(x)) {
-        const result: ImpVal[] = []
-        for (const item of x[2] as ImpVal[]) {
-          if (!toRemove.has(impShow(item))) {
-            result.push(item)
-          }
+      const [items, wasString] = toArray(x)
+      const result: ImpVal[] = []
+      for (const item of items) {
+        if (!toRemove.has(impShow(item))) {
+          result.push(item)
         }
-        return imp.lst(x[1], result)
       }
-
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-        const result: number[] = []
-        for (const n of x[2] as number[]) {
-          if (!toRemove.has(n.toString())) {
-            result.push(n)
-          }
-        }
-        return x[0] === ImpT.INTs ? ImpC.ints(result) : ImpC.nums(result)
-      }
-
-      throw "except expects list or vector as first argument"
+      return fromArray(result, wasString, ImpQ.isLst(x) ? x[1] : undefined)
     }, 2),
 
     // fill (dyadic ^ with atom left) - replace nulls with x
@@ -1741,25 +1642,14 @@ export function createImpWords(): Record<string, ImpVal> {
         return ImpC.syms(entries.map(([k, _]) => Symbol(k)))
       }
 
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-        const nums = x[2] as number[]
-        const indices = nums.map((_, i) => i)
-        indices.sort((a, b) => nums[a] - nums[b])
-        return ImpC.ints(indices)
-      }
-
-      if (ImpQ.isLst(x)) {
-        const items = x[2] as ImpVal[]
-        const indices = items.map((_, i) => i)
-        indices.sort((a, b) => {
-          const aStr = impShow(items[a])
-          const bStr = impShow(items[b])
-          return aStr < bStr ? -1 : aStr > bStr ? 1 : 0
-        })
-        return ImpC.ints(indices)
-      }
-
-      throw "asc expects vector, list, or dictionary"
+      const [items, _] = toArray(x)
+      const indices = items.map((_, i) => i)
+      indices.sort((a, b) => {
+        const aStr = impShow(items[a])
+        const bStr = impShow(items[b])
+        return aStr < bStr ? -1 : aStr > bStr ? 1 : 0
+      })
+      return ImpC.ints(indices)
     }, 1),
 
     // desc (monadic >:) - grade down (descending sort indices)
@@ -1776,25 +1666,14 @@ export function createImpWords(): Record<string, ImpVal> {
         return ImpC.syms(entries.map(([k, _]) => Symbol(k)))
       }
 
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-        const nums = x[2] as number[]
-        const indices = nums.map((_, i) => i)
-        indices.sort((a, b) => nums[b] - nums[a])
-        return ImpC.ints(indices)
-      }
-
-      if (ImpQ.isLst(x)) {
-        const items = x[2] as ImpVal[]
-        const indices = items.map((_, i) => i)
-        indices.sort((a, b) => {
-          const aStr = impShow(items[a])
-          const bStr = impShow(items[b])
-          return aStr > bStr ? -1 : aStr < bStr ? 1 : 0
-        })
-        return ImpC.ints(indices)
-      }
-
-      throw "desc expects vector, list, or dictionary"
+      const [items, _] = toArray(x)
+      const indices = items.map((_, i) => i)
+      indices.sort((a, b) => {
+        const aStr = impShow(items[a])
+        const bStr = impShow(items[b])
+        return aStr > bStr ? -1 : aStr < bStr ? 1 : 0
+      })
+      return ImpC.ints(indices)
     }, 1),
 
     // where (monadic &:) - replicate indices or gather nonzero
@@ -1859,27 +1738,13 @@ export function createImpWords(): Record<string, ImpVal> {
         return imp.dct(newMap)
       }
 
-      if (ImpQ.isLst(x)) {
-        const items = x[2] as ImpVal[]
-        return imp.lst(x[1], [...items].reverse())
+      // Scalar - return as is
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM) {
+        return x
       }
 
-      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-        const nums = x[2] as number[]
-        return x[0] === ImpT.INTs ? ImpC.ints([...nums].reverse()) : ImpC.nums([...nums].reverse())
-      }
-
-      if (x[0] === ImpT.STR) {
-        const str = x[2] as string
-        return ImpC.str(str.split('').reverse().join(''))
-      }
-
-      if (x[0] === ImpT.SYMs) {
-        const syms = x[2] as symbol[]
-        return ImpC.syms([...syms].reverse())
-      }
-
-      return x  // Scalar - return as is
+      const [items, wasString] = toArray(x)
+      return fromArray([...items].reverse(), wasString, ImpQ.isLst(x) ? x[1] : undefined)
     }, 1),
 
     // K Primitives - Phase 4: Special Forms & Dict Ops
@@ -1945,30 +1810,12 @@ export function createImpWords(): Record<string, ImpVal> {
     // group (monadic =:) - dictionary from items to indices
     'group': imp.jsf(x => {
       const groups = new Map<string, number[]>()
+      const [items, _] = toArray(x)
 
-      if (x[0] === ImpT.SYMs) {
-        const syms = x[2] as symbol[]
-        for (let i = 0; i < syms.length; i++) {
-          const key = syms[i].description || ''
-          if (!groups.has(key)) groups.set(key, [])
-          groups.get(key)!.push(i)
-        }
-      } else if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
-        const nums = x[2] as number[]
-        for (let i = 0; i < nums.length; i++) {
-          const key = nums[i].toString()
-          if (!groups.has(key)) groups.set(key, [])
-          groups.get(key)!.push(i)
-        }
-      } else if (ImpQ.isLst(x)) {
-        const items = x[2] as ImpVal[]
-        for (let i = 0; i < items.length; i++) {
-          const key = impShow(items[i])
-          if (!groups.has(key)) groups.set(key, [])
-          groups.get(key)!.push(i)
-        }
-      } else {
-        throw "group expects vector or list"
+      for (let i = 0; i < items.length; i++) {
+        const key = impShow(items[i])
+        if (!groups.has(key)) groups.set(key, [])
+        groups.get(key)!.push(i)
       }
 
       // Convert to dictionary
@@ -2648,41 +2495,14 @@ export function createImpWords(): Record<string, ImpVal> {
         throw "window: zero window size not yet implemented"
       }
 
-      // Extract elements from y
-      let elements: ImpVal[]
-      if (y[0] === ImpT.INTs) {
-        // Convert INTs to list of INTs
-        const nums = y[2] as number[]
-        elements = nums.map(n => ImpC.int(n))
-      } else if (y[0] === ImpT.NUMs) {
-        // Convert NUMs to list of NUMs
-        const nums = y[2] as number[]
-        elements = nums.map(n => ImpC.num(n))
-      } else if (ImpQ.isLst(y)) {
-        elements = y[2] as ImpVal[]
-      } else {
-        throw "window: right argument must be a list"
-      }
+      const [elements, wasString] = toArray(y)
 
       // Create sliding windows
       const windows: ImpVal[] = []
 
       for (let i = 0; i <= elements.length - size; i++) {
         const windowItems = elements.slice(i, i + size)
-
-        // Check if all items are INTs or NUMs to create strands
-        const allInts = windowItems.every(item => item[0] === ImpT.INT)
-        const allNums = windowItems.every(item => item[0] === ImpT.NUM)
-
-        if (allInts) {
-          const nums = windowItems.map(item => item[2] as number)
-          windows.push(ImpC.ints(nums))
-        } else if (allNums) {
-          const nums = windowItems.map(item => item[2] as number)
-          windows.push(ImpC.nums(nums))
-        } else {
-          windows.push(imp.lst(undefined, windowItems))
-        }
+        windows.push(fromArray(windowItems, wasString, ImpQ.isLst(y) ? y[1] : undefined))
       }
 
       return imp.lst(undefined, windows)
