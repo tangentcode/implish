@@ -1214,7 +1214,7 @@ export function createImpWords(): Record<string, ImpVal> {
     // reshape (dyadic # with list shape) - create multi-dimensional array
     'reshape': imp.jsf((shape, data) => {
       // Determine the source data type
-      type SourceType = 'int' | 'num' | 'sym' | 'mixed'
+      type SourceType = 'int' | 'num' | 'sym' | 'str' | 'mixed'
       let sourceType: SourceType = 'mixed'
 
       if (data[0] === ImpT.INT) sourceType = 'int'
@@ -1223,9 +1223,10 @@ export function createImpWords(): Record<string, ImpVal> {
       else if (data[0] === ImpT.NUMs) sourceType = 'num'
       else if (data[0] === ImpT.SYM) sourceType = 'sym'
       else if (data[0] === ImpT.SYMs) sourceType = 'sym'
+      else if (data[0] === ImpT.STR) sourceType = 'str'
 
       // Helper to flatten data into arrays based on type
-      const flattenData = (val: ImpVal): number[] | symbol[] | ImpVal[] => {
+      const flattenData = (val: ImpVal): number[] | symbol[] | string[] | ImpVal[] => {
         if (val[0] === ImpT.INT) {
           return [val[2] as number]
         } else if (val[0] === ImpT.INTs) {
@@ -1238,6 +1239,8 @@ export function createImpWords(): Record<string, ImpVal> {
           return [val[2] as symbol]
         } else if (val[0] === ImpT.SYMs) {
           return val[2] as symbol[]
+        } else if (val[0] === ImpT.STR) {
+          return (val[2] as string).split('')
         } else if (ImpQ.isLst(val)) {
           return val[2] as ImpVal[]
         } else {
@@ -1332,6 +1335,31 @@ export function createImpWords(): Record<string, ImpVal> {
           }
         }
         const [result, _] = buildSymShape(dims, 0)
+        return result
+      } else if (sourceType === 'str') {
+        const chars = source as string[]
+        const buildStrShape = (dims: number[], sourceIdx: number): [ImpVal, number] => {
+          if (dims.length === 1) {
+            const count = dims[0]
+            const result: string[] = []
+            for (let i = 0; i < count; i++) {
+              result.push(chars[sourceIdx % chars.length])
+              sourceIdx++
+            }
+            return [ImpC.str(result.join('')), sourceIdx]
+          } else {
+            const outerCount = dims[0]
+            const innerDims = dims.slice(1)
+            const result: ImpVal[] = []
+            for (let i = 0; i < outerCount; i++) {
+              const [inner, newIdx] = buildStrShape(innerDims, sourceIdx)
+              result.push(inner)
+              sourceIdx = newIdx
+            }
+            return [imp.lst(undefined, result), sourceIdx]
+          }
+        }
+        const [result, _] = buildStrShape(dims, 0)
         return result
       } else {
         // Mixed type - use lists
@@ -2238,6 +2266,85 @@ export function createImpWords(): Record<string, ImpVal> {
       }
       return imp.lst(undefined, results)
     }, 3),
+
+    'over': imp.jsf(async function(this: ImpEvaluator, f: ImpVal, x: ImpVal) {
+      // over[f; x] - reduce/fold x with dyadic function f
+      // In K: +/ is "sum", */ is "product", etc.
+      // f must be a dyadic function (JSF or IFN with arity 2)
+      if (f[0] !== ImpT.JSF && f[0] !== ImpT.IFN) {
+        throw "over: first argument must be a function"
+      }
+
+      // Check arity
+      const arity = f[1].arity
+      if (arity !== 2) {
+        throw `over: function must have arity 2, got ${arity}`
+      }
+
+      // Convert to array
+      const [items, _] = toArray(x)
+
+      if (items.length === 0) {
+        throw "over: cannot reduce empty sequence"
+      }
+
+      if (items.length === 1) {
+        return items[0]
+      }
+
+      // Reduce from left to right
+      let accumulator = items[0]
+      for (let i = 1; i < items.length; i++) {
+        if (f[0] === ImpT.JSF) {
+          accumulator = await (f as ImpJsf)[2].apply(this, [accumulator, items[i]])
+        } else {
+          accumulator = await this.applyIfn(f as ImpIfn, [accumulator, items[i]])
+        }
+      }
+
+      return accumulator
+    }, 2),
+
+    'scan': imp.jsf(async function(this: ImpEvaluator, f: ImpVal, x: ImpVal) {
+      // scan[f; x] - like over but returns all intermediate results
+      // In K: +\ is "running sum", *\ is "running product", etc.
+      // f must be a dyadic function (JSF or IFN with arity 2)
+      if (f[0] !== ImpT.JSF && f[0] !== ImpT.IFN) {
+        throw "scan: first argument must be a function"
+      }
+
+      // Check arity
+      const arity = f[1].arity
+      if (arity !== 2) {
+        throw `scan: function must have arity 2, got ${arity}`
+      }
+
+      // Convert to array
+      const [items, wasString] = toArray(x)
+
+      if (items.length === 0) {
+        throw "scan: cannot scan empty sequence"
+      }
+
+      if (items.length === 1) {
+        return fromArray([items[0]], wasString, ImpQ.isLst(x) ? x[1] : undefined)
+      }
+
+      // Scan from left to right, collecting all intermediate results
+      const results: ImpVal[] = [items[0]]
+      let accumulator = items[0]
+
+      for (let i = 1; i < items.length; i++) {
+        if (f[0] === ImpT.JSF) {
+          accumulator = await (f as ImpJsf)[2].apply(this, [accumulator, items[i]])
+        } else {
+          accumulator = await this.applyIfn(f as ImpIfn, [accumulator, items[i]])
+        }
+        results.push(accumulator)
+      }
+
+      return fromArray(results, wasString, ImpQ.isLst(x) ? x[1] : undefined)
+    }, 2),
 
     'bin': imp.jsf((x: ImpVal, y: ImpVal) => {
       // bin[x; y] - binary search for y in sorted list x

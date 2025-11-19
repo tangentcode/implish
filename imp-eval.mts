@@ -579,62 +579,73 @@ export class ImpEvaluator {
   createFoldOperator = (baseName: string, baseOp: ImpVal): ImpVal => {
     return imp.jsf(async x => {
       // Handle scalar input - just return it
-      if (x[0] === ImpT.INT || x[0] === ImpT.NUM) {
+      if (x[0] === ImpT.INT || x[0] === ImpT.NUM || x[0] === ImpT.SYM) {
         return x
       }
 
-      // Extract the numeric array based on type
-      if (x[0] !== ImpT.INTs && x[0] !== ImpT.NUMs) {
-        throw `${baseName}/ expects a numeric value or vector (INT, NUM, INTs, or NUMs)`
-      }
+      // Try numeric-only path first for backward compatibility
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        let nums = x[2] as number[]
+        let isInts = x[0] === ImpT.INTs
 
-      let nums = x[2] as number[]
-      let isInts = x[0] === ImpT.INTs
-
-      // Handle empty array - return identity value if defined
-      if (nums.length === 0) {
-        let identity = foldIdentities[baseName]
-        if (identity === undefined) {
-          throw `${baseName}/ has no identity value for empty arrays`
-        }
-        return isInts ? ImpC.int(identity) : ImpC.num(identity)
-      }
-
-      // Handle single element
-      if (nums.length === 1) {
-        return x
-      }
-
-      // Get the dyadic function (JSF with arity 2)
-      if (baseOp[0] !== ImpT.JSF || baseOp[1].arity !== 2) {
-        throw `${baseName}/ requires a JSF with arity 2`
-      }
-      let dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
-
-      // Perform the fold operation
-      let result = nums[0]
-      for (let i = 1; i < nums.length; i++) {
-        let xVal = isInts ? ImpC.int(result) : ImpC.num(result)
-        let yVal = isInts ? ImpC.int(nums[i]) : ImpC.num(nums[i])
-        let folded = dyadicFn(xVal, yVal)
-
-        // Handle async operations
-        if (folded instanceof Promise) {
-          folded = await folded as ImpVal
+        // Handle empty array - return identity value if defined
+        if (nums.length === 0) {
+          let identity = foldIdentities[baseName]
+          if (identity === undefined) {
+            throw `${baseName}/ has no identity value for empty arrays`
+          }
+          return isInts ? ImpC.int(identity) : ImpC.num(identity)
         }
 
-        // Extract the numeric result
-        if (folded[0] === ImpT.INT) {
-          result = folded[2] as number
-        } else if (folded[0] === ImpT.NUM) {
-          result = folded[2] as number
-          isInts = false  // If we get a NUM, result should be NUM
-        } else {
-          throw `${baseName}/ produced non-numeric result`
+        // Handle single element
+        if (nums.length === 1) {
+          return x
         }
+
+        // Get the dyadic function (JSF with arity 2)
+        if (baseOp[0] !== ImpT.JSF || baseOp[1].arity !== 2) {
+          throw `${baseName}/ requires a JSF with arity 2`
+        }
+        let dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
+
+        // Perform the fold operation
+        let result = nums[0]
+        for (let i = 1; i < nums.length; i++) {
+          let xVal = isInts ? ImpC.int(result) : ImpC.num(result)
+          let yVal = isInts ? ImpC.int(nums[i]) : ImpC.num(nums[i])
+          let folded = dyadicFn(xVal, yVal)
+
+          // Handle async operations
+          if (folded instanceof Promise) {
+            folded = await folded as ImpVal
+          }
+
+          // Extract the numeric result
+          if (folded[0] === ImpT.INT) {
+            result = folded[2] as number
+          } else if (folded[0] === ImpT.NUM) {
+            result = folded[2] as number
+            isInts = false  // If we get a NUM, result should be NUM
+          } else {
+            throw `${baseName}/ produced non-numeric result`
+          }
+        }
+
+        return isInts ? ImpC.int(result) : ImpC.num(result)
       }
 
-      return isInts ? ImpC.int(result) : ImpC.num(result)
+      // General case: use the 'over' adverb for lists, strings, etc.
+      const overFn = this.words['over']
+      if (!overFn) {
+        throw `${baseName}/ requires 'over' adverb for non-numeric sequences`
+      }
+
+      // Apply over[baseOp; x]
+      if (overFn[0] === ImpT.JSF) {
+        return await (overFn as ImpJsf)[2].apply(this, [baseOp, x])
+      }
+
+      throw `${baseName}/ could not apply fold operation`
     }, 1)
   }
 
@@ -649,63 +660,77 @@ export class ImpEvaluator {
       if (x[0] === ImpT.NUM) {
         return ImpC.nums([x[2] as number])
       }
-
-      // Extract the numeric array based on type
-      if (x[0] !== ImpT.INTs && x[0] !== ImpT.NUMs) {
-        throw `${baseName}\\ expects a numeric value or vector (INT, NUM, INTs, or NUMs)`
+      if (x[0] === ImpT.SYM) {
+        return ImpC.syms([x[2] as symbol])
       }
 
-      let nums = x[2] as number[]
-      let isInts = x[0] === ImpT.INTs
+      // Try numeric-only path first for backward compatibility
+      if (x[0] === ImpT.INTs || x[0] === ImpT.NUMs) {
+        let nums = x[2] as number[]
+        let isInts = x[0] === ImpT.INTs
 
-      // Handle empty array - return empty array or identity value
-      if (nums.length === 0) {
-        let identity = foldIdentities[baseName]
-        if (identity === undefined) {
-          return x  // Return empty array as-is
-        }
-        return isInts ? ImpC.ints([identity]) : ImpC.nums([identity])
-      }
-
-      // Handle single element - return as-is
-      if (nums.length === 1) {
-        return x
-      }
-
-      // Get the dyadic function (JSF with arity 2)
-      if (baseOp[0] !== ImpT.JSF || baseOp[1].arity !== 2) {
-        throw `${baseName}\\ requires a JSF with arity 2`
-      }
-      let dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
-
-      // Perform the scan operation - collect all intermediate results
-      let results: number[] = [nums[0]]
-      let result = nums[0]
-
-      for (let i = 1; i < nums.length; i++) {
-        let xVal = isInts ? ImpC.int(result) : ImpC.num(result)
-        let yVal = isInts ? ImpC.int(nums[i]) : ImpC.num(nums[i])
-        let folded = dyadicFn(xVal, yVal)
-
-        // Handle async operations
-        if (folded instanceof Promise) {
-          folded = await folded as ImpVal
+        // Handle empty array - return empty array or identity value
+        if (nums.length === 0) {
+          let identity = foldIdentities[baseName]
+          if (identity === undefined) {
+            return x  // Return empty array as-is
+          }
+          return isInts ? ImpC.ints([identity]) : ImpC.nums([identity])
         }
 
-        // Extract the numeric result
-        if (folded[0] === ImpT.INT) {
-          result = folded[2] as number
-        } else if (folded[0] === ImpT.NUM) {
-          result = folded[2] as number
-          isInts = false  // If we get a NUM, result should be NUM
-        } else {
-          throw `${baseName}\\ produced non-numeric result`
+        // Handle single element - return as-is
+        if (nums.length === 1) {
+          return x
         }
 
-        results.push(result)
+        // Get the dyadic function (JSF with arity 2)
+        if (baseOp[0] !== ImpT.JSF || baseOp[1].arity !== 2) {
+          throw `${baseName}\\ requires a JSF with arity 2`
+        }
+        let dyadicFn = baseOp[2] as (x: ImpVal, y: ImpVal) => ImpVal | Promise<ImpVal>
+
+        // Perform the scan operation - collect all intermediate results
+        let results: number[] = [nums[0]]
+        let result = nums[0]
+
+        for (let i = 1; i < nums.length; i++) {
+          let xVal = isInts ? ImpC.int(result) : ImpC.num(result)
+          let yVal = isInts ? ImpC.int(nums[i]) : ImpC.num(nums[i])
+          let folded = dyadicFn(xVal, yVal)
+
+          // Handle async operations
+          if (folded instanceof Promise) {
+            folded = await folded as ImpVal
+          }
+
+          // Extract the numeric result
+          if (folded[0] === ImpT.INT) {
+            result = folded[2] as number
+          } else if (folded[0] === ImpT.NUM) {
+            result = folded[2] as number
+            isInts = false  // If we get a NUM, result should be NUM
+          } else {
+            throw `${baseName}\\ produced non-numeric result`
+          }
+
+          results.push(result)
+        }
+
+        return isInts ? ImpC.ints(results) : ImpC.nums(results)
       }
 
-      return isInts ? ImpC.ints(results) : ImpC.nums(results)
+      // General case: use the 'scan' adverb for lists, strings, etc.
+      const scanFn = this.words['scan']
+      if (!scanFn) {
+        throw `${baseName}\\ requires 'scan' adverb for non-numeric sequences`
+      }
+
+      // Apply scan[baseOp; x]
+      if (scanFn[0] === ImpT.JSF) {
+        return await (scanFn as ImpJsf)[2].apply(this, [baseOp, x])
+      }
+
+      throw `${baseName}\\ could not apply scan operation`
     }, 1)
   }
 
