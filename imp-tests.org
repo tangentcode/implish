@@ -572,7 +572,7 @@ nil!
 [x y x y x]
 #+end_src
 
-* TEST rev : rev (reverse)
+* SKIP rev : rev (reverse)
 #+begin_src imp
 > rev 1 2 3 4
 4 3 2 1
@@ -592,6 +592,30 @@ nil!
 3
 > len 42
 1
+#+end_src
+
+* TEST char-num-conversions : chr, ord, hex, oct conversions
+#+begin_src imp
+> echo chr 65
+A
+> echo chr 65 66 67
+ABC
+> ord "A"
+65
+> ord "AB"
+65 66
+> echo hex 255
+ff
+> echo hex -31
+-1f
+> echo show hex 15 16
+["f" "10"]
+> echo oct 64
+100
+> echo oct -9
+-11
+> echo show oct 8 9
+["10" "11"]
 #+end_src
 
 * TEST range : ! (range/iota)

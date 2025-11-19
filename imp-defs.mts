@@ -733,6 +733,66 @@ export function createImpWords(): Record<string, ImpVal> {
       return ImpC.sym(Symbol(typeName), SymT.TYP)
     }, 1),
     'show': imp.jsf(x=>ImpC.str(impShow(x)), 1),
+    'chr': imp.jsf(x=>{
+      if (x[0] === ImpT.INT) {
+        const code = x[2] as number
+        if (code < 0 || code > 0x10ffff) throw "chr: code point out of range"
+        return ImpC.str(String.fromCodePoint(code))
+      }
+      if (x[0] === ImpT.INTs) {
+        const codes = x[2] as number[]
+        const chars = codes.map(c => {
+          if (c < 0 || c > 0x10ffff) throw "chr: code point out of range"
+          return String.fromCodePoint(c)
+        })
+        return ImpC.str(chars.join(''))
+      }
+      throw "chr expects an integer or vector of integers"
+    }, 1),
+    'ord': imp.jsf(x=>{
+      if (x[0] !== ImpT.STR) throw "ord expects a string"
+      const chars = [...(x[2] as string)]
+      if (chars.length === 1) {
+        return ImpC.int(chars[0].codePointAt(0)!)
+      }
+      return ImpC.ints(chars.map(c => c.codePointAt(0)!))
+    }, 1),
+    'hex': imp.jsf(x=>{
+      if (x[0] === ImpT.INT) {
+        const n = x[2] as number
+        if (!Number.isInteger(n)) throw "hex expects an integer"
+        if (n < 0) return ImpC.str(`-${(-n).toString(16)}`)
+        return ImpC.str(n.toString(16))
+      }
+      if (x[0] === ImpT.INTs) {
+        const nums = x[2] as number[]
+        const strs = nums.map(n => {
+          if (!Number.isInteger(n)) throw "hex expects integers"
+          if (n < 0) return `-${(-n).toString(16)}`
+          return n.toString(16)
+        })
+        return imp.lst(undefined, strs.map(s => ImpC.str(s)))
+      }
+      throw "hex expects an integer or vector of integers"
+    }, 1),
+    'oct': imp.jsf(x=>{
+      if (x[0] === ImpT.INT) {
+        const n = x[2] as number
+        if (!Number.isInteger(n)) throw "oct expects an integer"
+        if (n < 0) return ImpC.str(`-${(-n).toString(8)}`)
+        return ImpC.str(n.toString(8))
+      }
+      if (x[0] === ImpT.INTs) {
+        const nums = x[2] as number[]
+        const strs = nums.map(n => {
+          if (!Number.isInteger(n)) throw "oct expects integers"
+          if (n < 0) return `-${(-n).toString(8)}`
+          return n.toString(8)
+        })
+        return imp.lst(undefined, strs.map(s => ImpC.str(s)))
+      }
+      throw "oct expects an integer or vector of integers"
+    }, 1),
     'echo': imp.jsf(x=>{
       // For vectors/strands, use impShow; for other types, print the raw value
       let output: string
