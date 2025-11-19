@@ -6,7 +6,12 @@
       "mcp__implish__load_implish",
       "Bash(uv run:*)",
       "mcp__implish__inspect_word",
-      "mcp__implish__reset_implish"
+      "mcp__implish__reset_implish",
+      "Bash(tanco test:*)",
+      "mcp__ngnk__execute_k",
+      "Bash(timeout 60 tanco test:*)",
+      "Bash(timeout 120 tanco test:*)",
+      "Bash(timeout 180 tanco test:*)"
     ],
     "deny": [],
     "ask": []

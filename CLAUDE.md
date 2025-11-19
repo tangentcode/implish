@@ -89,7 +89,7 @@ The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it
 - `parsePartialPath()`: For tab completion
 - Windows drive handling: `%/` lists drives, `%/c/` is C:/, etc.
 
-### Built-in Words (imp-eval.mts)
+### Built-in Words (imp-defs.mts)
 
 Arithmetic (element-wise for vectors):
 - `+`, `-`, `*`, `%` (integer division)
@@ -109,11 +109,21 @@ Functions:
 - `part`: Get part of speech for a value
 - `type?`: Get type of a value
 
+Adverbs (higher-order functions):
+- `each[f; x]`: Apply function `f` to each element of `x`
+  - Example: `each[{* 2 x}; 5 7 2]` → `10 14 4`
+  - Works on atoms, vectors (INTs, NUMs), and lists
+  - Preserves the structure of the input (INTs → INTs, lists → lists)
+- `each2[f; x; y]`: Apply dyadic function `f` pairwise to elements of `x` and `y`
+  - Example: `each2[+; 2 7 9; 1 3 4]` → `[3, 10, 13]`
+  - Atom spreading: if `x` or `y` is an atom, it's used for all pairs
+  - Example: `each2[+; 5; 1 3 4]` → `[6, 8, 9]`
+
 ### Adding New Words to Implish
 
 To add a new built-in function to implish:
 
-1. **Edit imp-eval.mts** around line 298 where `impWords` is defined
+1. **Edit imp-defs.mts** where `createImpWords()` function is defined (around line 328)
 2. **Add your word** to the `impWords` object using this pattern:
    ```typescript
    'wordname': imp.jsf((arg1, arg2, ...) => {
