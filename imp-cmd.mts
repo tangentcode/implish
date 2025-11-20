@@ -2,7 +2,7 @@
 import { ImpT } from "./imp-core.mjs";
 import { ImpLoader, lexerTable, TokT } from "./imp-load.mjs";
 import { impShow } from "./imp-show.mjs";
-import { impEval, impWords, setInputProvider } from "./imp-eval.mjs";
+import { impEval, impWords, setInputProvider, resetWords } from "./imp-eval.mjs";
 import { parsePartialPath, reconstructImplishPath } from "./lib-file.mjs";
 import { highlightCode } from "./imp-highlight.mjs";
 import * as readline from "readline";
@@ -149,6 +149,14 @@ async function quietRepl() {
 
   // Process lines without prompting
   for await (const line of lineIterator) {
+    const trimmed = line.trim()
+    if (trimmed === '/reset') {
+      il = new ImpLoader()
+      resetWords()
+      console.log('Ready.')
+      continue
+    }
+
     try {
       il.send(line)
       let r = il.read()
@@ -347,6 +355,15 @@ async function interactiveRepl() {
   while (true) {
     const { value: line, done } = await lineIterator.next();
     if (done) break;
+
+    const trimmed = line.trim()
+    if (trimmed === '/reset') {
+      il = new ImpLoader()
+      resetWords()
+      console.log('Ready.')
+      rl.prompt()
+      continue
+    }
 
     try {
       il.send(line)

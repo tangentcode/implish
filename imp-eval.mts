@@ -50,6 +50,11 @@ const foldIdentities: Record<string, number> = {
 // Create and export the word dictionary
 export let impWords: Record<string, ImpVal> = createImpWords()
 
+// Reset the word dictionary to built-ins only
+export function resetWords() {
+  impWords = createImpWords()
+}
+
 // Scan AST for implicit parameters x, y, z to determine function arity
 // Does NOT scan inside nested curly brace functions
 function scanArity(body: ImpVal[]): number {
