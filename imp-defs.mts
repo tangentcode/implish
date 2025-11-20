@@ -298,6 +298,12 @@ function fromArray(items: ImpVal[], wasString: boolean, attrs?: any): ImpVal {
     return ImpC.str(str)
   }
 
+  // If original was a list (attrs provided), keep it as a list to avoid
+  // collapsing symbols into a SYMs strand.
+  if (attrs !== undefined) {
+    return imp.lst(attrs, items)
+  }
+
   // Try to preserve vector types
   const allInts = items.every(item => item[0] === ImpT.INT)
   const allNums = items.every(item => item[0] === ImpT.NUM)
@@ -1901,7 +1907,11 @@ export function createImpWords(): Record<string, ImpVal> {
       const [items, _] = toArray(x)
 
       for (let i = 0; i < items.length; i++) {
-        const key = impShow(items[i])
+        const item = items[i]
+        // Use a stable key that preserves single backtick for backtick symbols
+        const key = (ImpQ.isSym(item) && item[1].kind === SymT.BQT)
+          ? ((item[2] as symbol).description ?? '')
+          : impShow(item)
         if (!groups.has(key)) groups.set(key, [])
         groups.get(key)!.push(i)
       }

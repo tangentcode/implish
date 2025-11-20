@@ -291,16 +291,20 @@ function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
       const arity = getArity(resolved)
 
       // Check if this is PREFIX (no noun left argument available)
-      // When going right-to-left, check if there's a noun to the LEFT
+      // Look left (until a separator) for ANY noun (verbs don't block)
       let hasLeftArg = false
-      if (i > 0) {
-        const leftItem = items[i - 1]
-        if (leftItem[0] !== ImpT.SEP) {
-          // Check if left item is a noun (not a verb)
-          const leftVal = resolveSymbol(leftItem, dict)
-          const leftResolved = leftVal || leftItem
-          hasLeftArg = !isVerb(leftResolved)
+      for (let j = i - 1; j >= 0; j--) {
+        const leftItem = items[j]
+        if (leftItem[0] === ImpT.SEP) break
+
+        const leftVal = resolveSymbol(leftItem, dict)
+        const leftResolved = leftVal || leftItem
+        if (!isVerb(leftResolved)) {
+          hasLeftArg = true
+          break
         }
+        // If it's a verb, keep scanning farther left for a noun
+        continue
       }
 
       if (!hasLeftArg && arity >= 1) {
@@ -373,12 +377,57 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
       // Arity-2 verbs are INFIX operators: a op b → op[a; b]
       if (arity === 2 && availableArgs > 0 && hasAhead) {
         const leftArg = result.pop()!
-        const rightArg = items[i + 1]
+        let rightArg = items[i + 1]
+        let consume = 2
+
+        // If right token is a monadic verb, eagerly apply it prefix-style to following nouns
+        // so expressions like "1 + 2 * ! 10" become "*[+[1; 2]; ![10]]"
+        const rightVal = resolveSymbol(rightArg, dict)
+        const rightResolved = rightVal || rightArg
+        if (isVerb(rightResolved) && getArity(rightResolved) === 1 && i + 2 < items.length) {
+          const args: ImpVal[] = []
+          let j = i + 2
+          while (j < items.length) {
+            const next = items[j]
+            if (next[0] === ImpT.SEP) break
+
+            const nextVal = resolveSymbol(next, dict)
+            const nextResolved = nextVal || next
+            if (isVerb(nextResolved)) break
+
+            // Unwrap strands for arguments (match postfix collection behavior)
+            if (next[0] === ImpT.INTs || next[0] === ImpT.NUMs) {
+              const nums = next[2] as number[]
+              for (const num of nums) {
+                args.push(next[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
+              }
+            } else if (next[0] === ImpT.SYMs) {
+              const syms = next[2] as symbol[]
+              for (const sym of syms) {
+                args.push(ImpC.sym(sym, SymT.BQT))
+              }
+            } else {
+              args.push(next)
+            }
+            j++
+          }
+
+          if (args.length > 0) {
+            const verbName = (rightArg[2] as symbol).description || '?'
+            const argList: ImpVal[] = []
+            for (let k = 0; k < args.length; k++) {
+              if (k > 0) argList.push(ImpC.sep(';'))
+              argList.push(args[k])
+            }
+            rightArg = imp.lst({open: verbName + '[', close: ']'}, argList)
+            consume = 2 + args.length
+          }
+        }
 
         const verbName = (item[2] as symbol).description || '?'
         const mexpr = imp.lst({open: verbName + '[', close: ']'}, [leftArg, ImpC.sep(';'), rightArg])
         result.push(mexpr)
-        i += 2
+        i += consume
         continue
       }
 

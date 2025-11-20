@@ -572,7 +572,7 @@ nil!
 [x y x y x]
 #+end_src
 
-* SKIP rev : rev (reverse)
+* TEST rev : rev (reverse)
 #+begin_src imp
 > rev 1 2 3 4
 4 3 2 1
@@ -816,6 +816,16 @@ The parser transforms infix chains left-to-right, creating nested M-expressions 
 
 The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10 → ![10]), then infix/postfix.
 
+* TEST imparse-postfix-left-noun : imparse: postfix verbs with noun on the left
+#+begin_src imp
+> imparse '[ord "hello" - 32 chr]
+chr[-[ord["hello"] ; 32]]
+> imparse '["hello" ord - 32 chr]
+chr[-[ord["hello"] ; 32]]
+#+end_src
+
+Monadic verbs should stay postfix even when a noun appears to their left; both forms parse identically.
+
 * TEST imparse-ast-skip-comma : imparse: AST handles comma threading
 #+begin_src imp
 > imparse '[2, + 3]
@@ -1033,3 +1043,23 @@ Alice
 > b
 "second"
 #+end_src
+* TEST imparse-prefix-precedence : imparse: prefix verbs bind tighter than infix
+#+begin_src imp
+> imparse '[1 + 2 * ! 10]
+*[+[1 ; 2] ; ![10]]
+#+end_src
+
+Prefix verbs should bind to their right argument even when an infix verb sits to their left.
+* TEST paren-infix-prefix : parentheses with prefix inside
+#+begin_src imp
+> (1 + 2 * ! 10)
+0 3 6 9 12 15 18 21 24 27
+#+end_src
+
+* TEST imparse-infix-monadic-right : infix with monadic verb on the right
+#+begin_src imp
+> imparse '[1 + 2 * ! 10]
+*[+[1 ; 2] ; ![10]]
+#+end_src
+
+An infix verb with a monadic verb on the right should apply that verb to its arguments before forming the infix M-expression.
