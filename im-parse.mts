@@ -395,19 +395,26 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
             const nextResolved = nextVal || next
             if (isVerb(nextResolved)) break
 
-            // Unwrap strands for arguments (match postfix collection behavior)
-            if (next[0] === ImpT.INTs || next[0] === ImpT.NUMs) {
-              const nums = next[2] as number[]
-              for (const num of nums) {
-                args.push(next[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
-              }
-            } else if (next[0] === ImpT.SYMs) {
-              const syms = next[2] as symbol[]
-              for (const sym of syms) {
-                args.push(ImpC.sym(sym, SymT.BQT))
-              }
-            } else {
+            // For monadic functions on the right of infix, keep strands intact
+            const rightArity = getArity(rightResolved)
+            if (rightArity === 1) {
+              // Keep strands as single units for monadic functions
               args.push(next)
+            } else {
+              // Unwrap strands for arguments (match postfix collection behavior)
+              if (next[0] === ImpT.INTs || next[0] === ImpT.NUMs) {
+                const nums = next[2] as number[]
+                for (const num of nums) {
+                  args.push(next[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
+                }
+              } else if (next[0] === ImpT.SYMs) {
+                const syms = next[2] as symbol[]
+                for (const sym of syms) {
+                  args.push(ImpC.sym(sym, SymT.BQT))
+                }
+              } else {
+                args.push(next)
+              }
             }
             j++
           }
@@ -447,20 +454,27 @@ function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
           const nextResolved = nextVal || nextItem
           if (isVerb(nextResolved)) break
 
-          // Unwrap strands when collecting as function arguments
-          // This allows: 5 ! 20 30 → ![5; 20; 30] instead of ![5; 20 30]
-          if (nextItem[0] === ImpT.INTs || nextItem[0] === ImpT.NUMs) {
-            const nums = nextItem[2] as number[]
-            for (const num of nums) {
-              args.push(nextItem[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
-            }
-          } else if (nextItem[0] === ImpT.SYMs) {
-            const syms = nextItem[2] as symbol[]
-            for (const sym of syms) {
-              args.push(ImpC.sym(sym, SymT.BQT))  // Unwrapped syms from strand are backtick
-            }
-          } else {
+          // For arity-1 functions, keep strands as single units
+          // For variadic or higher-arity functions, unwrap strands into separate args
+          if (arity === 1 || arity === -1) {
+            // Keep strands intact for monadic functions
             args.push(nextItem)
+          } else {
+            // Unwrap strands when collecting as function arguments
+            // This allows: 5 ! 20 30 → ![5; 20; 30] instead of ![5; 20 30]
+            if (nextItem[0] === ImpT.INTs || nextItem[0] === ImpT.NUMs) {
+              const nums = nextItem[2] as number[]
+              for (const num of nums) {
+                args.push(nextItem[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
+              }
+            } else if (nextItem[0] === ImpT.SYMs) {
+              const syms = nextItem[2] as symbol[]
+              for (const sym of syms) {
+                args.push(ImpC.sym(sym, SymT.BQT))  // Unwrapped syms from strand are backtick
+              }
+            } else {
+              args.push(nextItem)
+            }
           }
           j++
         }

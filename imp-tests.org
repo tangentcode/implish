@@ -881,7 +881,7 @@ Chained assignments are right-associative: a: b: 99 becomes set[`a; set[`b; 99]]
 > imparse load "2 ! 10"
 ![2 ; 10]
 > imparse load "5 ! 20 30"
-![5 ; 20 ; 30]
+![5 ; 20 30]
 #+end_src
 
 The parser collects trailing nouns after postfix verbs. The evaluator will check arity and throw valence errors if needed.
