@@ -1066,7 +1066,13 @@ export class ImpEvaluator {
         // Handle curly braces as function definitions
         if (opener === '{') {
           let arity = scanArity(v)
-          return ImpC.ifn(arity, v)
+          // Extract leading string as docstring
+          let doc: string | undefined
+          if (v.length > 0 && v[0][0] === ImpT.STR) {
+            doc = v[0][2] as string
+            v = v.slice(1)
+          }
+          return ImpC.ifn(arity, v, doc)
         }
         if (opener.startsWith("`")) {
           // Backtick is quasiquotation - evaluate unquoted items

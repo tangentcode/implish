@@ -126,6 +126,31 @@ function completeWord(token: string): [string[], string] {
   return [matches, token]
 }
 
+function printHelp() {
+  console.log(`implish help
+  words         list all known words
+  ? \`name       help for a specific word
+  look \`name    show a word's definition
+
+tokens:
+  42            integer         1.5           number
+  "hello"       string          \`foo           quoted symbol
+  foo           word (looked up)
+  foo:          set-word        :foo          get-word
+  'foo          lit-word        .foo          message
+  %path/to      file            http://...    url
+  @ann          annotation      #tag          issue
+  /ref          refinement      ?err          error
+
+syntax:
+  x: 42         assign a value
+  f: {x + 1}    define a function (args: x, y, z)
+  f[10]         call a function
+  1 2 3         numeric strand (vector)
+  .: ... :.     comment
+  /reset        reset the interpreter`)
+}
+
 // Quiet mode REPL: simple line-by-line reading without readline
 async function quietRepl() {
   const rl = readline.createInterface({
@@ -154,6 +179,10 @@ async function quietRepl() {
       il = new ImpLoader()
       resetWords()
       console.log('Ready.')
+      continue
+    }
+    if (trimmed === '?') {
+      printHelp()
       continue
     }
 
@@ -197,9 +226,9 @@ function printBanner() {
   const resetColor = '\x1b[0m';
 
   if (isTerminal) {
-    console.log(`${bannerColor}implish${resetColor} (c) ${date} ${linkColor}http://implish.org${resetColor} (v:${gitHash}) | 'words' shows known words\n`);
+    console.log(`${bannerColor}implish${resetColor} (c) ${date} ${linkColor}http://implish.org${resetColor} (v:${gitHash}) | '?' for help\n`);
   } else {
-    console.log(`implish (c) ${date} http://implish.org (v:${gitHash}) | 'words' shows known words\n`);
+    console.log(`implish (c) ${date} http://implish.org (v:${gitHash}) | '?' for help\n`);
   }
 }
 
@@ -361,6 +390,11 @@ async function interactiveRepl() {
       il = new ImpLoader()
       resetWords()
       console.log('Ready.')
+      rl.prompt()
+      continue
+    }
+    if (trimmed === '?') {
+      printHelp()
       rl.prompt()
       continue
     }

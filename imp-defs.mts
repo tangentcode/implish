@@ -814,6 +814,42 @@ export function createImpWords(): Record<string, ImpVal> {
       // Return all defined word names as a SYMs vector
       return ImpC.syms(Object.keys(words).map(w => Symbol(w)))
     }, 0),
+    '?': imp.jsf(function(this: ImpEvaluator, x: ImpVal) {
+      // Help for a specific word
+      let name: string
+      if (ImpQ.isSym(x)) {
+        name = x[2].description!
+      } else if (x[0] === ImpT.STR) {
+        name = x[2] as string
+      } else {
+        globalOutputProvider.writeLine("? expects a symbol or string")
+        return NIL
+      }
+      let w = this.words[name]
+      if (!w) {
+        globalOutputProvider.writeLine(`no such word: ${name}`)
+        return NIL
+      }
+      if (w[0] === ImpT.JSF) {
+        let a = (w[1] as any)
+        let doc = a.doc as string | undefined
+        let arity = a.arity as number
+        if (doc) globalOutputProvider.writeLine(doc)
+        else globalOutputProvider.writeLine(`${name} — built-in function (no description)`)
+        globalOutputProvider.writeLine(`  arity: ${arity < 0 ? 'variadic' : arity}`)
+      } else if (w[0] === ImpT.IFN) {
+        let a = (w[1] as any)
+        let doc = a.doc as string | undefined
+        let arity = a.arity as number
+        if (doc) globalOutputProvider.writeLine(doc)
+        else globalOutputProvider.writeLine(`${name} — user-defined function (no description)`)
+        globalOutputProvider.writeLine(`  arity: ${arity}`)
+        globalOutputProvider.writeLine(`  use 'look' to see definition`)
+      } else {
+        globalOutputProvider.writeLine(`${name} — ${w[0]} value`)
+      }
+      return NIL
+    }, 1),
     'imparse': imp.jsf((x) => imparse(x, words), 1),
 
     // Dictionary operations
@@ -2931,6 +2967,68 @@ export function createImpWords(): Record<string, ImpVal> {
   for (const [name, value] of Object.entries(words)) {
     if (value[0] === ImpT.JSF) {
       (value as ImpJsf)[1].sourceName = name
+    }
+  }
+
+  // Add docstrings to built-in words
+  const docs: Record<string, string> = {
+    '+':      'add two values (element-wise for vectors)',
+    '-':      'subtract two values (element-wise for vectors)',
+    '*':      'multiply two values (element-wise for vectors)',
+    '%':      'integer division (element-wise for vectors)',
+    '^':      'exponentiation (element-wise for vectors)',
+    '<':      'less than (returns 0 or 1)',
+    '>':      'greater than (returns 0 or 1)',
+    '<=':     'less than or equal (returns 0 or 1)',
+    '>=':     'greater than or equal (returns 0 or 1)',
+    '=':      'equal (returns 0 or 1)',
+    '~=':     'not equal (returns 0 or 1)',
+    '!':      'range/iota — ! n produces 0 1 2 ... n-1',
+    'echo':   'print a value to the console, returns nil',
+    'show':   'convert a value to its string representation',
+    'words':  'list all defined word names',
+    '?':      'show help for a word — ? `name',
+    'load':   'parse implish code from a string or file',
+    'look':   'show the definition of a word — look \'name',
+    'part':   'get the part of speech (V, N, etc.) of a value',
+    'type?':  'get the type of a value as a type! symbol',
+    'rd':     'read a file or URL, returns string content',
+    'wr':     'write string content to a file — wr %path content',
+    'e?':     'check if a file exists (returns 0 or 1)',
+    'rm':     'remove a file',
+    'rln':    'read a line from stdin',
+    'len':    'length of a list, vector, or string',
+    'rev':    'reverse a list, vector, or string',
+    'first':  'get the first element of a list, vector, or string',
+    'tk':     'take n items from a list/vector/string (cycles)',
+    'at':     'index into a list, vector, string, or dictionary',
+    'get':    'look up a word by quoted symbol — get `name',
+    'set':    'bind a word to a value — set[`name; value]',
+    'keys':   'get the keys of a dictionary as symbols',
+    'vals':   'get the values of a dictionary as a list',
+    'put':    'set a key in a dictionary (returns new dict)',
+    'ite':    'if-then-else — ite (cond) [then] [else]',
+    'while':  'while loop — while (cond) [body]',
+    'each':   'apply a function to each element — each[f; xs]',
+    'each2':  'apply a dyadic function pairwise — each2[f; xs; ys]',
+    'min':    'minimum of two values (element-wise for vectors)',
+    'max':    'maximum of two values (element-wise for vectors)',
+    'negate': 'negate a number (element-wise for vectors)',
+    'sqrt':   'square root (element-wise for vectors)',
+    'floor':  'floor a number, or lowercase a string',
+    'string': 'convert a value to a string',
+    'not':    'logical not (element-wise for vectors)',
+    'chr':    'convert integer code point(s) to a string',
+    'ord':    'convert string characters to code point(s)',
+    'hex':    'convert integer to hexadecimal string',
+    'oct':    'convert integer to octal string',
+    'xmls':   'convert a value to its XML representation',
+    'imparse':'parse implish with infix/prefix transformation',
+  }
+  for (const [name, doc] of Object.entries(docs)) {
+    let w = words[name]
+    if (w && w[0] === ImpT.JSF) {
+      (w as ImpJsf)[1].doc = doc
     }
   }
 

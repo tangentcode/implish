@@ -49,8 +49,8 @@ export enum SymT {
 export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
 export type ImpDctA = { /* metadata for dictionaries */ }
-export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string}
-export type ImpIfnA = {arity:number, body:ImpVal[]}
+export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string, doc?:string}
+export type ImpIfnA = {arity:number, body:ImpVal[], doc?:string}
 
 // Individual types for each ImpVal variant
 export type ImpTop = [ImpT.TOP, null, ImpVal[]]
@@ -105,7 +105,7 @@ export const ImpC = {
   nums(x:number[]):ImpNums { return [ImpT.NUMs, null, x]},
   syms(x:symbol[]):ImpSyms { return [ImpT.SYMs, null, x]},
   dct(x?:Map<string, ImpVal>):ImpDct { return [ImpT.DCT, null, x || new Map()]},
-  ifn(arity:number, body:ImpVal[]):ImpIfn { return [ImpT.IFN, {arity, body}, body]},
+  ifn(arity:number, body:ImpVal[], doc?:string):ImpIfn { return [ImpT.IFN, {arity, body, doc}, body]},
 }
 
 export enum ImpP {  // parts of speech
