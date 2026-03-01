@@ -388,6 +388,31 @@ function wordClass(x:ImpVal) {
       case ImpT.NIL: return ImpP.N
       default: throw "[wordClass] invalid argument:" + x }}
 
+function printHelp(out: OutputProvider) {
+  out.writeLine(`implish help
+  words         list all known words
+  ? \`name       help for a specific word
+  look \`name    show a word's definition
+
+tokens:
+  42            integer         1.5           number
+  "hello"       string          \`foo           quoted symbol
+  foo           word (looked up)
+  foo:          set-word        :foo          get-word
+  'foo          lit-word        .foo          message
+  %path/to      file            http://...    url
+  @ann          annotation      #tag          issue
+  /ref          refinement      ?err          error
+
+syntax:
+  x: 42         assign a value
+  f: {x + 1}    define a function (args: x, y, z)
+  f[10]         call a function
+  1 2 3         numeric strand (vector)
+  :[\`a 1; \`b 2] dictionary literal
+  .: ... :.     comment`)
+}
+
 // Export the word definitions
 export function createImpWords(): Record<string, ImpVal> {
   const words: Record<string, ImpVal> = {
@@ -721,7 +746,13 @@ export function createImpWords(): Record<string, ImpVal> {
         x = ImpC.str(await readContent(x))}
       return load(x as any)}, 1),
     'xmls': imp.jsf(x=>ImpC.str(toXml(x) as string), 1),
-    'look': imp.jsf(x=>ImpC.str(impShow(words[(x[2] as string)] ?? NIL)), 1),
+    'look': imp.jsf(function(this: ImpEvaluator, x: ImpVal) {
+      let name: string
+      if (ImpQ.isSym(x)) name = x[2].description!
+      else if (x[0] === ImpT.STR) name = x[2] as string
+      else throw "look expects a symbol or string"
+      return ImpC.str(impShow(this.words[name] ?? NIL))
+    }, 1),
     'eval': imp.jsf(x=>eval(x[2] as string), 1),
     'part': imp.jsf(x=>{
       // If x is a string or symbol, look up the word in impWords
@@ -814,8 +845,14 @@ export function createImpWords(): Record<string, ImpVal> {
       // Return all defined word names as a SYMs vector
       return ImpC.syms(Object.keys(words).map(w => Symbol(w)))
     }, 0),
-    '?': imp.jsf(function(this: ImpEvaluator, x: ImpVal) {
-      // Help for a specific word
+    '?': imp.jsf(function(this: ImpEvaluator) {
+      // If no argument follows, print general help
+      if (this.atEnd()) {
+        printHelp(globalOutputProvider)
+        return NIL
+      }
+      // Otherwise consume next item as the word to look up
+      let x = this.nextItem()
       let name: string
       if (ImpQ.isSym(x)) {
         name = x[2].description!
@@ -849,7 +886,7 @@ export function createImpWords(): Record<string, ImpVal> {
         globalOutputProvider.writeLine(`${name} — ${w[0]} value`)
       }
       return NIL
-    }, 1),
+    }, 0),
     'imparse': imp.jsf((x) => imparse(x, words), 1),
 
     // Dictionary operations

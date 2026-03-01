@@ -126,31 +126,6 @@ function completeWord(token: string): [string[], string] {
   return [matches, token]
 }
 
-function printHelp() {
-  console.log(`implish help
-  words         list all known words
-  ? \`name       help for a specific word
-  look \`name    show a word's definition
-
-tokens:
-  42            integer         1.5           number
-  "hello"       string          \`foo           quoted symbol
-  foo           word (looked up)
-  foo:          set-word        :foo          get-word
-  'foo          lit-word        .foo          message
-  %path/to      file            http://...    url
-  @ann          annotation      #tag          issue
-  /ref          refinement      ?err          error
-
-syntax:
-  x: 42         assign a value
-  f: {x + 1}    define a function (args: x, y, z)
-  f[10]         call a function
-  1 2 3         numeric strand (vector)
-  .: ... :.     comment
-  /reset        reset the interpreter`)
-}
-
 // Quiet mode REPL: simple line-by-line reading without readline
 async function quietRepl() {
   const rl = readline.createInterface({
@@ -181,11 +156,6 @@ async function quietRepl() {
       console.log('Ready.')
       continue
     }
-    if (trimmed === '?') {
-      printHelp()
-      continue
-    }
-
     try {
       il.send(line)
       let r = il.read()
@@ -393,12 +363,6 @@ async function interactiveRepl() {
       rl.prompt()
       continue
     }
-    if (trimmed === '?') {
-      printHelp()
-      rl.prompt()
-      continue
-    }
-
     try {
       il.send(line)
       let r = il.read()
