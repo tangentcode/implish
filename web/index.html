@@ -48,9 +48,8 @@
     .banner {
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 24px;
-      padding: 12px 16px;
+      justify-content: space-between;
+      padding: 12px 0;
       margin-bottom: 16px;
       position: relative;
     }
@@ -59,6 +58,11 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      background: #2b2b2b;
+      border: 1px solid #393939;
+      border-radius: 8px;
+      padding: 10px 14px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
     }
     .logo-badge img {
       width: 150px;
@@ -71,16 +75,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      position: relative;
     }
     .banner-content .hint {
       margin: 0;
-    }
-    .banner-content .github-link.github-mobile {
-      position: absolute;
-      right: 0;
-      top: 50%;
-      transform: translateY(-50%);
     }
     .repl-shell-wrapper {
       flex: 1;
@@ -103,6 +100,7 @@
       margin-bottom: 12px;
     }
     .github-link {
+      flex-shrink: 0;
       display: inline-flex;
       align-items: center;
       gap: 6px;
@@ -116,9 +114,6 @@
       height: 18px;
       fill: currentColor;
       display: block;
-    }
-    .github-link.github-mobile {
-      display: none;
     }
     .github-link:hover {
       color: #89adff;
@@ -247,9 +242,6 @@
     .token-operator {
       color: #ffc66d;
     }
-    .token-keyword {
-      color: #cc7832;
-    }
     .token-identifier {
       color: #a9b7c6;
     }
@@ -261,7 +253,13 @@
     .token-brace {
       color: #f97c7c;
     }
-    .token-symbol {
+    .token-set {
+      color: #e0e4ea;
+    }
+    .token-get {
+      color: #b18bb1;
+    }
+    .token-lit {
       color: #b18bb1;
     }
     .token-backtick {
@@ -269,6 +267,43 @@
     }
     .token-file {
       color: #87c38a;
+    }
+    .token-url {
+      color: #87c38a;
+      text-decoration: underline;
+    }
+    .token-msg {
+      color: #7eb8da;
+    }
+    .token-msg2 {
+      color: #7eb8da;
+    }
+    .token-kw {
+      color: #7eb8da;
+    }
+    .token-ann {
+      color: #bbb529;
+    }
+    .token-ish {
+      color: #bbb529;
+    }
+    .token-typ {
+      color: #c57bdb;
+    }
+    .token-err {
+      color: #ff6b68;
+    }
+    .token-refn {
+      color: #9cbf86;
+    }
+    .token-unq {
+      color: #e8bf6a;
+    }
+    .token-path {
+      color: #a9b7c6;
+    }
+    .token-sep {
+      color: #cc7832;
     }
     .input-placeholder {
       color: #5f6b7c;
@@ -295,15 +330,7 @@
       .banner {
         border-radius: 0;
         margin: 0 16px 8px;
-        justify-content: center;
         padding: 12px 0;
-      }
-      .github-link.github-mobile {
-        display: inline-flex;
-        position: absolute;
-        top: 50%;
-        right: 12px;
-        transform: translateY(-50%);
       }
       .banner-content {
         flex: unset;
@@ -359,19 +386,14 @@
       </div>
       <div class="banner-content">
         <div class="hint">
-          Type "words" to see the known words | "clear" to clear the console
-          <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link" aria-label="GitHub">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.758-1.333-1.758-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.238 1.84 1.238 1.07 1.834 2.807 1.304 3.492.997.108-.775.42-1.305.763-1.605-2.665-.3-5.467-1.334-5.467-5.93 0-1.31.47-2.382 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.838 1.235 1.91 1.235 3.22 0 4.61-2.807 5.628-5.48 5.922.431.37.815 1.102.815 2.222 0 1.604-.015 2.896-.015 3.286 0 .32.218.694.825.576C20.565 21.796 24 17.295 24 12c0-6.63-5.373-12-12-12Z"/>
-            </svg>
-          </a>
+          Type "?" for help | "clear" to clear the console
         </div>
-        <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link github-mobile" aria-label="GitHub">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.758-1.333-1.758-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.238 1.84 1.238 1.07 1.834 2.807 1.304 3.492.997.108-.775.42-1.305.763-1.605-2.665-.3-5.467-1.334-5.467-5.93 0-1.31.47-2.382 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.838 1.235 1.91 1.235 3.22 0 4.61-2.807 5.628-5.48 5.922.431.37.815 1.102.815 2.222 0 1.604-.015 2.896-.015 3.286 0 .32.218.694.825.576C20.565 21.796 24 17.295 24 12c0-6.63-5.373-12-12-12Z"/>
-          </svg>
-        </a>
       </div>
+      <a href="https://github.com/tangentstorm/implish" target="_blank" class="github-link" aria-label="GitHub">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.26.82-.577 0-.285-.01-1.04-.016-2.04-3.338.726-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.758-1.333-1.758-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.238 1.84 1.238 1.07 1.834 2.807 1.304 3.492.997.108-.775.42-1.305.763-1.605-2.665-.3-5.467-1.334-5.467-5.93 0-1.31.47-2.382 1.236-3.22-.124-.303-.536-1.523.117-3.176 0 0 1.008-.323 3.3 1.23a11.5 11.5 0 0 1 6 0c2.29-1.553 3.297-1.23 3.297-1.23.655 1.653.243 2.873.12 3.176.77.838 1.235 1.91 1.235 3.22 0 4.61-2.807 5.628-5.48 5.922.431.37.815 1.102.815 2.222 0 1.604-.015 2.896-.015 3.286 0 .32.218.694.825.576C20.565 21.796 24 17.295 24 12c0-6.63-5.373-12-12-12Z"/>
+        </svg>
+      </a>
     </div>
     <div class="repl-shell-wrapper">
       <div id="repl-shell">
@@ -402,11 +424,6 @@
     const logoEl = document.getElementById('implish-logo')
     const inputHighlightEl = document.getElementById('input-highlight')
 
-    const KEYWORDS = new Set([
-      'rev', 'drop', 'take', 'each', 'map', 'sum', 'prod', 'min', 'max',
-      'abs', 'floor', 'ceil', 'not', 'and', 'or', 'if', 'then', 'else'
-    ])
-
     function escapeHtml(str) {
       return str
         .replace(/&/g, '&amp;')
@@ -416,6 +433,38 @@
         .replace(/'/g, '&#39;')
     }
 
+    // Token rules: [regex, cssClass] — order matters (most specific first)
+    const tokenRules = [
+      [/^((?!\n)\s)+/s,                              null],           // whitespace (preserve as-is)
+      [/^\.:/,                                        'comment'],     // comment opener (handled specially)
+      [/^-?\d+\.\d+([eE][+-]?\d+)?/,                'number'],      // float
+      [/^-?\d+[eE][+-]?\d+/,                         'number'],      // scientific
+      [/^0N\b/,                                       'number'],      // null integer
+      [/^-?\d+/,                                      'number'],      // integer
+      [/^"(?:\\.|[^"\\])*"?/,                         'string'],      // string
+      [/^,[^\s\[\](){}:;!,]+/,                        'unq'],         // unquote: ,foo
+      [/^[;]/,                                        'sep'],         // semicolon separator
+      [/^https?:\/\/[^\s\[\](){}]+/,                 'url'],         // url
+      [/^\.[^\s\[\](){}:;!]+:/,                      'kw'],          // keyword: .foo:
+      [/^![^\s\[\](){}:;!]+:/,                       'kw'],          // keyword2: !foo:
+      [/^[^\s\[\](){}:;!]+:/,                        'set'],         // set-word: foo:
+      [/^![^\s\[\](){}:;!]+/,                        'msg2'],        // message2: !foo
+      [/^[^\s\[\](){}:;!]+!/,                        'typ'],         // type: foo!
+      [/^#[^\s\[\](){}:;!]+/,                        'ish'],         // issue: #foo
+      [/^%[^\s\[\](){}:;!]+/,                        'file'],        // file: %foo
+      [/^[^\s\[\](){}:;!%@#'.`]+\/[^\s\[\](){}:;!]+/, 'path'],     // path: foo/bar
+      [/^\/[^\s\[\](){}:;!]+/,                       'refn'],        // refinement: /foo
+      [/^'[^\s\[\](){}:;!]+/,                        'lit'],         // lit-word: 'foo
+      [/^:[^\s\[\](){}:;!]+/,                        'get'],         // get-word: :foo
+      [/^`[^\s\[\](){}:;!`]*/,                       'backtick'],    // backtick: `foo
+      [/^@[^\s\[\](){}:;!]+/,                        'ann'],         // annotation: @foo
+      [/^\.[^\s\[\](){}:;!]+/,                       'msg'],         // message: .foo
+      [/^\?[^\s\[\](){}:;!]+/,                       'err'],         // error: ?foo
+      [/^[\[\]{}()]/,                                 'brace'],       // brackets
+      [/^[+\-*%^=<>~]+/,                             'operator'],    // operators
+      [/^[^\s\[\](){}`;:]+/,                         'identifier'],  // catchall word
+    ]
+
     function highlightCode(code) {
       let result = ''
       let i = 0
@@ -424,104 +473,47 @@
         const rest = code.slice(i)
         const char = rest[0]
 
-        if (char === '\t' || char === ' ') {
-          result += char === '\t' ? '&nbsp;&nbsp;' : ' '
+        // Tabs
+        if (char === '\t') {
+          result += '&nbsp;&nbsp;'
           i++
           continue
         }
 
+        // Comment: .: ... :.
         if (char === '.' && rest[1] === ':') {
           const end = rest.indexOf(':.', 2)
           if (end !== -1) {
             const comment = rest.slice(0, end + 2)
             result += `<span class="token-comment">${escapeHtml(comment)}</span>`
             i += comment.length
-            continue
           } else {
-            // Unclosed comment - highlight to end of line
-            const comment = rest
-            result += `<span class="token-comment">${escapeHtml(comment)}</span>`
-            i += comment.length
-            continue
+            result += `<span class="token-comment">${escapeHtml(rest)}</span>`
+            i += rest.length
           }
-        }
-
-        // Handle file paths: %/path/to/file
-        if (char === '%') {
-          const fileMatch = rest.match(/^%[^\s\[\]\{\}\(\)]+/)
-          if (fileMatch) {
-            result += `<span class="token-file">${escapeHtml(fileMatch[0])}</span>`
-            i += fileMatch[0].length
-            continue
-          }
-        }
-
-        // Handle backtick symbols: `sym
-        if (char === '`') {
-          const symMatch = rest.match(/^`[^\s\[\]\{\}\(\)]*/)
-          if (symMatch) {
-            result += `<span class="token-backtick">${escapeHtml(symMatch[0])}</span>`
-            i += symMatch[0].length
-            continue
-          }
-        }
-
-        // Handle single-quote symbols: 'sym
-        if (char === "'") {
-          const symMatch = rest.match(/^'[^\s\[\]\{\}\(\)]*/)
-          if (symMatch) {
-            result += `<span class="token-symbol">${escapeHtml(symMatch[0])}</span>`
-            i += symMatch[0].length
-            continue
-          }
-        }
-
-        // Handle get-words: :word
-        if (char === ':' && rest.length > 1 && rest[1].match(/[A-Za-z_]/)) {
-          const getMatch = rest.match(/^:[A-Za-z_][\w-]*/)
-          if (getMatch) {
-            result += `<span class="token-symbol">${escapeHtml(getMatch[0])}</span>`
-            i += getMatch[0].length
-            continue
-          }
-        }
-
-        const stringMatch = rest.match(/^"(?:\\.|[^"\\])*"?/)
-        if (stringMatch && stringMatch[0].length > 1) {
-          result += `<span class="token-string">${escapeHtml(stringMatch[0])}</span>`
-          i += stringMatch[0].length
           continue
         }
 
-        const numberMatch = rest.match(/^\d+(?:\.\d+)?/)
-        if (numberMatch) {
-          result += `<span class="token-number">${escapeHtml(numberMatch[0])}</span>`
-          i += numberMatch[0].length
-          continue
+        // Try each token rule
+        let matched = false
+        for (const [rx, cls] of tokenRules) {
+          const m = rx.exec(rest)
+          if (m) {
+            if (cls === null) {
+              // Whitespace — pass through
+              result += escapeHtml(m[0])
+            } else if (cls === 'comment') {
+              // Skip — handled above
+              continue
+            } else {
+              result += `<span class="token-${cls}">${escapeHtml(m[0])}</span>`
+            }
+            i += m[0].length
+            matched = true
+            break
+          }
         }
-
-        const wordMatch = rest.match(/^[A-Za-z_][\w-]*/)
-        if (wordMatch) {
-          const token = wordMatch[0]
-          const className = KEYWORDS.has(token) ? 'token-keyword' : 'token-identifier'
-          result += `<span class="${className}">${escapeHtml(token)}</span>`
-          i += token.length
-          continue
-        }
-
-        const operatorMatch = rest.match(/^[+\-*/^=<>!?,]+/)
-        if (operatorMatch) {
-          result += `<span class="token-operator">${escapeHtml(operatorMatch[0])}</span>`
-          i += operatorMatch[0].length
-          continue
-        }
-
-        const braceMatch = rest.match(/^[\[\]\{\}\(\)]/)
-        if (braceMatch) {
-          result += `<span class="token-brace">${escapeHtml(braceMatch[0])}</span>`
-          i += braceMatch[0].length
-          continue
-        }
+        if (matched) continue
 
         result += escapeHtml(char)
         i++
