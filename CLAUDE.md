@@ -192,12 +192,35 @@ x: 42
 `[1 + ,x]       .: evaluates to [1 + 42] :.
 ```
 
+### Web Build and Deployment
+
+The browser version of implish is served at **implish.org**.
+
+- Source: `web/` directory (entry point: `web/index.html`)
+- Build output: `dist-web/` directory
+- Build tool: Vite (configured in `vite.config.js`)
+
+```bash
+# Build the web version (outputs to dist-web/)
+npx vite build
+
+# Dev server with hot reload
+npm run dev
+
+# Preview the built site locally
+npm run preview
+```
+
+The Vite build automatically runs `npm run build` (TypeScript compilation) first via the `ensureCoreBuild` plugin, then bundles everything for the browser.
+
+**Deployment**: `dist-web/` is the live site served at implish.org. After running `npx vite build`, deploy the contents of `dist-web/` to the server.
+
 ### TypeScript Details
 
 - Uses ES2022 modules (`.mts` extension)
 - Strict TypeScript with full type checking
 - All source files in root directory
-- Output goes to `dist/` directory
+- Output goes to `dist/` directory (Node.js), `dist-web/` (browser)
 - Discriminated unions for type safety (check `x[0]` for ImpT)
 - Async/await throughout evaluation pipeline
 
