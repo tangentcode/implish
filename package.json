@@ -9,7 +9,8 @@
     "watch": "tsc --watch",
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "repl": "node dist/imp-cmd.mjs"
   },
   "repository": {
     "type": "git",
@@ -24,6 +25,7 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@types/node": "^24.8.1",
-    "vite": "^7.2.2"
+    "vite": "^7.2.2",
+    "typescript": "^5.6.3"
   }
 }
