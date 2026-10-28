@@ -14,14 +14,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tangentstorm/implish.git"
+    "url": "git+https://github.com/tangentcode/implish.git"
   },
   "author": "tangentstorm <michal.wallace@gmail.com>",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/tangentstorm/implish/issues"
+    "url": "https://github.com/tangentcode/implish/issues"
   },
-  "homepage": "https://github.com/tangentstorm/implish#readme",
+  "homepage": "https://github.com/tangentcode/implish#readme",
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "@types/node": "^24.8.1",
