@@ -172,3 +172,29 @@ rev[]
 
 =rev[]= and ={x + 1}[]= are how a bare verb shows (same as typing =rev=
 alone); before the fix these were parsed as =rev[;]= and =f[;]=.
+
+** TEST comma-only-statement : a statement of only commas is empty, like `;;`
+# Codex finding on #12: these threw a TypeError in transformCommas.
+#+begin_src
+> [1; ,; 2]
+[1, 2]
+> [1; ; 2]
+[1, 2]
+> value "1; ,; 2"
+2
+> 1; , ,; 2
+2
+> [1; ,]
+[1]
+> [,; 2]
+[2]
+> [,]
+[]
+> [, ,]
+[]
+> (1; ,; 2)
+2
+> ,
+> 3
+3
+#+end_src

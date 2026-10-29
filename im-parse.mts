@@ -521,6 +521,9 @@ function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
     segments.push(currentSegment)
   }
 
+  // Only commas: nothing to thread or pass, so the statement is empty.
+  if (segments.length === 0) return []
+
   if (segments.length === 1) {
     // No commas, just transform normally
     return transformNoComma(segments[0], dict)
