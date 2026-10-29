@@ -1,9 +1,9 @@
-#+title: implish regression tests
+#+title: implish regression tests: issue #8
 #+tanco-format: 0.2
-#+name: implish-regressions
+#+name: implish-issue-8
 #+todo: TODO | DONE TEST
 
-Regression tests for fixed bugs. Run with =npm test=.
+Regression tests for tangentcode/implish#8. Run with =npm test=.
 Fixtures for multi-line programs live in =test/fixtures/=.
 
 * Issue #8: function application stops at expression separators

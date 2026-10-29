@@ -8,12 +8,14 @@
 // usage: node test/run-org-tests.mjs [file.org ...]   (default: all test files)
 
 import { spawnSync } from 'child_process'
-import { readFileSync } from 'fs'
+import { readFileSync, readdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 import * as path from 'path'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const DEFAULT_FILES = ['imp-tests.org', 'prim-tests.org', 'test/regressions.org']
+// regression tests: one test/issue-N.org file per fixed issue
+const DEFAULT_FILES = ['imp-tests.org', 'prim-tests.org',
+  ...readdirSync(path.join(root, 'test')).filter(f => f.endsWith('.org')).sort().map(f => 'test/' + f)]
 const files = process.argv.length > 2 ? process.argv.slice(2) : DEFAULT_FILES
 
 function parseTests(file) {
