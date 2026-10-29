@@ -21,12 +21,25 @@ What a deploy does, in order (any failure exits nonzero and stops):
    must not be inside the docroot.
 2. Builds. If the build fails or leaves no `dist-web/index.html`, it stops
    here and nothing on the server has been touched.
-3. Copies the live docroot to `DEPLOY_BACKUP_DIR/<UTC timestamp>`. It skips
-   this on the first deploy, when the docroot is missing or empty.
-4. Runs rsync `dist-web/` → docroot with `--delete --checksum --delay-updates`.
+3. Takes `DEPLOY_BACKUP_DIR/.lock` on the server and holds it until the
+   deploy ends, waiting up to `DEPLOY_LOCK_WAIT` seconds (default 60). A
+   manual `--rollback` takes the same lock, so it can't interleave with a CI
+   deploy. A held ssh session keeps the lock; if the script dies or the
+   connection drops, the lock is released.
+4. Copies the live docroot to `DEPLOY_BACKUP_DIR/<UTC timestamp>`, via a
+   `.tmp` copy that is renamed when complete. It skips this on the first
+   deploy, when the docroot is missing or empty. If the copy fails, the
+   partial `.tmp` is removed and the deploy stops before rsync. Stale `.tmp`
+   dirs from a killed run are removed on the next backup or prune.
+5. Runs rsync `dist-web/` → docroot with `--delete --checksum --delay-updates`.
    Files come out 644 and dirs 755. `/.well-known/` is never deleted, because
    certbot uses it.
-5. Prunes the backups down to the newest `DEPLOY_KEEP` (default 5).
+6. Prunes the backups down to the newest `DEPLOY_KEEP` (default 5).
+
+The server-side half (backup, prune, restore, drop) is `deploy/remote.sh`,
+which `bin/deploy` pipes to `bash` over ssh. Every `rm -rf` there checks
+that the name is exactly a backup timestamp (`^20[0-9]{6}T[0-9]{6}Z$`), so
+an empty or malformed name can't reach the backup dir itself.
 
 Rollback rsyncs a backup back over the docroot and then removes that backup,
 because the same tree is now live. The next `--rollback` therefore goes one
@@ -83,14 +96,25 @@ needs write access to the docroot and to its parent directory, or to wherever
    ```
    restrict ssh-ed25519 AAAA...contents-of-implish-deploy.pub... implish-deploy@github-actions
    ```
-4. Add the secret and variables to the repo:
+4. Create the `production` environment and limit it to main. Then store the
+   key and variables **in that environment, not as repository secrets**.
+   Branch PRs can read repository secrets, so a PR that edited the workflow
+   could deploy. An environment secret is only released to jobs running on
+   main.
+   - Settings → Environments → New environment → `production`.
+   - Deployment branches and tags → **Selected branches and tags** → add
+     the rule `main`. (Optional: tick "Allow administrators to bypass" off.)
    ```bash
-   gh secret   set DEPLOY_SSH_KEY --repo tangentcode/implish < implish-deploy
-   gh variable set DEPLOY_USER    --repo tangentcode/implish --body DEPLOYUSER
-   gh variable set DEPLOY_PATH    --repo tangentcode/implish --body /var/www/implish.org
+   gh secret   set DEPLOY_SSH_KEY --repo tangentcode/implish --env production < implish-deploy
+   gh variable set DEPLOY_USER    --repo tangentcode/implish --env production --body DEPLOYUSER
+   gh variable set DEPLOY_PATH    --repo tangentcode/implish --env production --body /var/www/implish.org
    ```
+   If a repo-level `DEPLOY_SSH_KEY` secret already exists, delete it:
+   `gh secret delete DEPLOY_SSH_KEY --repo tangentcode/implish`.
    You can commit `DEPLOY_USER`/`DEPLOY_PATH` to `deploy/deploy.conf`
    instead of setting the variables. Then delete the local private key.
+   Also protect `main` (no direct pushes; PRs merged by you), since
+   anything that lands on main gets deployed.
 5. Check it: Actions → "deploy implish.org" → Run workflow. You can also
    run `bin/deploy --dry-run` locally with the key loaded.
 
@@ -99,11 +123,24 @@ needs write access to the docroot and to its parent directory, or to wherever
 `.github/workflows/deploy.yml`:
 
 - **pull_request**: `npm run build` + `npm run test:deploy`. It never deploys.
-- **push to main**: runs the tests, then `bin/deploy`, then checks
-  `https://implish.org/` with curl.
-- **workflow_dispatch**: same as push. The optional `ref` input deploys any
-  branch, tag or SHA, so a PR can go live on request. Roll back by running
-  `bin/deploy --rollback` locally, or by dispatching an older ref.
+- **push to main**: runs the tests, then `bin/deploy` in the `production`
+  environment, then checks `https://implish.org/` with curl.
+- **workflow_dispatch** (main only): same as push. The optional `ref`
+  input (SHA, tag or branch) must already be merged into main;
+  `deploy/select-ref.sh` checks this with `git merge-base --is-ancestor`.
+  So the input can redeploy or roll back to an older merged commit, but it
+  can't put an unmerged PR live. To get a PR live, merge it. Roll back by
+  dispatching an older merged SHA, or with `bin/deploy --rollback` from a
+  machine that has the key.
+
+Three layers keep the key away from unmerged code:
+
+1. The `production` environment only releases `DEPLOY_SSH_KEY` to jobs on
+   main. This is the real guarantee: a PR branch can rewrite the workflow
+   but still can't read the secret.
+2. The deploy job has `if: github.ref == 'refs/heads/main'` and never runs
+   on `pull_request`.
+3. `select-ref.sh` rejects refs that aren't merged into main.
 
 Deploys run one at a time (concurrency group `deploy-implish-org`, no
 cancellation). Until `DEPLOY_SSH_KEY` is set, the deploy job fails with a

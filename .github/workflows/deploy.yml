@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref (branch, tag or SHA) to deploy. Empty = the selected branch.
+        description: Commit, tag or branch to (re)deploy. It must already be merged into main. Empty = main's head.
         required: false
         default: ''
 
@@ -34,18 +34,33 @@ jobs:
       - run: npm run build
       - run: npm run test:deploy
 
+  # The deploy key lives only in the `production` environment, whose
+  # deployment branches are limited to main (see deploy/README.md). So a PR
+  # branch that edits this file still can't read the secret. The `if:` and
+  # the ancestor check below are defense in depth on top of that.
   deploy:
     needs: test
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment:
+      name: production
+      url: https://implish.org/
     env:
       DEPLOY_USER: ${{ vars.DEPLOY_USER }}
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Select commit (only commits already merged into main)
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          sha=$(deploy/select-ref.sh "$REF" "$GITHUB_SHA")
+          git checkout --detach "$sha"
+          echo "deploying ${REF:-main} = $sha"
       - uses: actions/setup-node@v5
         with:
           node-version: 22

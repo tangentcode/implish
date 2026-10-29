@@ -13,6 +13,7 @@
 #   DEPLOY_KEEP        how many backups to keep (default 5)
 #   DEPLOY_SSH         ssh command (default: ssh -o BatchMode=yes)
 #   DEPLOY_BUILD_CMD   build command (default: npx vite build)
+#   DEPLOY_LOCK_WAIT   seconds to wait for another deploy's lock (default 60)
 #   DEPLOY_SRC         build output to publish (default: dist-web)
 #
 # Exits nonzero on any failure. Nothing on the target is touched until the
@@ -29,7 +30,7 @@ log() { echo "deploy: $*" >&2; }
 # ignored, because CI maps unset repository variables to empty strings.
 declare -A from_env=()
 for v in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_BACKUP_DIR DEPLOY_KEEP \
-         DEPLOY_SSH DEPLOY_BUILD_CMD DEPLOY_SRC; do
+         DEPLOY_SSH DEPLOY_BUILD_CMD DEPLOY_SRC DEPLOY_LOCK_WAIT; do
   [[ -n ${!v:-} ]] && from_env[$v]=${!v}
 done
 if [[ -f $CONF ]]; then
@@ -79,6 +80,8 @@ check_path DEPLOY_BACKUP_DIR "$DEPLOY_BACKUP_DIR"
 [[ $DEPLOY_BACKUP_DIR != "$DEPLOY_PATH" && $DEPLOY_BACKUP_DIR/ != "$DEPLOY_PATH"/* ]] \
   || die "DEPLOY_BACKUP_DIR must not be inside DEPLOY_PATH (rsync --delete would remove it)"
 [[ $DEPLOY_KEEP =~ ^[1-9][0-9]*$ ]] || die "DEPLOY_KEEP must be a positive integer: '$DEPLOY_KEEP'"
+DEPLOY_LOCK_WAIT=${DEPLOY_LOCK_WAIT:-60}
+[[ $DEPLOY_LOCK_WAIT =~ ^[0-9]+$ ]] || die "DEPLOY_LOCK_WAIT must be a whole number of seconds: '$DEPLOY_LOCK_WAIT'"
 
 if [[ $DEPLOY_HOST == local ]]; then
   target=$DEPLOY_PATH
@@ -112,70 +115,45 @@ rsync_to() { # SRC DEST [extra rsync args...]
   fi
 }
 
-# Runs on the target. Each step takes an flock on the backup dir so backup,
-# prune and drop never race each other; whole deploys are serialized by the
-# workflow's concurrency group. Backup names are UTC timestamps, so name
-# order = age order.
-# shellcheck disable=SC2016
-REMOTE_LIB='
-set -euo pipefail
-docroot=$1 backups=$2 keep=$3 action=$4 arg=${5:-}
-mkdir -p "$backups"
-exec 9>"$backups/.lock"
-flock -w 60 9 || { echo "deploy: another deploy holds $backups/.lock" >&2; exit 1; }
-list() { find "$backups" -mindepth 1 -maxdepth 1 -type d -name "20*Z" -printf "%f\n" | LC_ALL=C sort; }
-case $action in
-  list) list ;;
-  backup)
-    if [[ ! -d $docroot ]] || [[ -z $(ls -A "$docroot") ]]; then
-      echo "deploy: $docroot is empty or missing; no backup needed" >&2; exit 0
-    fi
-    while :; do
-      name=$(date -u +%Y%m%dT%H%M%SZ)
-      [[ -e $backups/$name ]] || break
-      sleep 1
-    done
-    cp -a "$docroot" "$backups/$name.tmp"
-    mv "$backups/$name.tmp" "$backups/$name"
-    echo "deploy: backed up $docroot to $backups/$name" >&2 ;;
-  prune)
-    list | head -n -"$keep" | while read -r old; do
-      rm -rf -- "${backups:?}/$old"; echo "deploy: pruned backup $old" >&2
-    done ;;
-  pick) # print the backup to roll back to
-    if [[ -n $arg ]]; then
-      [[ $arg =~ ^20[0-9]{6}T[0-9]{6}Z$ && -d $backups/$arg ]] \
-        || { echo "deploy: no such backup: $arg" >&2; exit 1; }
-      name=$arg
-    else
-      name=$(list | tail -n 1)
-      [[ -n $name ]] || { echo "deploy: no backups in $backups" >&2; exit 1; }
-    fi
-    [[ -f $backups/$name/index.html ]] \
-      || { echo "deploy: backup $name has no index.html; refusing to restore it" >&2; exit 1; }
-    echo "$name" ;;
-  drop) rm -rf -- "${backups:?}/$arg" ;;
-  mkroot) mkdir -p "$docroot" ;;
-esac
-'
+# The target-side half lives in deploy/remote.sh and is piped to bash.
+REMOTE_LIB=$(<"$ROOT/deploy/remote.sh")
 remote() { on_target "$REMOTE_LIB" "$DEPLOY_PATH" "$DEPLOY_BACKUP_DIR" "$DEPLOY_KEEP" "$@"; }
+
+# hold_lock: take $DEPLOY_BACKUP_DIR/.lock on the target and keep it until
+# this script exits, so a manual --rollback can't interleave with a CI deploy.
+# A coprocess keeps an ssh session (or a local bash) open, which runs flock
+# and then waits on stdin. When we exit, or the connection drops, its stdin
+# closes and the lock is released. The script is passed as a bash -c string
+# because stdin is the keepalive pipe. It must not contain single quotes.
+# shellcheck disable=SC2016
+LOCK_SCRIPT='mkdir -p "$1" && exec 9>>"$1/.lock" && flock -w "$2" 9 && echo locked && exec cat >/dev/null'
+hold_lock() {
+  local q; q=$(printf ' %q' "$DEPLOY_BACKUP_DIR" "$DEPLOY_LOCK_WAIT")
+  if [[ $DEPLOY_HOST == local ]]; then
+    coproc LOCK { bash -c "$LOCK_SCRIPT" hold_lock "$DEPLOY_BACKUP_DIR" "$DEPLOY_LOCK_WAIT"; }
+  else
+    # shellcheck disable=SC2086
+    coproc LOCK { $DEPLOY_SSH "${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST" "bash -c '$LOCK_SCRIPT' hold_lock$q"; }
+  fi
+  local line=
+  read -r line <&"${LOCK[0]}" || true
+  [[ $line == locked ]] || die "could not take $DEPLOY_BACKUP_DIR/.lock (another deploy or rollback running?); nothing changed"
+  log "holding $DEPLOY_BACKUP_DIR/.lock"
+}
 
 case $mode in
   list) remote list; exit 0 ;;
 
   rollback)
+    ((dry_run)) || hold_lock
     name=$(remote pick "$rollback_name")
-    src=$DEPLOY_BACKUP_DIR/$name/
     log "rolling back $target to backup $name"
     if ((dry_run)); then
-      # rsync can't read a remote source into a remote dest; run it there.
-      on_target 'rsync -rl --checksum --delete --dry-run --itemize-changes --filter="P /.well-known/" "$1" "$2/"' \
-        "$src" "$DEPLOY_PATH"
+      remote restore "$name" dry
       log "dry run: nothing changed"
       exit 0
     fi
-    on_target 'rsync -rlp --checksum --delete --delay-updates --filter="P /.well-known/" "$1" "$2/"' \
-      "$src" "$DEPLOY_PATH"
+    remote restore "$name"
     # The restored tree is now live, so the backup is redundant. Dropping it
     # makes a second --rollback step one deploy further back.
     if [[ -z $rollback_name ]]; then remote drop "$name"; fi
@@ -195,8 +173,7 @@ fi
 
 if ((dry_run)); then
   log "dry run: changes that would be made to $target"
-  exists=$(on_target '[[ -d $1 ]] && echo yes || echo no' "$DEPLOY_PATH")
-  if [[ $exists == no ]]; then
+  if [[ $(remote exists) == no ]]; then
     log "(docroot does not exist yet; every file would be new)"
     (cd "$DEPLOY_SRC" && find . -type f -printf '>f+++++++++ %P\n' | LC_ALL=C sort)
   else
@@ -206,6 +183,7 @@ if ((dry_run)); then
   exit 0
 fi
 
+hold_lock
 remote backup
 remote mkroot
 rsync_to "$DEPLOY_SRC/" "$target/"

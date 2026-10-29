@@ -10,7 +10,7 @@ WORK=$ROOT/.deploy-test
 rm -rf "$WORK"; mkdir -p "$WORK"
 trap 'rm -rf "$WORK"' EXIT
 
-pass=0 total=0 failed=()
+pass=0 total=0 skipped=0 failed=()
 ok()   { :; }
 fail() { echo "    FAIL: $*" >&2; return 1; }
 
@@ -37,7 +37,7 @@ setup() {
   echo new > "$T/src/version"
   export DEPLOY_BUILD_CMD="rm -rf '$T/out' && mkdir -p '$T/out/assets' && cp '$T/src/version' '$T/out/index.html' && echo js > '$T/out/assets/app.js'"
 }
-backups() { ls "$DEPLOY_PATH.backups" 2>/dev/null | grep -v '^\.' || true; }
+backups() { ls "$DEPLOY_PATH.backups" 2>/dev/null | grep -E '^20[0-9]{6}T[0-9]{6}Z$' || true; }
 tree() { (cd "$1" && find . -type f -printf '%P\t' -exec cat {} \; | LC_ALL=C sort); }
 
 t_dry_run_lists_files() {
@@ -58,14 +58,14 @@ t_dry_run_new_docroot() {
 }
 
 t_failed_build_aborts() {
-  DEPLOY_BUILD_CMD='echo boom >&2; exit 3' out=$("$DEPLOY" 2>&1) && fail "exit 0" && return 1
+  out=$(DEPLOY_BUILD_CMD='echo boom >&2; exit 3' "$DEPLOY" 2>&1) && fail "exit 0" && return 1
   grep -q 'build failed' <<<"$out" || fail "no build-failed message: $out" || return 1
   [[ $(cat "$DEPLOY_PATH/index.html") == old && -f $DEPLOY_PATH/stale.js ]] || fail "docroot changed" || return 1
   [[ -z $(backups) ]] || fail "backup made" || return 1
 }
 
 t_empty_build_aborts() {
-  DEPLOY_BUILD_CMD="mkdir -p '$T/out'" out=$("$DEPLOY" 2>&1) && fail "exit 0" && return 1
+  out=$(DEPLOY_BUILD_CMD="mkdir -p '$T/out'" "$DEPLOY" 2>&1) && fail "exit 0" && return 1
   grep -q 'index.html missing' <<<"$out" || fail "$out" || return 1
   [[ -f $DEPLOY_PATH/stale.js && -z $(backups) ]] || fail "target touched" || return 1
 }
@@ -146,12 +146,13 @@ t_rejects_unsafe_paths() {
   DEPLOY_BACKUP_DIR=/tmp "$DEPLOY" --dry-run >/dev/null 2>&1 \
     && fail "accepted shallow backup dir" && return 1
   DEPLOY_KEEP=0 "$DEPLOY" --dry-run >/dev/null 2>&1 && fail "accepted DEPLOY_KEEP=0" && return 1
+  DEPLOY_LOCK_WAIT=soon "$DEPLOY" --dry-run >/dev/null 2>&1 && fail "accepted DEPLOY_LOCK_WAIT=soon" && return 1
   "$DEPLOY" --bogus >/dev/null 2>&1 && fail "accepted --bogus" && return 1
   [[ $(cat "$DEPLOY_PATH/index.html") == old ]] || fail "docroot changed" || return 1
 }
 
 t_unreachable_host_fails() {
-  DEPLOY_HOST=remote DEPLOY_SSH=false out=$("$DEPLOY" 2>&1) && fail "exit 0" && return 1
+  out=$(DEPLOY_HOST=remote DEPLOY_SSH=false "$DEPLOY" 2>&1) && fail "exit 0" && return 1
   [[ $(cat "$DEPLOY_PATH/index.html") == old ]] || fail "docroot changed" || return 1
 }
 
@@ -166,6 +167,89 @@ t_conf_file_and_env_override() {
   grep -q "$T/elsewhere/site" <<<"$out" || fail "empty env clobbered conf: $out" || return 1
 }
 
+t_stale_tmp_backup_removed() {
+  mkdir -p "$DEPLOY_PATH.backups/20200101T000000Z.tmp/junk"
+  "$DEPLOY" >/dev/null 2>&1 || fail "deploy failed" || return 1
+  [[ ! -e $DEPLOY_PATH.backups/20200101T000000Z.tmp ]] || fail "stale .tmp left behind" || return 1
+  [[ $(backups | wc -l) == 1 ]] || fail "expected 1 backup, got: $(backups)" || return 1
+}
+
+t_failed_backup_aborts_and_cleans_up() {
+  echo secret > "$DEPLOY_PATH/unreadable"; chmod 000 "$DEPLOY_PATH/unreadable"
+  out=$("$DEPLOY" 2>&1) && { chmod 644 "$DEPLOY_PATH/unreadable"; fail "exit 0"; return 1; }
+  chmod 644 "$DEPLOY_PATH/unreadable"
+  grep -q 'backup of .* failed' <<<"$out" || fail "no backup-failed message: $out" || return 1
+  [[ $(cat "$DEPLOY_PATH/index.html") == old && -f $DEPLOY_PATH/stale.js ]] || fail "docroot changed" || return 1
+  [[ -z $(ls -A "$DEPLOY_PATH.backups" | grep -v '^\.lock$') ]] || fail "leftovers: $(ls -A "$DEPLOY_PATH.backups")" || return 1
+  "$DEPLOY" >/dev/null 2>&1 || fail "retry after fixing perms failed" || return 1
+  [[ $(backups | wc -l) == 1 ]] || fail "retry: expected 1 backup" || return 1
+}
+
+t_remote_rm_rejects_bad_names() {
+  "$DEPLOY" >/dev/null 2>&1 || fail "deploy" || return 1
+  b=$DEPLOY_PATH.backups; keep=$(backups)
+  for bad in '' . .. '*' '../site' '20261029T120000Z/..' 'x' '20261029T120000Z.tmp'; do
+    bash "$ROOT/deploy/remote.sh" "$DEPLOY_PATH" "$b" 3 drop "$bad" >/dev/null 2>&1 \
+      && fail "drop accepted '$bad'" && return 1
+    bash "$ROOT/deploy/remote.sh" "$DEPLOY_PATH" "$b" 3 restore "$bad" >/dev/null 2>&1 \
+      && fail "restore accepted '$bad'" && return 1
+  done
+  [[ $(backups) == "$keep" && -f $b/$keep/index.html && -f $DEPLOY_PATH/index.html ]] \
+    || fail "backups or docroot damaged" || return 1
+  # a dir that only looks like a backup (glob match, not the exact format) is never pruned or listed
+  mkdir -p "$b/20xxZ"
+  bash "$ROOT/deploy/remote.sh" "$DEPLOY_PATH" "$b" 1 prune >/dev/null 2>&1 || fail "prune failed" || return 1
+  [[ -d $b/20xxZ ]] || fail "prune touched a non-backup dir" || return 1
+}
+
+t_lock_blocks_concurrent_runs() {
+  mkdir -p "$DEPLOY_PATH.backups"
+  "$DEPLOY" >/dev/null 2>&1 || fail "deploy" || return 1
+  # exec so $holder is the process holding fd 9; killing it releases the lock
+  ( exec 9>>"$DEPLOY_PATH.backups/.lock"; flock 9; exec sleep 30 ) & holder=$!
+  sleep 0.3
+  out=$(DEPLOY_LOCK_WAIT=1 "$DEPLOY" 2>&1) && { kill $holder; fail "deploy ran while locked"; return 1; }
+  grep -q 'could not take' <<<"$out" || { kill $holder; fail "no lock message: $out"; return 1; }
+  out=$(DEPLOY_LOCK_WAIT=1 "$DEPLOY" --rollback 2>&1) && { kill $holder; fail "rollback ran while locked"; return 1; }
+  kill $holder; wait $holder 2>/dev/null
+  [[ $(cat "$DEPLOY_PATH/index.html") == new && $(backups | wc -l) == 1 ]] || fail "state changed while locked" || return 1
+  # released after each run: back-to-back runs don't wait on each other
+  DEPLOY_LOCK_WAIT=0 "$DEPLOY" >/dev/null 2>&1 || fail "lock not released after deploy" || return 1
+  DEPLOY_LOCK_WAIT=0 "$DEPLOY" --rollback >/dev/null 2>&1 || fail "lock not released after rollback" || return 1
+}
+
+t_lock_held_during_upload() {
+  [[ $DEPLOY_HOST == local ]] && return 77   # skip: needs the ssh hook below
+  # wrap ssh: when rsync's upload connects, record whether the lock is held
+  cat > "$T/probe-ssh" <<EOF
+#!/usr/bin/env bash
+if [[ "\$*" == *"rsync --server"* ]]; then
+  flock -n "$DEPLOY_PATH.backups/.lock" true && echo free >> "$T/probe" || echo held >> "$T/probe"
+fi
+exec "$WORK/fake-ssh" "\$@"
+EOF
+  chmod +x "$T/probe-ssh"
+  DEPLOY_SSH=$T/probe-ssh "$DEPLOY" >/dev/null 2>&1 || fail "deploy failed" || return 1
+  [[ $(cat "$T/probe") == held ]] || fail "lock not held during rsync: $(cat "$T/probe")" || return 1
+}
+
+t_select_ref_only_merged() {
+  [[ $DEPLOY_HOST == local ]] || return 77   # skip: git-only; once is enough
+  g=$T/repo; sel=$ROOT/deploy/select-ref.sh
+  git init -q -b main "$g" && cd "$g" || return 1
+  c() { git -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$1"; git rev-parse HEAD; }
+  old=$(c one); git tag v1; main=$(c two)
+  git checkout -q -b pr; pr=$(c unmerged); git checkout -q main
+  [[ $("$sel" '' "$main") == "$main" ]] || fail "empty ref" || return 1
+  [[ $("$sel" "$old" "$main") == "$old" ]] || fail "merged sha" || return 1
+  [[ $("$sel" v1 "$main") == "$old" ]] || fail "merged tag" || return 1
+  [[ $("$sel" main "$main") == "$main" ]] || fail "main itself" || return 1
+  for bad in pr "$pr" nosuchref -x --help "$main~5"; do
+    "$sel" "$bad" "$main" >/dev/null 2>&1 && fail "accepted '$bad'" && return 1
+  done
+  return 0
+}
+
 cases=$(declare -F | awk '{print $3}' | grep '^t_')
 for mode in local ssh; do
   for c in $cases; do
@@ -173,10 +257,12 @@ for mode in local ssh; do
     setup
     if [[ $mode == local ]]; then export DEPLOY_HOST=local; unset DEPLOY_SSH DEPLOY_USER
     else export DEPLOY_HOST=testhost DEPLOY_USER=tester DEPLOY_SSH="$WORK/fake-ssh -o BatchMode=yes"; fi
-    if ( $c ); then pass=$((pass+1)); echo "ok   $mode $c"
+    ( $c ); rc=$?
+    if ((rc == 0)); then pass=$((pass+1)); echo "ok   $mode $c"
+    elif ((rc == 77)); then total=$((total-1)); skipped=$((skipped+1))
     else failed+=("$mode $c"); echo "FAIL $mode $c"; fi
   done
 done
 
-echo "deploy tests: $pass/$total passed"
+echo "deploy tests: $pass/$total passed ($skipped mode-specific skips)"
 ((pass == total))
