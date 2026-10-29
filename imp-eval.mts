@@ -143,6 +143,43 @@ export class ImpEvaluator {
   }
   atEnd = (): boolean => this.pos >= this.here.length
 
+  // is the next item a separator (; , | or newline)?
+  atSep = (): boolean => !this.atEnd() && this.here[this.pos][0] === ImpT.SEP
+
+  // Collect up to `arity` arguments for a verb. Stops early at END or at a
+  // separator, so a verb never takes its arguments from the next expression.
+  // If eagerly=true (for monadic functions), don't look ahead for infix operators.
+  collectArgs = async (arity: number, eagerly: boolean): Promise<ImpVal[]> => {
+    let args: ImpVal[] = []
+    for (let i = 0; i < arity; i++) {
+      if (this.atEnd() || this.atSep()) break
+      try {
+        args.push(await this.nextNoun(eagerly))
+      } catch (e) {
+        // If we can't get an argument (e.g., hit END), stop collecting
+        if (String(e).includes("unexpected end of input")) break
+        throw e
+      }
+    }
+    return args }
+
+  // Apply a verb to collected args, building a partial application
+  // for a JSF that got fewer args than its arity.
+  applyVerb = async (f: ImpVal, args: ImpVal[]): Promise<ImpVal> => {
+    if (f[0] === ImpT.IFN) return await this.applyIfn(f as ImpIfn, args)
+    let originalFn = f as ImpJsf
+    let arity = originalFn[1].arity
+    if (args.length >= arity) return await originalFn[2].apply(this, args)
+    let capturedArgs = args
+    return [ImpT.JSF, {
+      arity: arity - args.length,
+      sourceIfn: originalFn,
+      capturedArgs: capturedArgs,
+      sourceName: originalFn[1].sourceName
+    }, async (...remainingArgs: ImpVal[]) => {
+      return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
+    }]}
+
   /// sets this.item and this.wc
   nextItem = (): ImpVal => {
     let x = (this.pos >= this.here.length) ? END : this.here[this.pos++]
@@ -300,15 +337,14 @@ export class ImpEvaluator {
 
   // Collect next noun - handles assignments, get-words, verbs, and regular nouns
   private async nextNounItem(): Promise<ImpVal> {
-    let res = this.nextItem()
     // Skip separators (commas are used to separate function arguments)
-    while (res[0] === ImpT.SEP && res[2] === ',') {
-      res = this.nextItem()
-    }
-    // Check for END (ran out of input)
-    if (res[0] === ImpT.END) {
+    while (this.atSep() && this.here[this.pos][2] === ',') this.pos++
+    // Check for END (ran out of input). Any other separator (; | newline)
+    // ends the expression too, and is left for the caller to consume.
+    if (this.atEnd() || this.atSep()) {
       throw "unexpected end of input (missing argument?)"
     }
+    let res = this.nextItem()
     // Handle different word classes
     if (this.wc === ImpP.S) {
       // Assignment - evaluate and return the assigned value
@@ -325,44 +361,9 @@ export class ImpEvaluator {
       if (res[0] === ImpT.JSF) {
         res = this.modifyVerb(res as ImpJsf)
       }
-      let args = []
-      // Get arity from function metadata
-      let arity = (res[1] as ImpJsfA | ImpIfnA).arity
-      // Collect arguments, stopping if we hit END
       // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-      let eagerly = (arity === 1)
-      for (let i = 0; i < arity; i++) {
-        if (this.atEnd()) break
-        try {
-          args.push(await this.nextNoun(eagerly))
-        } catch (e) {
-          // If we can't get an argument (e.g., hit END), stop collecting
-          if (String(e).includes("unexpected end of input")) break
-          throw e
-        }
-      }
-      // Handle partial application
-      if (res[0] === ImpT.IFN) {
-        return await this.applyIfn(res as ImpIfn, args)
-      } else {
-        // JSF - check if we need partial application
-        if (args.length < arity) {
-          // Create partial application
-          let partialArity = arity - args.length
-          let capturedArgs = args
-          let originalFn = res as ImpJsf
-          return [ImpT.JSF, {
-            arity: partialArity,
-            sourceIfn: originalFn,
-            capturedArgs: capturedArgs,
-            sourceName: originalFn[1].sourceName
-          }, async (...remainingArgs: ImpVal[]) => {
-            return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-          }]
-        } else {
-          return await (res as ImpJsf)[2].apply(this, args)
-        }
-      }
+      let arity = (res[1] as ImpJsfA | ImpIfnA).arity
+      return await this.applyVerb(res, await this.collectArgs(arity, arity === 1))
     } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
       throw "expected a noun, got: " + impShow(res)
     }
@@ -395,44 +396,9 @@ export class ImpEvaluator {
       if (nextX[0] === ImpT.JSF) {
         nextX = this.modifyVerb(nextX as ImpJsf)
       }
-      let args = []
-      // Get arity from function metadata
-      let arity = (nextX[1] as ImpJsfA | ImpIfnA).arity
-      // Collect arguments, stopping if we hit END
       // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-      let eagerly = (arity === 1)
-      for (let i = 0; i < arity; i++) {
-        if (this.atEnd()) break
-        try {
-          args.push(await this.nextNoun(eagerly))
-        } catch (e) {
-          // If we can't get an argument (e.g., hit END), stop collecting
-          if (String(e).includes("unexpected end of input")) break
-          throw e
-        }
-      }
-      // Handle partial application
-      if (nextX[0] === ImpT.IFN) {
-        value = await this.applyIfn(nextX as ImpIfn, args)
-      } else {
-        // JSF - check if we need partial application
-        if (args.length < arity) {
-          // Create partial application
-          let partialArity = arity - args.length
-          let capturedArgs = args
-          let originalFn = nextX as ImpJsf
-          value = [ImpT.JSF, {
-            arity: partialArity,
-            sourceIfn: originalFn,
-            capturedArgs: capturedArgs,
-            sourceName: originalFn[1].sourceName
-          }, async (...remainingArgs: ImpVal[]) => {
-            return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-          }]
-        } else {
-          value = await (nextX as ImpJsf)[2].apply(this, args)
-        }
-      }
+      let arity = (nextX[1] as ImpJsfA | ImpIfnA).arity
+      value = await this.applyVerb(nextX, await this.collectArgs(arity, arity === 1))
     } else if (this.wc === ImpP.Q) {
       value = nextX
     } else {
@@ -805,49 +771,11 @@ export class ImpEvaluator {
           if (x[0] === ImpT.JSF) {
             x = this.modifyVerb(x as ImpJsf)
           }
-          let args = []
           // Get arity from function metadata
-          let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-          // Collect arguments, stopping if we hit END or separator
           // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-          let eagerly = (arity === 1)
-          for (let i = 0; i < arity; i++) {
-            if (this.atEnd()) break
-            // Peek ahead to see if next is a separator - if so, stop collecting args
-            let nextPos = this.pos
-            if (nextPos < this.here.length && this.here[nextPos][0] === ImpT.SEP) break
-            try {
-              args.push(await this.nextNoun(eagerly))
-            } catch (e) {
-              // If we can't get an argument, stop collecting
-              if (String(e).includes("unexpected end of input") ||
-                  String(e).includes("expected a noun")) break
-              throw e
-            }
-          }
+          let arity = (x[1] as ImpJsfA | ImpIfnA).arity
           // Apply the verb and get result
-          let result: ImpVal
-          if (x[0] === ImpT.IFN) {
-            result = await this.applyIfn(x as ImpIfn, args)
-          } else {
-            // JSF - check if we need partial application
-            if (args.length < arity) {
-              // Create partial application
-              let partialArity = arity - args.length
-              let capturedArgs = args
-              let originalFn = x as ImpJsf
-              result = [ImpT.JSF, {
-                arity: partialArity,
-                sourceIfn: originalFn,
-                capturedArgs: capturedArgs,
-                sourceName: originalFn[1].sourceName
-              }, async (...remainingArgs: ImpVal[]) => {
-                return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-              }]
-            } else {
-              result = await (x as ImpJsf)[2].apply(this, args)
-            }
-          }
+          let result = await this.applyVerb(x, await this.collectArgs(arity, arity === 1))
           // Apply infix operators to the result (if any)
           result = await this.modifyNoun(result)
           tb.emit(result)
@@ -857,33 +785,19 @@ export class ImpEvaluator {
           x = await this.eval(x)
           // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
           if (this.wordClass(x) === ImpP.V) {
-            // Only try to apply if there are more items (don't fail at END)
-            // This allows {x + 2} to return a function value instead of trying to collect args
-            if (!this.atEnd()) {
+            // Only try to apply if more items follow in this expression
+            // (not at END or a separator). This allows {x + 2} and
+            // `f: {x + 1}; f[2]` to yield a function value instead of
+            // trying to collect args from the next expression.
+            if (!this.atEnd() && !this.atSep()) {
               // Apply verb modifiers (composition, etc.) only to JSF for now
               if (x[0] === ImpT.JSF) {
                 x = this.modifyVerb(x as ImpJsf)
               }
-              let args = []
-              // Get arity from function metadata
               let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-              for (let i = 0; i < arity; i++) {
-                if (this.atEnd()) break  // Stop if we run out of arguments
-                try {
-                  args.push(await this.nextNoun())
-                } catch (e) {
-                  // If we can't get an argument (e.g., hit END), stop collecting
-                  if (String(e).includes("unexpected end of input")) break
-                  throw e
-                }
-              }
-              if (x[0] === ImpT.IFN) {
-                tb.emit(await this.applyIfn(x as ImpIfn, args))
-              } else {
-                tb.emit(await (x as ImpJsf)[2].apply(this, args))
-              }
+              tb.emit(await this.applyVerb(x, await this.collectArgs(arity, false)))
             } else {
-              // At end - just emit the verb as a value
+              // At end of expression - just emit the verb as a value
               tb.emit(x)
             }
           } else {
