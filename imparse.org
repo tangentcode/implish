@@ -1,0 +1,113 @@
+#+TITLE: imparse[] Implementation Notes
+#+DATE: 2025-11-12
+
+* What We Learned
+
+** The Evaluator Already Has M-Expression Support!
+
+The evaluator already handles projection syntax via ~project()~ (imp-eval.mts:1244):
+- ~+[2; 3]~ works by recognizing the opener pattern ~"sym["~
+- The evaluator calls ~project(sym, args)~ which looks up the symbol and applies it
+- Arguments must be separated by SEP (semicolon) tokens
+
+** Current M-Expression Format
+
+To work with the existing evaluator, M-expressions must be:
+#+begin_src typescript
+// Single list with verb in the opener
+imp.lst({open: 'verb[', close: ']'}, [arg1, ImpC.sep(';'), arg2, ...])
+#+end_src
+
+NOT two separate items (verb + list).
+
+** What Works
+
+We successfully implemented transformations that work for:
+1. ~2 !~ → ~![2]~ (postfix unary - FIXES the main bug!)
+2. ~2 + 3~ → ~+[2; 3]~ (simple infix)
+3. ~2 + 3 * 5~ → ~*[+[2; 3]; 5]~ (left-to-right precedence)
+
+These pass when tested individually.
+
+** What Breaks
+
+Complex interactions fail:
+1. ~! 10 * 2 + 1~ - Mixed prefix/infix precedence
+   - Expected: ~(! 10) * 2 + 1~ = ~0 2 4 6 ... 18~
+   - Got: ~! (10 * 2 + 1)~ = ~! 21~ = ~0..20~
+
+2. ~1 + 2 * ! 10~ - Verb in right position
+   - Error: "expected number or vector, got: JSF"
+   - The function isn't being applied before the operator
+
+3. Comma threading conflicts with transformations
+   - The evaluator's comma logic (lines 1100-1143) expects flat sequences
+   - Our transformations consume tokens before comma logic can see them
+
+** Why It's Hard
+
+*** Single-Pass Limitations
+Our simple left-to-right scan can't handle:
+- Prefix verbs that need to collect arguments forward
+- Checking if a verb's arguments are complete before transforming
+- Precedence changes from comma threading
+
+*** Evaluator Still Does Parsing
+The evaluator has complex logic for:
+- Comma threading (lines 1100-1143)
+- Infix precedence via ~modifyNoun()~ (lines 634-686)
+- Prefix verb application (lines 1147-1177)
+- Verb composition and modifiers
+
+These assume flat sequences and conflict with our M-expressions.
+
+* Better Approach: Incremental Fixes
+
+** Phase 1: Fix Just the ~2 !~ Bug
+
+Instead of general transformation, add a narrow fix:
+- Only transform postfix unary when it's the ONLY thing in the sequence
+- Or, add special handling in the evaluator for this case
+- Keep all other tests passing
+
+** Phase 2: Refactor Evaluator Architecture
+
+Before adding more transformations:
+1. Move ~modifyNoun()~ logic to imparse (infix precedence)
+2. Move comma threading to imparse
+3. Move prefix application to imparse
+4. THEN simplify evaluator to just handle M-expressions
+
+This requires understanding the full interaction between these pieces.
+
+** Phase 3: Comprehensive Transformation
+
+Only after evaluator is simplified:
+- Enable full M-expression transformation
+- All precedence/threading handled in parser
+- Evaluator just evaluates M-expressions recursively
+
+* Alternative: Two-Pass Approach
+
+** Pass 1: Identify Verbs and Collect Args
+- Scan to find all verbs
+- Determine their arities
+- Mark which nouns are arguments to which verbs
+- Handle comma boundaries
+
+** Pass 2: Build M-Expressions
+- Now that we know the structure, build the M-expressions
+- Group arguments with their verbs
+- Handle precedence correctly
+
+This is more complex but handles all cases correctly.
+
+* Recommendation
+
+Start with minimal fix for ~2 !~ bug only:
+1. Add special case in evaluator or very narrow transformation
+2. Keep all 70 tests passing
+3. Then incrementally move MORE logic to parser
+4. Each step maintains test compatibility
+
+Don't try to do general transformation until evaluator logic is moved.

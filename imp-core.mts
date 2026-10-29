@@ -1,0 +1,155 @@
+// core components for implish interpreter
+
+export function ok() { }  // the empty program
+
+export enum ImpT {
+  TOP = 'TOP',     // top-level sequence (list with no delimiters)
+  ERR = 'ERR',     // an error value
+  SEP = 'SEP',     // separator
+  END = 'END',     // virtual 'end of input' token
+  // --- values with literal representation
+  INT = 'INT',     // integer
+  NUM = 'NUM',     // number (float/decimal/scientific notation)
+  STR = 'STR',     // string
+  MLS = 'MLS',     // multi-line string
+  SYM = 'SYM',     // symbol
+  LST = 'LST',     // list
+  DCT = 'DCT',     // dictionary (key-value map)
+  // --- vector types (strands)
+  INTs = 'INTs',   // vector of integers
+  NUMs = 'NUMs',   // vector of numbers
+  SYMs = 'SYMs',   // vector of symbols (backtick style only)
+  // ---- internal / refined types (require eval() to produce)
+  NIL = 'NIL',     // empty/unit value
+  JSF = 'JSF',     // javascript function
+  IFN = 'IFN',     // implish function (user-defined)
+}
+
+export enum SymT {
+  RAW  = 0,    // plain symbol: foo
+  SET  = 1,    // set-word: foo:
+  GET  = 2,    // get-word: :foo
+  LIT  = 3,    // lit-word: 'foo
+  REFN = 4,    // refinement: /foo
+  ISH  = 5,    // issue: #foo (hashtag)
+  PATH = 6,    // path: foo/bar (nested lookup)
+  FILE = 7,    // file: %foo/bar
+  URL  = 8,    // url: http://foo
+  BQT  = 9,    // backtick: `foo
+  TYP  = 10,   // type: foo!
+  ANN  = 11,   // annotation: @foo
+  MSG  = 12,   // message: .foo
+  KW   = 13,   // keyword: .foo:
+  MSG2 = 14,   // message2: !foo
+  KW2  = 15,   // keyword2: !foo:
+  ERR  = 16,   // error: ?foo
+  UNQ  = 17,   // unquote: ,foo
+}
+
+export type ImpSymA = { kind: SymT }
+export type ImpLstA = { open:string, close:string }
+export type ImpDctA = { /* metadata for dictionaries */ }
+export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string, doc?:string}
+export type ImpIfnA = {arity:number, body:ImpVal[], doc?:string}
+
+// Individual types for each ImpVal variant
+export type ImpTop = [ImpT.TOP, null, ImpVal[]]
+export type ImpErr = [ImpT.ERR, null, string]
+export type ImpSep = [ImpT.SEP, null, string]
+export type ImpEnd = [ImpT.END, null, null]
+export type ImpInt = [ImpT.INT, null, number]
+export type ImpNum = [ImpT.NUM, null, number]
+export type ImpStr = [ImpT.STR, null, string]
+export type ImpMls = [ImpT.MLS, null, string]
+export type ImpSym = [ImpT.SYM, ImpSymA, symbol]
+export type ImpLst = [ImpT.LST, ImpLstA, ImpVal[]]
+export type ImpDct = [ImpT.DCT, ImpDctA | null, Map<string, ImpVal>]
+export type ImpInts = [ImpT.INTs, null, number[]]
+export type ImpNums = [ImpT.NUMs, null, number[]]
+export type ImpSyms = [ImpT.SYMs, null, symbol[]]
+export type ImpNil = [ImpT.NIL, null, null]
+export type ImpJsf = [ImpT.JSF, ImpJsfA, JSF]
+export type ImpIfn = [ImpT.IFN, ImpIfnA, ImpVal[]]
+
+// Main discriminated union type (equivalent to union of individual types above)
+export type ImpVal
+  = ImpTop | ImpErr | ImpSep | ImpEnd
+  | ImpInt | ImpNum | ImpStr | ImpMls | ImpSym | ImpLst | ImpDct
+  | ImpInts | ImpNums | ImpSyms | ImpNil
+  | ImpJsf | ImpIfn
+
+// Syntactic sugar: utility object with methods on ImpVal
+export const ImpQ = {
+  isTop(x: ImpVal): x is ImpTop { return x[0] === ImpT.TOP },
+  isSym(x: ImpVal): x is ImpSym { return x[0] === ImpT.SYM },
+  isLst(x: ImpVal): x is ImpLst { return x[0] === ImpT.LST },
+  isDct(x: ImpVal): x is ImpDct { return x[0] === ImpT.DCT },
+  isIfn(x: ImpVal): x is ImpIfn { return x[0] === ImpT.IFN },
+};
+
+/** Constructor to lift js types up into Implish **/
+export const ImpC = {
+  any(x:any):ImpVal {
+    if (typeof x === 'string') return ImpC.str(x)
+    if (typeof x === 'number') return ImpC.int(Math.floor(x))
+    throw new Error(`nyi ImpC.any(${x})`)},
+  top(x:ImpVal[]):ImpTop { return [ImpT.TOP, null, x]},
+  err(x:string):ImpErr { return [ImpT.ERR, null, x]},
+  int(x:number):ImpInt { return [ImpT.INT, null, x]},
+  num(x:number):ImpNum { return [ImpT.NUM, null, x]},
+  str(x:string):ImpStr { return [ImpT.STR, null, x]},
+  sym(x:symbol, kind:SymT = SymT.RAW):ImpSym { return [ImpT.SYM, {kind}, x]},
+  sep(x:string):ImpSep { return [ImpT.SEP, null, x]},
+  mls(x:string):ImpMls { return [ImpT.MLS, null, x]},
+  ints(x:number[]):ImpInts { return [ImpT.INTs, null, x]},
+  nums(x:number[]):ImpNums { return [ImpT.NUMs, null, x]},
+  syms(x:symbol[]):ImpSyms { return [ImpT.SYMs, null, x]},
+  dct(x?:Map<string, ImpVal>):ImpDct { return [ImpT.DCT, null, x || new Map()]},
+  ifn(arity:number, body:ImpVal[], doc?:string):ImpIfn { return [ImpT.IFN, {arity, body, doc}, body]},
+}
+
+export enum ImpP {  // parts of speech
+  V = 'V',     // verb
+  N = 'N',     // noun (data)
+  A = 'A',     // adverb
+  C = 'C',     // conjunction (infix between verbs)
+  G = 'G',     // getter / gerund (like a :get-word in red)
+  P = 'P',     // preposition (takes noun argument)
+  Q = 'Q',     // quote - `symbol
+  S = 'S',     // setter / like :set-word in red
+  M = 'M',     // method / adjective (symbol starting with ".")
+  E = 'E',     // end of input
+}
+
+export const NIL:ImpVal = [ImpT.NIL, null, null];  // the empty value
+export const END:ImpVal = [ImpT.END, null, null];  // the virtual end token
+export const NULL_INT = -2147483648;              // K's 0N (null integer, using min i32 for JS compat)
+
+export class SymTable {
+  symTab: Record<string, symbol> = {}
+  sym(s:string): symbol {
+    if (!(s in this.symTab)) this.symTab[s] = Symbol(s)
+    return this.symTab[s]! }}
+
+export type Node<T> = T | Node<T>[]
+export class TreeBuilder<T> {
+  root: Node<T>[] = []
+  here: Node<T>[] = this.root
+  stack: Node<T>[][] = []
+  emit(x:T) { this.here.push(x) }
+  node() { this.stack.push(this.here); this.here = [] }
+  done() { let prev = this.stack.pop(); if (prev) { prev.push(this.here); this.here = prev } else { throw new Error("done called without node") } }}
+
+export function lst(atr?:ImpLstA, items?:any[]): ImpLst {
+  if (atr===undefined) atr = {open:'[', close:']'}
+  if (items===undefined) items = []
+  return [ImpT.LST, atr, items] }
+export function dct(items?:Map<string, ImpVal>): ImpDct {
+  return [ImpT.DCT, null, items || new Map()] }
+export function push(xs: ImpLst, x: ImpVal): ImpVal {
+  xs[2].push(x)
+  return xs }
+
+export type JSF = (...args: ImpVal[]) => ImpVal | Promise<ImpVal>
+export let jsf: (f: JSF, a: number) => ImpJsf =
+  (f, a) => [ImpT.JSF, {arity: a}, f]

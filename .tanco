@@ -1,0 +1,12 @@
+{
+  "targets": {
+    "main": {
+      "args": [
+        "node", "--enable-source-maps", "dist/imp-cmd.mjs", "-q"
+      ],
+      "restart-cmd": "/reset",
+      "restart-expect": "Ready."
+    }
+  },
+  "test_plan": "imp-tests.org"
+}

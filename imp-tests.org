@@ -1,0 +1,1065 @@
+#+title: implish tests
+#+tanco-format: 0.2
+#+server: https://tangentcode.com/
+#+name: implish
+#+todo: TODO | DONE TEST
+
+* TEST ok : ok: niladic word that returns nil
+#+begin_src
+> ok
+#+end_src
+
+The 'ok' word is a niladic function (takes no arguments) that evaluates to NIL and produces no output.
+
+* TEST get-set-basic : get/set: basic set and get
+#+begin_src
+> set[`x; 42]
+42
+> get[`x]
+42
+#+end_src
+
+Basic variable binding using set and retrieval using get. Variables hold mutable state that persists across expressions.
+
+* TEST setword-getword-basic : set-word and get-word: syntactic sugar for set and get
+#+begin_src
+> y: 99
+99
+> y
+99
+> :y
+99
+#+end_src
+
+The colon notation provides shorthand: =x: value= is syntactic sugar for =set[`x; value]=, and =:x= gets the value without further evaluation. Throughout the rest of these tests, we'll use this shorthand notation freely.
+
+* TEST sequence : sequence: semicolon separates expressions
+#+begin_src
+> (x: 12; y: 34; z: 56)
+56
+#+end_src
+
+A sequence of expressions separated by semicolons evaluates each in order and returns the value of the last expression. This allows building multi-step programs.
+
+* TEST sequence-sugar : sequence: syntactic sugar (whitespace-separated)
+#+begin_src
+> x: 12  y: 34  z: 56
+56
+#+end_src
+
+Whitespace-separated expressions are syntactic sugar for semicolon-separated sequences. The parentheses and semicolons can be omitted at the top level.
+
+* TEST branching-ite : branching: if-then-else with ite
+#+begin_src
+> ite[1; 42; 99]
+42
+> ite[0; 42; 99]
+99
+> x: 5
+5
+> ite[x > 3; `big; `small]
+`big
+#+end_src
+
+The =ite[cond; then; else]= function provides conditional branching. The condition is evaluated, and if truthy (non-zero, non-nil), the then branch is evaluated and returned; otherwise the else branch is evaluated and returned. Only one branch is evaluated (lazy evaluation).
+
+* TEST repetition-while : repetition: while loop
+#+begin_src
+> (n: 0; while[n < 5; n: n + 1]; n)
+5
+#+end_src
+
+The =while[cond; body]= function provides repetition. The condition is evaluated, and while truthy, the body is repeatedly evaluated. The loop returns NIL. This, combined with mutable state (assignment), sequence, and branching, provides the fundamental building blocks for any computable program (Turing-complete).
+
+* TEST nil : repl behavior: print everything but nil
+#+begin_src
+> [nil]
+[nil]
+> nil
+> 1 `x
+`x
+#+end_src
+
+* TEST hello.applicative : echo "hello"
+#+begin_src
+> echo "hello"
+hello
+#+end_src
+* TEST add : echo[2 + 2]
+#+begin_src
+> echo[2 + 2]
+4
+#+end_src
+
+outputing "2 2" would be reasonable here if you don't look ahead for operators. So this test forces you to define operators, and look ahead multiple tokens.
+
+- next -> echo (verb)
+- have verb, so look ahead for adverb/conjunction/
+- peek -> 2 (noun)
+- okay. we will apply verb to noun
+- fetch full noun phrase, by calling "next"
+- next -> 2 (noun)
+- have noun, so look ahead for .method or infix op
+
+* TEST arithmetic : arithmetic (left to right eval)
+#+begin_src
+> echo[1 + 2 * 3 + 5]
+14
+#+end_src
+
+* TEST comma-sequencing : comma sequencing operator
+#+begin_src
+> 2 + 3 * 5 + 7
+32
+> 2, + 3 * 5, + 7
+24
+> ! 10, * 2, + 1
+1 3 5 7 9 11 13 15 17 19
+> ! 10 * 2 + 1
+1 3 5 7 9 11 13 15 17 19
+> 1 + 2 * ! 10
+0 3 6 9 12 15 18 21 24 27
+> 1, + 2 * ! 10
+1 3 5 7 9 11 13 15 17 19
+#+end_src
+
+* TEST echo-comment : ignore comments
+#+begin_src
+> echo .: this is a comment :. "hi"
+hi
+#+end_src
+
+* TEST echo-show : echo show "quoted"
+#+begin_src
+> echo show "quoted"
+"quoted"
+#+end_src
+
+* TEST hello.projection : echo["hello"]
+#+begin_src
+> echo["hello"]
+hello
+#+end_src
+
+* TEST projection.op : +[2;3]
+#+begin_src
+> +[2;3]
+5
+#+end_src
+
+* TEST projection.explicit : +[2] (projection)
+#+begin_src
+> +[2]
++[2]
+#+end_src
+
+"verb[noun]", applies the noun as the verb's first argument.
+
+* TEST projection.pre : 2 + (also projection)
+#+begin_src
+> 2 +
++[2]
+#+end_src
+
+"verb[noun]" also applies the noun as the verb's first argument.
+
+* TEST projection.nested : echo[+[2;3]]
+#+begin_src
+> echo[+[2;3]]
+5
+#+end_src
+
+
+* TEST xmls : echo xmls '[1 2; "three"; four]
+#+begin_src imp
+> echo xmls [1 2; "three"; 'four]
+<imp:lst open="[" close="]">
+  <imp:ints v="1 2"/>
+  <imp:str v="three"/>
+  <imp:sym k="lit" v="four"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-basic : word type round-tripping: basic types
+#+begin_src imp
+> echo xmls '['foo :bar baz:]
+<imp:lst open="[" close="]">
+  <imp:sym k="lit" v="foo"/>
+  <imp:sym k="get" v="bar"/>
+  <imp:sym k="set" v="baz"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-refn-path-file : word type round-tripping: refinement, path, and file
+#+begin_src imp
+> echo xmls [/refn foo/bar %file/path]
+<imp:lst open="[" close="]">
+  <imp:sym k="refn" v="refn"/>
+  <imp:sym k="path" v="foo/bar"/>
+  <imp:sym k="file" v="file/path"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-ish : word type round-tripping: issue
+#+begin_src imp
+# > xmls [#abc]
+# [#abc]
+#+end_src
+
+* TEST word-types-url : word type round-tripping: URL
+#+begin_src imp
+> echo xmls [http://example.com]
+<imp:lst open="[" close="]">
+  <imp:sym k="url" v="http://example.com"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-new1 : new symbol types: backtick and type
+#+begin_src imp
+> echo xmls [`foo bar!]
+<imp:lst open="[" close="]">
+  <imp:sym k="bqt" v="foo"/>
+  <imp:sym k="typ" v="bar"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-new2 : new symbol types: annotation and messages
+#+begin_src imp
+> echo xmls '[@note .msg .kw:]
+<imp:lst open="[" close="]">
+  <imp:sym k="ann" v="note"/>
+  <imp:sym k="msg" v="msg"/>
+  <imp:sym k="kw" v="kw"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-new3 : new symbol types: message2 and keyword2
+#+begin_src imp
+> echo xmls '[!msg2 !kw2:]
+<imp:lst open="[" close="]">
+  <imp:sym k="msg2" v="msg2"/>
+  <imp:sym k="kw2" v="kw2"/>
+</imp:lst>
+#+end_src
+
+* TEST word-types-err : new symbol type: error
+#+begin_src imp
+> echo xmls [?error]
+<imp:lst open="[" close="]">
+  <imp:sym k="err" v="error"/>
+</imp:lst>
+#+end_src
+
+* TEST backtick-tokenization : backtick tokenization: no spaces needed
+#+begin_src imp
+> echo xmls '[`foo`bar`baz]
+<imp:lst open="[" close="]">
+  <imp:sym k="bqt" v="foo"/>
+  <imp:sym k="bqt" v="bar"/>
+  <imp:sym k="bqt" v="baz"/>
+</imp:lst>
+#+end_src
+
+* TEST quoted-list-backtick : quoted list with backtick (quasiquote)
+#+begin_src imp
+> `[1 2 3]
+[1 2 3]
+#+end_src
+
+* TEST quoted-list-quote : quoted list with quote (strips one layer)
+#+begin_src imp
+> '[a b c]
+[a b c]
+#+end_src
+
+* TEST quoted-list-nested : quoted list with nested quotes
+#+begin_src imp
+> '[a 'b '[c]]
+[a 'b '[c]]
+#+end_src
+
+* TEST get-undefined : get/set: get undefined returns fault
+#+begin_src
+> get[`undefined_var]
+?undefined_var
+#+end_src
+
+When getting an undefined variable, get returns a fault symbol (prefixed with ?).
+
+* TEST get-set-vector : get/set: parallel assignment with vector
+#+begin_src
+> set[`a `b `c; 1 2 3]
+1 2 3
+> get[`a `b `c]
+[1, 2, 3]
+#+end_src
+
+Parallel assignment distributes vector values to multiple variables.
+
+* TEST get-set-broadcast : get/set: scalar broadcast
+#+begin_src
+> set[`p `q `r; 99]
+99
+> get[`p `q `r]
+[99, 99, 99]
+#+end_src
+
+When setting multiple variables to a scalar, all get the same value.
+
+* TEST get-set-mixed : get/set: mixed defined and undefined
+#+begin_src
+> set[`alpha; 10]
+10
+> get[`alpha `beta `gamma]
+[10 ?beta ?gamma]
+#+end_src
+
+Getting a mix of defined and undefined variables returns values and faults.
+
+* TEST assignment-basic : assignment: basic
+#+begin_src imp
+> x: 42
+42
+> x
+42
+#+end_src
+
+* TEST assignment-expr : assignment: with expression
+#+begin_src imp
+> y: 2 + 3
+5
+> y
+5
+#+end_src
+
+* TEST assignment-use : assignment: use assigned value
+#+begin_src imp
+> a: 10
+10
+> b: a + 5
+15
+> b
+15
+#+end_src
+
+* TEST assignment-chained : assignment: chained
+#+begin_src imp
+> x: y: 42
+42
+> x
+42
+> y
+42
+#+end_src
+
+* TEST assignment-in-operator : assignment: in operator context
+#+begin_src imp
+> 1 + a: 2 3 4
+3 4 5
+> a
+2 3 4
+> 5 * b: 3
+15
+> b
+3
+#+end_src
+
+* TEST load-string : load: parse string
+#+begin_src imp
+> load "2 + 3"
+2 + 3
+#+end_src
+
+* TEST file-ops : file operations: e?, wr, rd, rm
+#+begin_src imp
+> f: %hello.txt
+%hello.txt
+> e? f
+0
+> wr f "test content"
+> e? f
+1
+> rd f
+"test content"
+> rm f
+#+end_src
+
+* TEST quasiquote-basic : quasiquotation: basic unquote
+#+begin_src imp
+> x: 42
+42
+> `[1 2 ,x]
+[1 2, 42]
+#+end_src
+
+* TEST quasiquote-expr : quasiquotation: unquote with expression
+#+begin_src imp
+> a: 10
+10
+> b: 20
+20
+> `[sum is ,a plus ,b]
+[sum is 10 plus 20]
+#+end_src
+
+* TEST quasiquote-nested : quasiquotation: nested lists
+#+begin_src imp
+> y: 99
+99
+> `[outer [inner ,y]]
+[outer [inner 99]]
+#+end_src
+
+* TEST quasiquote-unquote-lit : quasiquotation: unquote quoted symbol
+#+begin_src imp
+> x: 'two
+'two
+> `[one ,x three]
+[one two three]
+#+end_src
+
+* TEST strand-ints : strands: integer vector
+#+begin_src imp
+> 1 2 3
+1 2 3
+> echo 1 2 3 4 5
+1 2 3 4 5
+#+end_src
+
+* TEST strand-single : strands: single integer is not a strand
+#+begin_src imp
+> 42
+42
+#+end_src
+
+* TEST strand-syms : strands: backtick symbol vector
+#+begin_src imp
+> `a `b `c
+`a `b `c
+> echo `foo `bar `baz
+`foo `bar `baz
+#+end_src
+
+* TEST strand-scalar-vector : strands: scalar plus vector
+#+begin_src imp
+> 1 + 0 1 2
+1 2 3
+#+end_src
+
+* TEST strand-ops : strands: separated by operators
+#+begin_src imp
+> 1 2 + 3 4
+4 6
+#+end_src
+
+* TEST strand-projection : strands: in projection
+#+begin_src imp
+> echo[1 2 3]
+1 2 3
+#+end_src
+
+* TEST strand-syntactic : strands: purely syntactic (not semantic)
+#+begin_src imp
+> 1 2 3
+1 2 3
+> (0) 1
+1
+> (1 2) 3
+3
+> a: 2
+2
+> b: 3
+3
+> a b
+3
+> + a b
+5
+#+end_src
+
+Strands are formed only from adjacent literal tokens (INT, NUM, backtick symbols), not from evaluated expressions or variables. So `+ a b` passes two separate arguments (variables aren't literals), while `+ 2 3` would form a strand `2 3` as one argument (resulting in partial application).
+
+* TEST strand-func-args-comma : strands: as function arguments with comma separator
+#+begin_src imp
+> + 1 2 3, 4 5 6
+5 7 9
+#+end_src
+
+When collecting function arguments, strands form within each comma-separated argument. The comma acts as an argument separator.
+
+* TEST strand-func-args : strands: passed to functions
+#+begin_src imp
+> show 1 2 3
+"1 2 3"
+#+end_src
+
+When a function collects arguments, adjacent literals form a strand that is passed as a single argument. (Note: using `show` instead of `echo` since `echo` writes to stdout which isn't captured by the test harness)
+
+* TEST type-int : type? introspection
+#+begin_src imp
+> echo show type? 3
+int!
+#+end_src
+
+#+name: type-str
+#+begin_src imp
+> echo show type? "hello"
+str!
+#+end_src
+
+#+name: type-sym
+#+begin_src imp
+> echo show type? `foo
+sym!
+#+end_src
+
+#+name: type-list
+#+begin_src imp
+> echo show type? [1 2 3]
+lst!
+#+end_src
+
+#+name: type-vector-ints
+#+begin_src imp
+> echo show type? 1 2 3
+ints!
+#+end_src
+
+#+name: type-nil
+#+begin_src imp
+> echo show type? nil
+nil!
+#+end_src
+
+* TEST arithmetic-ops : arithmetic operators
+#+begin_src imp
+> 10 + 5
+15
+> 10 - 5
+5
+> 10 * 5
+50
+> 10 % 3
+3
+> 2 ^ 8
+256
+#+end_src
+
+* TEST min-max : min and max operators
+#+begin_src imp
+> min[3; 7]
+3
+> max[3; 7]
+7
+> 1 2 3 min 2 4 1
+1 2 1
+#+end_src
+
+* TEST take-nums : tk (take) operator: scalars and vectors
+#+begin_src imp
+> 5 tk 10
+10 10 10 10 10
+> 3 tk 1 2
+1 2 1
+> 4 tk 7 8 9
+7 8 9 7
+#+end_src
+
+* TEST take-str-lst : tk (take) operator: strings and lists
+#+begin_src imp
+> 7 tk "abc"
+"abcabca"
+> 5 tk '[x y]
+[x y x y x]
+#+end_src
+
+* TEST rev : rev (reverse)
+#+begin_src imp
+> rev 1 2 3 4
+4 3 2 1
+> rev '[a b c]
+[c b a]
+> rev `x `y `z
+`z `y `x
+#+end_src
+
+* TEST len : len (length)
+#+begin_src imp
+> len 1 2 3
+3
+> len "hello"
+5
+> len '[a b c]
+3
+> len 42
+1
+#+end_src
+
+* TEST char-num-conversions : chr, ord, hex, oct conversions
+#+begin_src imp
+> echo chr 65
+A
+> echo chr 65 66 67
+ABC
+> ord "A"
+65
+> ord "AB"
+65 66
+> echo hex 255
+ff
+> echo hex -31
+-1f
+> echo show hex 15 16
+["f" "10"]
+> echo oct 64
+100
+> echo oct -9
+-11
+> echo show oct 8 9
+["10" "11"]
+#+end_src
+
+* TEST range : ! (range/iota)
+#+begin_src imp
+> ! 5
+0 1 2 3 4
+> ! 0
+
+> ! 3
+0 1 2
+#+end_src
+
+* TEST part : part (get part of speech)
+#+begin_src imp
+> part 42
+"N"
+> part 'echo
+"V"
+> part '+
+"V"
+#+end_src
+
+* TEST fold-sum-product : fold (/) suffix: sum and product
+#+begin_src imp
+> +/ 1 2 3 4
+10
+> */ 1 2 3 4
+24
+> +/ 5
+5
+#+end_src
+
+* TEST fold-min-max : fold (/) suffix: min and max
+#+begin_src imp
+> min/ 5 2 8 1 9
+1
+> max/ 5 2 8 1 9
+9
+#+end_src
+
+* TEST scan-sum : scan (\) suffix: running sum
+#+begin_src imp
+> +\ 1 2 3 4
+1 3 6 10
+> *\ 2 3 4
+2 6 24
+#+end_src
+
+* TEST user-fn-basic : user-defined functions: basic
+#+begin_src imp
+> f: {x + 1}
+{x + 1}
+> f 5
+6
+> f 10 20 30
+11 21 31
+#+end_src
+
+* TEST user-fn-dyadic : user-defined functions: dyadic
+#+begin_src imp
+> add: {x + y}
+{x + y}
+> add[3; 5]
+8
+#+end_src
+
+* TEST user-fn-composition : user-defined functions: composition
+#+begin_src imp
+> double: {x * 2}
+{x * 2}
+> inc: {x + 1}
+{x + 1}
+> double inc 5
+12
+#+end_src
+
+* TEST user-fn-partial : user-defined functions: partial application
+#+begin_src imp
+> add: {x + y}
+{x + y}
+> add3: add[3]
+{x + y}[3]
+> add3[5]
+8
+#+end_src
+
+* TEST user-fn-first-class : user-defined functions: as first-class values
+#+begin_src imp
+> {x + 2}
+{x + 2}
+> {x * 2} 10
+20
+#+end_src
+
+Functions are first-class values. A standalone function definition `{x + 2}` returns the function itself. Functions can be immediately applied by providing arguments.
+
+* TEST user-fn-assign-curly : user-defined functions: assignment with curly braces
+#+begin_src imp
+> f: {x + 2}
+{x + 2}
+> g: {x * 3}
+{x * 3}
+> f 5
+7
+> g 4
+12
+#+end_src
+
+Assigning curly brace functions to variables works correctly. The function is stored as a value and can be called later.
+
+* TEST user-fn-infix-body : user-defined functions: with infix operators
+#+begin_src imp
+> calc: {x + y * 2}
+{x + y * 2}
+> calc[3; 5]
+16
+#+end_src
+
+Function bodies can contain infix operators. The body is preserved unevaluated until the function is called with arguments. In this case, `3 + 5 * 2` evaluates left-to-right as `(3 + 5) * 2 = 16`.
+
+* TEST get-word-function : get-word: return function without evaluation
+#+begin_src imp
+> f: {x * 2}
+{x * 2}
+> :f
+{x * 2}
+> g: :f
+{x * 2}
+> g 5
+10
+#+end_src
+
+* TEST get-word-partial : get-word: with partial application
+#+begin_src imp
+> add: {x + y}
+{x + y}
+> add3: add[3]
+{x + y}[3]
+> :add3
+{x + y}[3]
+#+end_src
+
+* TEST imparse-equivalence : imparse: equivalence of load and quoted blocks
+#+begin_src imp
+> imparse load "2 + 3"
++[2 ; 3]
+> imparse '[2 + 3]
++[2 ; 3]
+#+end_src
+
+Both `load "code"` (creates TOP node) and `'[code]` (regular list) get transformed into TOP nodes with M-expressions.
+
+* TEST imparse-ast-postfix : imparse: AST for postfix transformation
+#+begin_src imp
+> imparse '[2 !]
+![2]
+> imparse '[5 !]
+![5]
+> imparse '[10 !]
+![10]
+#+end_src
+
+The parser transforms postfix unary (a F → F[a]) into M-expression form, returning a TOP node.
+
+* TEST imparse-ast-infix : imparse: AST for infix transformation
+#+begin_src imp
+> imparse '[2 + 3]
++[2 ; 3]
+> imparse '[10 - 3]
+-[10 ; 3]
+> imparse '[4 * 5]
+*[4 ; 5]
+#+end_src
+
+The parser transforms infix operators (a op b → op[a; b]) into M-expression form, returning a TOP node.
+
+* TEST imparse-ast-chains : imparse: AST for infix chains (left-to-right)
+#+begin_src imp
+> imparse '[2 + 3 * 5]
+*[+[2 ; 3] ; 5]
+> imparse '[10 - 2 + 5]
++[-[10 ; 2] ; 5]
+> imparse '[2 * 3 + 4 * 5]
+*[+[*[2 ; 3] ; 4] ; 5]
+#+end_src
+
+The parser transforms infix chains left-to-right, creating nested M-expressions in a TOP node.
+
+* TEST imparse-ast-skip-prefix : imparse: AST handles prefix cases
+#+begin_src imp
+> imparse '[! 10]
+![10]
+> imparse '[! 10 * 2]
+*[![10] ; 2]
+> imparse '[! 10 * 2 + 1]
++[*[![10] ; 2] ; 1]
+#+end_src
+
+The parser now handles prefix verbs! Two-pass transformation: first prefix (! 10 → ![10]), then infix/postfix.
+
+* TEST imparse-postfix-left-noun : imparse: postfix verbs with noun on the left
+#+begin_src imp
+> imparse '[ord "hello" - 32 chr]
+chr[-[ord["hello"] ; 32]]
+> imparse '["hello" ord - 32 chr]
+chr[-[ord["hello"] ; 32]]
+#+end_src
+
+Monadic verbs should stay postfix even when a noun appears to their left; both forms parse identically.
+
+* TEST imparse-ast-skip-comma : imparse: AST handles comma threading
+#+begin_src imp
+> imparse '[2, + 3]
++[2 ; 3]
+> imparse '[2, + 3 * 5]
++[2 ; *[3 ; 5]]
+#+end_src
+
+The parser now handles comma threading! When a comma is followed by a verb, it threads the previous value as the first argument.
+
+* TEST imparse-get : imparse: GET symbol transformation
+#+begin_src imp
+> imparse load ":x"
+get[`x]
+> imparse load ":foo"
+get[`foo]
+#+end_src
+
+The parser transforms GET symbols (:word) into M-expression form: get[`word].
+
+* TEST imparse-set : imparse: SET symbol transformation
+#+begin_src imp
+> imparse load "x: 42"
+set[`x ; 42]
+> imparse load "foo: 99"
+set[`foo ; 99]
+#+end_src
+
+The parser transforms SET symbols (word: value) into M-expression form: set[`word; value].
+
+* TEST imparse-set-expr : imparse: SET with expression RHS
+#+begin_src imp
+> imparse load "x: 2 + 3"
+set[`x ; +[2 ; 3]]
+> imparse load "y: 5 * 10 + 1"
+set[`y ; +[*[5 ; 10] ; 1]]
+#+end_src
+
+The parser transforms the RHS of SET through the full transformation pipeline, converting infix to M-expressions.
+
+* TEST imparse-set-chained : imparse: chained SET
+#+begin_src imp
+> imparse load "a: b: 99"
+set[`a ; set[`b ; 99]]
+> imparse load "x: y: z: 42"
+set[`x ; set[`y ; set[`z ; 42]]]
+#+end_src
+
+Chained assignments are right-associative: a: b: 99 becomes set[`a; set[`b; 99]].
+
+* TEST imparse-postfix-valence : imparse: postfix with multiple args (valence check)
+#+begin_src imp
+> imparse load "2 ! 10"
+![2 ; 10]
+> imparse load "5 ! 20 30"
+![5 ; 20 30]
+#+end_src
+
+The parser collects trailing nouns after postfix verbs. The evaluator will check arity and throw valence errors if needed.
+
+* TEST valence-error : valence errors: too many arguments
+#+begin_src imp
+> 2 ! 10
+Error: [project] !: valence error: expected 1 args, got 2
+> ![2; 10]
+Error: [project] !: valence error: expected 1 args, got 2
+#+end_src
+
+When a function receives more arguments than its arity, the evaluator throws a valence error.
+
+* TEST get-set-integration : GET/SET: full integration test
+#+begin_src imp
+> x: 42
+42
+> :x
+42
+> y: x + 10
+52
+> a: b: c: 99
+99
+> a + b + c
+297
+#+end_src
+
+GET (:x) and SET (x: value) transformations integrate seamlessly with the rest of the language.
+
+* TEST dict-basic : dictionaries: basic creation and access
+#+begin_src imp
+> d: :[`a 1; `b 2 + 2]
+:[`a 1; `b 4]
+> d[`a]
+1
+> d[`b]
+4
+#+end_src
+
+Dictionaries are key-value maps. Created with `:[key val; ...]` syntax where keys must be backtick symbols.
+
+* TEST dict-backtick-access : dictionaries: backtick infix access
+#+begin_src imp
+> d: :[`a 1; `b 4]
+:[`a 1; `b 4]
+> d`a
+1
+> d`b
+4
+#+end_src
+
+Dictionary values can be accessed using backtick infix syntax: `dict`key`.
+
+* TEST dict-multi-key : dictionaries: multi-key access
+#+begin_src imp
+> d: :[`a 1; `b 2 + 2]
+:[`a 1; `b 4]
+> d[`a `b]
+[1, 4]
+#+end_src
+
+Multiple keys can be accessed at once using space-separated strands. Returns a list of values.
+
+* TEST dict-empty : dictionaries: empty dictionary
+#+begin_src imp
+> e: :[]
+:[]
+> e
+:[]
+#+end_src
+
+Empty dictionaries are created with `:[]` syntax.
+
+* TEST dict-nested : dictionaries: nested values
+#+begin_src imp
+> d: :[`x [1 2 3]; `y "hello"]
+:[`x [1 2 3]; `y "hello"]
+> d`x
+[1 2 3]
+> d`y
+"hello"
+#+end_src
+
+Dictionary values can be any implish type, including lists and strings.
+
+* TEST dict-type : dictionaries: type check
+#+begin_src imp
+> d: :[`a 1]
+:[`a 1]
+> echo show type? d
+dct!
+#+end_src
+
+The type? function returns dct! for dictionaries.
+
+* TEST dict-symbol-values : dictionaries: symbol values with comma
+#+begin_src imp
+> d: :[`c `d; `e `f `g]
+:[`c, `d; `e, `f `g]
+> d`c
+`d
+> d`e
+`f `g
+#+end_src
+
+When a dictionary value is a backtick symbol, it's printed with a comma to distinguish it from the key. If the value is a strand of symbols, only the first gets the comma.
+
+* [0/7] upcoming tests
+
+** TODO ambivalent operators
+ex: - x is negate,  x - y is subtraction
+x + y is addition,  + x is transpose or complex conjugate
+
+** TODO grammar rules / definitions / macros
+
+** TODO binary expressions
+: eq =  ne ~: gt >  lt <  ge >: le <:
+: xr ~: an *. or +. nt -.
+: lid / rid ? (li/ri?)
+
+** TODO proofs
+- unification for rewrite rules
+- hehner has two levels (one for expr, one for proofs)
+- really just same op with two precedence levels
+- quoting might fill the gap?
+
+** TODO tokenizer -> xml test?
+
+* TEST rln : rln: read line from input
+#+begin_src imp
+> rln
+> hello
+"hello"
+#+end_src
+
+This test verifies that rln reads a line from the input stream.
+The input provider can be customized for different environments (Node.js, browser, testing, etc.)
+
+* TEST rln-assign : rln: store in variable
+#+begin_src imp
+> name: rln
+> Alice
+"Alice"
+> echo name
+Alice
+#+end_src
+
+* TEST rln-multiple : rln: multiple reads
+#+begin_src imp
+> a: rln
+> first
+"first"
+> b: rln
+> second
+"second"
+> a
+"first"
+> b
+"second"
+#+end_src
+* TEST imparse-prefix-precedence : imparse: prefix verbs bind tighter than infix
+#+begin_src imp
+> imparse '[1 + 2 * ! 10]
+*[+[1 ; 2] ; ![10]]
+#+end_src
+
+Prefix verbs should bind to their right argument even when an infix verb sits to their left.
+* TEST paren-infix-prefix : parentheses with prefix inside
+#+begin_src imp
+> (1 + 2 * ! 10)
+0 3 6 9 12 15 18 21 24 27
+#+end_src
+
+* TEST imparse-infix-monadic-right : infix with monadic verb on the right
+#+begin_src imp
+> imparse '[1 + 2 * ! 10]
+*[+[1 ; 2] ; ![10]]
+#+end_src
+
+An infix verb with a monadic verb on the right should apply that verb to its arguments before forming the infix M-expression.

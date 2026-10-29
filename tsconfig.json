@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "declaration": true,
+    "types": ["node"],
+    "sourceMap": true
+  },
+  "include": ["*.mts"],
+  "exclude": ["node_modules", "dist"]
+}
