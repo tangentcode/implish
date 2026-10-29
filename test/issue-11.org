@@ -99,3 +99,52 @@ lst!
 > show load "1 2"
 "1 2"
 #+end_src
+
+** TEST list-verb-then-noun : a function followed by a noun is set apart with ';'
+# Written as [{x * 2} 3] it would reload as an application ([6]).
+# rev builds the list without needing #8; the reload itself needs #8.
+#+begin_src
+> l: rev [3; {x * 2}]
+[{x * 2}; 3]
+> value "[{x * 2} 3]"
+[6]
+#+end_src
+
+** TEST list-noun-then-verb : a noun followed by a function round-trips
+#+begin_src
+> l: [3; {x * 2}]
+[3; {x * 2}]
+> match[:l; value show :l]
+1
+#+end_src
+
+** TEST list-verb-then-verb : adjacent functions are not composed or applied
+#+begin_src
+> b: [4; {x * 2}]
+[4; {x * 2}]
+> l: concat[[3; {x}]; rev :b]
+[3; {x}; {x * 2}; 4]
+#+end_src
+
+** TEST list-bare-verb : a projection with no args is shown as its verb
+# Written as +[] it would reload as +[nil].
+#+begin_src
+> l: [+; 3]
+[+; 3]
+> match[:l; value show :l]
+1
+#+end_src
+
+** TEST list-projection : a projection with args is set apart with ';'
+#+begin_src
+> l: rev [3; +[2]]
+[+[2]; 3]
+#+end_src
+
+** TEST list-verb-last : a verb at the end of a list round-trips
+#+begin_src
+> l: [3; +]
+[3; +]
+> match[:l; value show :l]
+1
+#+end_src

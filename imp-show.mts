@@ -26,12 +26,20 @@ export class ImpWriter {
     }
   }
 
+  private isVerb(x: ImpVal): boolean {
+    return x[0] === ImpT.IFN || x[0] === ImpT.JSF
+  }
+
   // Separator to write between adjacent items of a list value so that
   // loading the output gives back the same items: same-kind nouns would
   // otherwise form a strand (1 2 -> one vector), and a dict followed by
   // a backtick symbol would be read as indexing (d`k). After a symbol the
   // separator is '; ' because the loader reads `a, as the symbol "a,".
   private itemSep(prev: ImpVal, curr: ImpVal): string {
+    // A verb-valued item (function or projection) next to anything else
+    // would be applied to it ({f} 3, {f}, 3) or composed with it ({f} {g}),
+    // so verbs are always set apart with ';'.
+    if (this.isVerb(prev) || this.isVerb(curr)) return '; '
     const prevKind = this.nounKind(prev)
     const currKind = this.nounKind(curr)
     if (prevKind !== null && prevKind === currKind) {
@@ -118,6 +126,9 @@ export class ImpWriter {
           } else {
             source = '<fn>'
           }
+          // No captured args: the projection is just its source verb
+          // (written as source[] it would reload as source[nil]).
+          if (x[1].capturedArgs.length === 0) return source
           let args = x[1].capturedArgs.map(a => this.show(a)).join('; ')
           return `${source}[${args}]`
         }
