@@ -1,0 +1,124 @@
+#!/bin/sh
+# b4/test : test implish on the b4 vm, and the TypeScript reference.
+#
+#   b4/test           everything below
+#   b4/test b4        only the b4 suites and checks (skip imp-tests/prim-tests)
+#
+# 1. npm run build
+# 2. tanco: b4/b4-tests.org on TS (./imp -q) and on b4 (b4/imp-b4 -q)
+# 3. tanco: b4/b4-only-tests.org on b4
+# 4. driver checks tanco can't express (/reset, too-long lines)
+# 5. both b4 suites as one batch, through Rust and through Pascal's b4i
+#    (B4I_PAS, default $B4/imp/pas/b4i), against the suites' expected
+#    output. Pascal buffers stdout until exit, so it can't run under tanco.
+# 6. imp-tests.org and prim-tests.org on TS, unless "b4" was given
+#
+# tanco: $TANCO, else tanco on PATH, else $B4/.venv/bin/tanco,
+# else installed into .venv/ here.
+set -eu
+ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+B4=${B4:-$HOME/ver/b4}
+export B4
+TMP=$ROOT/.tmp
+mkdir -p "$TMP"
+
+only_b4=
+case "${1:-}" in
+  "") ;;
+  b4) only_b4=1 ;;
+  *) echo "usage: b4/test [b4]" >&2; exit 2 ;;
+esac
+
+if [ -z "${TANCO:-}" ]; then
+  if command -v tanco >/dev/null 2>&1; then TANCO=tanco
+  elif [ -x "$B4/.venv/bin/tanco" ]; then TANCO=$B4/.venv/bin/tanco
+  else
+    if [ ! -x "$ROOT/.venv/bin/tanco" ]; then
+      echo "installing tanco into .venv"
+      python3 -m venv "$ROOT/.venv"
+      "$ROOT/.venv/bin/python" -m pip install --quiet tanco
+    fi
+    TANCO=$ROOT/.venv/bin/tanco
+  fi
+fi
+
+fail=0
+summary=
+
+# tanco 0.4 exits 0 when a test fails, so require its success line.
+# usage: run_tanco LABEL ORG "COMMAND"
+run_tanco() {
+  label=$1 org=$2 cmd=$3
+  log=$TMP/tanco.log
+  echo "== $label: $org =="
+  "$TANCO" run -t "$org" -c "'$cmd'" >"$log" 2>&1 || true
+  tail -n 3 "$log"
+  counts=$(grep -Eo '[0-9]+ of [0-9]+ tests passed|All [0-9]+ tests passed' "$log" | tail -n 1 || true)
+  if grep -q '^All .* tests passed\.$' "$log"; then
+    n=$(echo "$counts" | grep -Eo '[0-9]+')
+    summary="$summary
+  $label $org: $n/$n"
+  else
+    cat "$log"
+    fail=1
+    summary="$summary
+  $label $org: FAILED ($counts)"
+  fi
+}
+
+# usage: check LABEL EXPECTED ACTUAL
+checks=0 checks_ok=0
+check() {
+  checks=$((checks + 1))
+  if [ "$2" = "$3" ]; then
+    checks_ok=$((checks_ok + 1))
+  else
+    echo "FAIL $1"; echo "--- expected"; echo "$2"; echo "--- actual"; echo "$3"
+    fail=1
+  fi
+}
+
+echo "== npm run build =="
+npm run build --silent
+
+# build b4i once up front so its build messages stay out of tanco's output
+b4/imp-b4 -e '' >/dev/null
+
+run_tanco ts b4/b4-tests.org './imp -q'
+run_tanco b4 b4/b4-tests.org 'b4/imp-b4 -q'
+run_tanco b4 b4/b4-only-tests.org 'b4/imp-b4 -q'
+
+echo "== driver checks =="
+check reset-order "$(printf '2\nReady.\n4')" "$(printf '1 + 1\n/reset\n2 + 2\n' | b4/imp-b4 -q)"
+long=$(awk 'BEGIN { for (i = 0; i < 9000; i++) printf "1 + "; print "1" }')
+check too-long "$(printf '3\nError: line longer than 28672 bytes\n7')" \
+  "$(printf '1 + 2\n%s\n3 + 4\n' "$long" | b4/imp-b4 -q)"
+check -e-args "$(printf '3\n9')" "$(b4/imp-b4 -e '1 + 2' -e '' -e '1 + 2 * 3')"
+
+# both b4 suites as one batch: "> " lines are input, the other lines
+# inside src blocks are the expected output
+inputs=$TMP/inputs.imp
+expected=$(awk '/^#\+begin_src/ { on = 1; next } /^#\+end_src/ { on = 0 }
+  on && !/^>/' b4/b4-tests.org b4/b4-only-tests.org)
+awk '/^#\+begin_src/ { on = 1; next } /^#\+end_src/ { on = 0 }
+  on && /^>/ { sub(/^> ?/, ""); print }' b4/b4-tests.org b4/b4-only-tests.org >"$inputs"
+check rust-batch "$expected" "$(b4/imp-b4 -q <"$inputs")"
+B4I_PAS=${B4I_PAS:-$B4/imp/pas/b4i}
+if [ -x "$B4I_PAS" ]; then
+  echo "== pascal b4i: $B4I_PAS =="
+  check pascal-batch "$expected" "$(B4I=$B4I_PAS b4/imp-b4 -q <"$inputs")"
+else
+  echo "== pascal b4i: skipped, no $B4I_PAS =="
+fi
+summary="$summary
+  driver + pascal checks: $checks_ok/$checks"
+
+if [ -z "$only_b4" ]; then
+  run_tanco ts imp-tests.org './imp -q'
+  run_tanco ts prim-tests.org './imp -q'
+fi
+
+echo
+echo "summary:$summary"
+exit $fail

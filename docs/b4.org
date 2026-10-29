@@ -72,16 +72,38 @@ the b4 one, so the TS version stays the reference for semantics.
 | =b4/b4-only-tests.org= | tanco tests for b4-specific behavior (errors, limits) |
 | =b4/test=              | builds b4i, runs every suite above                    |
 
+* running it
+
+#+begin_src sh
+b4/imp-b4 -e '1 + 2 * 3'          # 9
+echo '6 * 7' | b4/imp-b4 -q       # 42
+B4I=~/ver/b4/imp/pas/b4i b4/imp-b4 -e '1 + 2'   # on the Pascal vm
+b4/test                           # all suites; b4/test b4 for just the b4 ones
+#+end_src
+
+=b4/imp-b4= builds the Rust =b4i= from =$B4= (default =~/ver/b4=) into
+=.b4-build/= in this repo, so the b4 checkout is never written to.
+
 * how the driver talks to the vm
 
-For each input line the driver sends =b4i= two lines:
+For each input line the driver sends =b4i=:
 
 #+begin_src b4a
 :8000 31 20 2B 20 32 00     # the source bytes, as hex, nul-terminated
 8000 imp-eval               # evaluate the line at $8000 and print the result
+?d                          # sentinel: ends this line's output
 #+end_src
 
-Hex bytes avoid any quoting of the source in b4a. =$8000= is free ram on
+Hex bytes avoid any quoting of the source in b4a. The bytes go 16 per
+b4i line, each with its own address, because Pascal's =b4i= truncates
+long input lines. =io 'e= buffers output and =b4i= ends each line that
+printed with a newline, so one =imp-eval= prints one line.
+
+The driver streams lines without waiting for results (Pascal's =b4i=
+buffers stdout until it exits); the =?d= sentinels split the output back
+into lines, and also catch a dirty data stack. Only the interactive
+prompt waits for each result, so the interactive repl needs a =b4i= that
+flushes (Rust). =$8000= is free ram on
 the Rust and Pascal vms (stacks sit at the top of the 64k). One =b4i=
 process serves the whole session, so later milestones can keep variables
 in vm memory across lines.
@@ -95,20 +117,23 @@ in vm memory across lines.
   pin the wraparound.
 - Tokens are whitespace separated, as in the TS loader: =1+2= is the
   single word =1+2=, not a sum.
+- The null int =0N= is the 32-bit minimum, as =NULL_INT= in the TS
+  version, so it prints the same on both.
 - Error text differs for now (the TS version reports =undefined word=,
   projections etc.); errors are tested in the b4-only suite.
 
 * milestones
 
-** milestone 1: integer literals and dyads
-- decimal int literals, including negative (=-7=)
+** DONE milestone 1: integer literals and dyads
+- decimal int literals, including negative (=-7=) and =0N=
 - =+ - *= as left-to-right dyads; =%= (integer divide) is deferred to
   milestone 2 so its rounding can be matched to the TS version
 - print the result in decimal, like the TS repl; blank line prints nothing
 - errors print =Error: ...= and the session continues
 - =b4/imp-b4 -e '1 + 2'= prints =3=; =b4/imp-b4= is a line repl on stdin
 - tests: shared suite passes on TS and on b4 (Rust b4i); b4-only suite
-  passes; existing =imp-tests.org= and =prim-tests.org= still pass on TS
+  passes; both suites also pass as a batch on Pascal b4i; existing
+  =imp-tests.org= and =prim-tests.org= still pass on TS
 
 ** milestone 2: grouping and the rest of integer arithmetic
 - parentheses, =%=, comparisons (=< > ==), =nil= / =ok=

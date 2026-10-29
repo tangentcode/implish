@@ -1,0 +1,110 @@
+# imp.b4a : implish on the b4 virtual machine
+#
+# milestone 1: decimal integer literals (and 0N, the null int) and the
+# dyads + - *, evaluated left to right (implish has no operator
+# precedence). ints are 32-bit cells; 0N is the smallest one, as in
+# the TypeScript implementation (NULL_INT in imp-core.mts).
+#
+#   :8000 31 20 2B 20 32 00     # "1 + 2", nul-terminated
+#   8000 imp-eval               # prints 3
+#
+# needs only core ops and io 'e (emit). io 'e buffers characters and
+# b4i ends each input line that printed something with a newline, so
+# one call to imp-eval prints one line. uses registers K and N.
+# see ../docs/b4.org for the plan.
+
+#-- strings (backtick refs must come after the label) ------
+
+:imp-0n ."0N"
+:imp-e-pre ."Error: "
+:imp-e-arg ."expected a number after the dyad"
+:imp-e-word ."unknown word (milestone 1 knows ints and + - *)"
+:imp-e-strand ."strands are not supported yet"
+
+#-- output ----------------------------------------------------
+
+:imp-emit lb 'e io rt                 # (c-) write one character
+:imp-dvm ov ov md dc dv cd rt         # (xy-qr) divmod
+
+:imp-puts                             # (a-) print counted string at a
+   du rb sw c1 ad sw                  # (a-pn) p=a+1, n=length
+   .f du rb imp-emit c1 ad .n
+   zp rt
+
+:imp-putn                             # (n-) print n in decimal
+   du c0 eq .i zp lb '0 imp-emit rt .t
+   du li 00 00 00 80 eq               # min int is implish's null int 0N
+   .i zp li `imp-0n imp-puts rt .t
+   du c0 lt .i lb '- imp-emit c0 sw sb .t
+   c0 sw                              # (n-kn) k counts digits
+   .w du .d                           # while n<>0:
+      lb 0A imp-dvm                   #   (kn-kqr)
+      lb '0 ad dc                     #   push digit char to cs
+      sw c1 ad sw .o                  #   k++, n=q
+   zp                                 # (k|c..c)
+   .f cd cd imp-emit dc .n            # pop chars from under the loop counter
+   rt
+
+:imp-err                              # (a-) print "Error: " and message a
+   li `imp-e-pre imp-puts imp-puts rt
+
+#-- scanning --------------------------------------------------
+
+:imp-ch @K rb rt                      # (-c) current character
+:imp-adv c1 +K zp rt                  # (-) advance one character
+:imp-reset rt                         # (-) clear implish state (none yet)
+
+:imp-ws?                              # (c-?) space or tab?
+   du lb 20 eq sw lb 09 eq or rt
+
+:imp-sep?                             # (-?) at whitespace or end of line?
+   imp-ch du imp-ws? sw c0 eq or rt
+
+:imp-dig?                             # (c-?) '0'..'9'?
+   du lb '0 lt nt sw lb 3A lt an rt
+
+:imp-skip                             # (-) skip whitespace
+   .w imp-ch imp-ws? .d imp-adv .o rt
+
+:imp-num?                             # (-?) does a number start here?
+   imp-ch imp-dig? .i n1 rt .t
+   imp-ch lb '- eq .i @K c1 ad rb imp-dig? rt .t
+   c0 rt
+
+:imp-num                              # (-n) read a number; imp-num? was true
+   imp-ch lb '0 eq @K c1 ad rb lb 'N eq an
+   .i imp-adv imp-adv li 00 00 00 80 rt .t   # 0N: the null int
+   c0 !N
+   imp-ch lb '- eq .i n1 !N imp-adv .t
+   c0                                 # accumulator
+   .w imp-ch imp-dig? .d
+      lb 0A ml imp-ch lb '0 sb ad imp-adv .o
+   @N .i c0 sw sb .t rt
+
+:imp-int                              # (-n -1 | 0) read an int token
+   imp-num? nt .i c0 rt .t
+   imp-num imp-sep? nt .i zp c0 rt .t
+   n1 rt
+
+#-- evaluation ------------------------------------------------
+
+:imp-step                             # (n-r -1 | 0) apply one "dyad int" pair
+   imp-num? .i zp li `imp-e-strand imp-err c0 rt .t
+   imp-ch imp-adv                     # (nc) the dyad's character
+   imp-sep? nt .i zp zp li `imp-e-word imp-err c0 rt .t
+   du lb '+ eq ov lb '- eq or ov lb '* eq or
+   nt .i zp zp li `imp-e-word imp-err c0 rt .t
+   imp-skip imp-int                   # (nc-ncm -1 | nc 0)
+   nt .i zp zp li `imp-e-arg imp-err c0 rt .t
+   sw                                 # (nmc)
+   du lb '+ eq .i zp ad n1 rt .t
+   du lb '- eq .i zp sb n1 rt .t
+   zp ml n1 rt
+
+:imp-eval                             # (a-) evaluate the line at a, print result
+   !K imp-skip
+   imp-ch c0 eq .i rt .t              # blank line is nil: print nothing
+   imp-int nt .i li `imp-e-word imp-err rt .t
+   .w imp-skip imp-ch .d              # while not at end of line:
+      imp-step nt .i rt .t .o
+   imp-putn rt

@@ -5,3 +5,5 @@ dist/
 dist-web/
 plan.org
 .b4-build/
+.tmp/
+.venv/

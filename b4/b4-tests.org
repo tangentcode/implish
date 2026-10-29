@@ -1,0 +1,141 @@
+#+title: implish on b4: shared tests
+#+tanco-format: 0.2
+#+name: implish-b4
+#+todo: TODO | DONE TEST
+
+These tests run against /both/ implementations: the TypeScript one
+(=./imp -q=) and the b4 one (=b4/imp-b4 -q=). The TypeScript version is
+the reference, so anything here must already pass there. Run them all
+with =b4/test=. See [[file:../docs/b4.org][docs/b4.org]].
+
+* TEST m1.int : an integer literal evaluates to itself
+#+begin_src
+> 42
+42
+> 0
+0
+> 1234567
+1234567
+#+end_src
+
+* TEST m1.neg : negative literals
+#+begin_src
+> -7
+-7
+> -0
+0
+#+end_src
+
+A =-= directly before a digit is part of the number.
+
+* TEST m1.leading-zeros : leading zeros
+#+begin_src
+> 007
+7
+#+end_src
+
+* TEST m1.plus : =+= adds
+#+begin_src
+> 1 + 2
+3
+> 40 + 2
+42
+> 1 + -2
+-1
+#+end_src
+
+* TEST m1.minus : =-= subtracts
+#+begin_src
+> 10 - 3
+7
+> 3 - 10
+-7
+> 0 - 0
+0
+#+end_src
+
+* TEST m1.times : =*= multiplies
+#+begin_src
+> 6 * 7
+42
+> 6 * -7
+-42
+> 12345 * 6789
+83810205
+#+end_src
+
+* TEST m1.left-to-right : dyads apply left to right, no precedence
+#+begin_src
+> 1 + 2 * 3
+9
+> 2 * 3 + 1
+7
+> 10 - 3 - 2
+5
+> 1 + 2 + 3 + 4 + 5
+15
+#+end_src
+
+Implish has no operator precedence: =1 + 2 * 3= is =(1 + 2) * 3=.
+
+* TEST m1.whitespace : spaces and tabs separate tokens
+#+begin_src
+>    5
+5
+> 5   
+5
+> 1    +    2
+3
+> 	7	+	1
+8
+#+end_src
+
+* TEST m1.blank : a blank line prints nothing
+#+begin_src
+> 
+> 1 + 1
+2
+>    
+> 2 + 2
+4
+#+end_src
+
+* TEST m1.many-lines : each line is evaluated on its own
+#+begin_src
+> 1
+1
+> 2
+2
+> 3 * 3
+9
+#+end_src
+
+* TEST m1.int32-max : the largest 32-bit int
+#+begin_src
+> 2147483647
+2147483647
+> 2147483646 + 1
+2147483647
+> -2147483647
+-2147483647
+#+end_src
+
+b4 cells are 32 bits. Results inside that range agree with the
+TypeScript version; see =b4-only-tests.org= for what happens outside.
+
+* TEST m1.null-int : =0N= is the null int, the smallest 32-bit int
+#+begin_src
+> 0N
+0N
+> -2147483648
+0N
+> -2147483647 - 1
+0N
+> 0N + 1
+-2147483647
+> 0N * 0
+0
+#+end_src
+
+Implish's null int =0N= (from K) is the 32-bit minimum,
+=NULL_INT= in =imp-core.mts=. It prints as =0N= however it was made.

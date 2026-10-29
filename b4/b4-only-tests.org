@@ -1,0 +1,130 @@
+#+title: implish on b4: b4-only tests
+#+tanco-format: 0.2
+#+name: implish-b4-only
+#+todo: TODO | DONE TEST
+
+Behavior of the b4 implementation that the TypeScript one doesn't share
+(yet): error messages for what milestone 1 can't do, and 32-bit
+wraparound. Run with =b4/test=. See [[file:../docs/b4.org][docs/b4.org]].
+
+* TEST b4.unknown-word : anything but ints and =+ - *= is an unknown word
+#+begin_src
+> x
+Error: unknown word (milestone 1 knows ints and + - *)
+> 1 / 2
+Error: unknown word (milestone 1 knows ints and + - *)
+> 1 + x
+Error: expected a number after the dyad
+> 0Nx
+Error: unknown word (milestone 1 knows ints and + - *)
+> -0N
+Error: unknown word (milestone 1 knows ints and + - *)
+> -
+Error: unknown word (milestone 1 knows ints and + - *)
+#+end_src
+
+* TEST b4.no-space : tokens need whitespace between them
+#+begin_src
+> 1+2
+Error: unknown word (milestone 1 knows ints and + - *)
+> 12x
+Error: unknown word (milestone 1 knows ints and + - *)
+> 1 +2
+Error: unknown word (milestone 1 knows ints and + - *)
+#+end_src
+
+As in the TypeScript loader, =1+2= is one word, not a sum.
+
+* TEST b4.missing-arg : a dyad needs a right argument
+#+begin_src
+> 1 +
+Error: expected a number after the dyad
+> 1 + 
+Error: expected a number after the dyad
+> 1 * -
+Error: expected a number after the dyad
+#+end_src
+
+The TypeScript version makes a projection (=+[1]=) here.
+
+* TEST b4.leading-dyad : a line can't start with a dyad yet
+#+begin_src
+> + 1
+Error: unknown word (milestone 1 knows ints and + - *)
+> - 5
+Error: unknown word (milestone 1 knows ints and + - *)
+#+end_src
+
+* TEST b4.strand : strands are milestone 4
+#+begin_src
+> 1 2
+Error: strands are not supported yet
+> 1 + 2 3
+Error: strands are not supported yet
+> 1 -2
+Error: strands are not supported yet
+#+end_src
+
+* TEST b4.errors-continue : an error doesn't end the session
+#+begin_src
+> x
+Error: unknown word (milestone 1 knows ints and + - *)
+> 1 + 2
+3
+> 1 2
+Error: strands are not supported yet
+> 6 * 7
+42
+#+end_src
+
+* TEST b4.wrap : ints wrap at 32 bits
+#+begin_src
+> 2147483647 + 1
+0N
+> 2147483647 + 2
+-2147483647
+> 0 - 0N
+0N
+> 65536 * 65536
+0
+> 2147483648
+0N
+> 4294967296
+0
+> 4294967297
+1
+#+end_src
+
+b4 cells are 32 bits and the vm's arithmetic wraps. The TypeScript
+version uses js numbers, so it prints =2147483648= for the first line.
+
+* TEST b4.chunks : sources are copied to the vm 16 bytes per line
+#+begin_src
+> 100 + 200 + 300
+600
+> 1000 + 2000 + 30
+3030
+> 1000 + 2000 + 300
+3300
+> 1 + 2 + 3 + 4 + 5 + 6 + 7 + 80
+108
+> 1 + 2 + 3 + 4 + 5 + 6 + 7 + 800
+828
+> 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8000
+8028
+#+end_src
+
+Lines of 15, 16, 17, 31, 32 and 33 bytes: the nul terminator lands at
+the end of a chunk, alone in a new chunk, or mid-chunk.
+
+* TEST b4.long-line : lines longer than a b4i input line
+#+begin_src
+> 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1
+100
+#+end_src
+
+Pascal's b4i truncates long input lines, so the driver never sends the
+source on one b4i line.
+
+=/reset= ordering, the driver's too-long-line error and the Pascal vm
+are checked directly by =b4/test=, since tanco uses =/reset= itself.

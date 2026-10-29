@@ -37,9 +37,18 @@ npm run preview
 ```
 
 ### Testing
-No formal test suite yet. Use `imp-tests.org` for manual testing examples.
+`imp-tests.org` and `prim-tests.org` are tanco suites for the TS REPL:
+`tanco run -t imp-tests.org -c "'./imp -q'"` (note the inner quotes).
+
+`b4/test` runs everything: those two suites, plus the b4 suites
+(`b4/b4-tests.org` on both TS and b4, `b4/b4-only-tests.org` on b4).
 
 The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it easier to pipe test cases and compare outputs.
+
+### Implish on b4
+`b4/imp-b4 -e '1 + 2'` evaluates implish on the b4 vm (`~/ver/b4`, or `B4=...`).
+The interpreter is b4 assembly in `b4/imp.b4a`; `b4/imp-b4.mjs` only feeds
+it source lines. Plan and milestones: `docs/b4.org`.
 
 ## Architecture
 
