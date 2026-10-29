@@ -85,6 +85,10 @@ export const ImpQ = {
   isLst(x: ImpVal): x is ImpLst { return x[0] === ImpT.LST },
   isDct(x: ImpVal): x is ImpDct { return x[0] === ImpT.DCT },
   isIfn(x: ImpVal): x is ImpIfn { return x[0] === ImpT.IFN },
+  // Separators ';', '|' and newline end an expression (statement). ','
+  // never does: it only separates arguments or threads a value into a verb.
+  endsExpr(x: ImpVal): boolean { return x[0] === ImpT.SEP && x[2] !== ',' },
+  isComma(x: ImpVal): boolean { return x[0] === ImpT.SEP && x[2] === ',' },
 };
 
 /** Constructor to lift js types up into Implish **/

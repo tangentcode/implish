@@ -143,16 +143,25 @@ export class ImpEvaluator {
   }
   atEnd = (): boolean => this.pos >= this.here.length
 
-  // is the next item a separator (; , | or newline)?
-  atSep = (): boolean => !this.atEnd() && this.here[this.pos][0] === ImpT.SEP
+  // Does the current expression end here? True at END or at ';', '|' or
+  // newline (see ImpQ.endsExpr), looking past any commas: a comma only
+  // separates arguments (skipped by nextNounItem) or threads a value into
+  // a verb (`2, + 3`, handled in evalList), so `{x + 1},; 7` ends at ';'.
+  atExprEnd = (): boolean => {
+    let i = this.pos
+    while (i < this.here.length && ImpQ.isComma(this.here[i])) i++
+    return i >= this.here.length || ImpQ.endsExpr(this.here[i]) }
 
-  // Collect up to `arity` arguments for a verb. Stops early at END or at a
-  // separator, so a verb never takes its arguments from the next expression.
+  // is the next item a ',' separator?
+  atComma = (): boolean => !this.atEnd() && ImpQ.isComma(this.here[this.pos])
+
+  // Collect up to `arity` arguments for a verb. Stops early at the end of
+  // the expression, so a verb never takes its arguments from the next one.
   // If eagerly=true (for monadic functions), don't look ahead for infix operators.
   collectArgs = async (arity: number, eagerly: boolean): Promise<ImpVal[]> => {
     let args: ImpVal[] = []
     for (let i = 0; i < arity; i++) {
-      if (this.atEnd() || this.atSep()) break
+      if (this.atExprEnd()) break
       try {
         args.push(await this.nextNoun(eagerly))
       } catch (e) {
@@ -338,10 +347,10 @@ export class ImpEvaluator {
   // Collect next noun - handles assignments, get-words, verbs, and regular nouns
   private async nextNounItem(): Promise<ImpVal> {
     // Skip separators (commas are used to separate function arguments)
-    while (this.atSep() && this.here[this.pos][2] === ',') this.pos++
+    while (this.atComma()) this.pos++
     // Check for END (ran out of input). Any other separator (; | newline)
     // ends the expression too, and is left for the caller to consume.
-    if (this.atEnd() || this.atSep()) {
+    if (this.atExprEnd()) {
       throw "unexpected end of input (missing argument?)"
     }
     let res = this.nextItem()
@@ -786,10 +795,10 @@ export class ImpEvaluator {
           // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
           if (this.wordClass(x) === ImpP.V) {
             // Only try to apply if more items follow in this expression
-            // (not at END or a separator). This allows {x + 2} and
+            // (not at END, ';', '|' or newline). This allows {x + 2} and
             // `f: {x + 1}; f[2]` to yield a function value instead of
             // trying to collect args from the next expression.
-            if (!this.atEnd() && !this.atSep()) {
+            if (!this.atExprEnd()) {
               // Apply verb modifiers (composition, etc.) only to JSF for now
               if (x[0] === ImpT.JSF) {
                 x = this.modifyVerb(x as ImpJsf)
