@@ -7,11 +7,17 @@
 # 1. npm run build
 # 2. tanco: b4/b4-tests.org on TS (./imp -q) and on b4 (b4/imp-b4 -q)
 # 3. tanco: b4/b4-only-tests.org on b4
-# 4. driver checks tanco can't express (/reset, too-long lines)
-# 5. both b4 suites as one batch, through Rust and through Pascal's b4i
+# 4. driver checks tanco can't express (/reset, too-long lines, -e)
+# 5. failure checks: a dirty vm stack and every way b4i can fail must
+#    make imp-b4 exit nonzero with an "imp-b4:" message
+# 6. both b4 suites as one batch, through Rust and through Pascal's b4i
 #    (B4I_PAS, default $B4/imp/pas/b4i), against the suites' expected
 #    output. Pascal buffers stdout until exit, so it can't run under tanco.
-# 6. imp-tests.org and prim-tests.org on TS, unless "b4" was given
+# 7. imp-tests.org and prim-tests.org on TS, unless "b4" was given
+#
+# Every imp-b4 run in 2-6 that should succeed must also exit 0 and print
+# nothing on stderr: that is where the driver reports a dirty vm stack
+# or a dead b4i, and neither shows up in stdout.
 #
 # tanco: $TANCO, else tanco on PATH, else $B4/.venv/bin/tanco,
 # else installed into .venv/ here.
@@ -19,9 +25,9 @@ set -eu
 ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 B4=${B4:-$HOME/ver/b4}
-export B4
 TMP=$ROOT/.tmp
 mkdir -p "$TMP"
+B4I_PAS=${B4I_PAS:-$B4/imp/pas/b4i}
 
 only_b4=
 case "${1:-}" in
@@ -46,16 +52,48 @@ fi
 fail=0
 summary=
 
+# imp-b4 failures are recorded here: the runs happen inside $(...) or
+# under tanco, where neither an exit code nor stderr reaches us.
+IMP_FAIL=$TMP/imp-fail
+export ROOT IMP_FAIL B4
+: >"$IMP_FAIL"
+
+# guarded imp-b4, for tanco. tanco kills the repl when it's done, so the
+# wrapper can't look at anything afterwards: stderr goes straight into
+# $IMP_FAIL as it is written. Every imp-b4 failure (dirty stack, dead
+# b4i) says so on stderr before exiting nonzero, so this records them all.
+GUARD=$TMP/imp-b4-guarded
+cat >"$GUARD" <<'GUARD_EOF'
+#!/bin/sh
+exec "$ROOT/b4/imp-b4" "$@" 2>>"$IMP_FAIL"
+GUARD_EOF
+chmod +x "$GUARD"
+
+# usage: imp CMD ARGS...   (stdin passes through; prints CMD's stdout)
+imp() {
+  rc=0
+  "$@" 2>"$TMP/imp.err" || rc=$?
+  if [ "$rc" -ne 0 ] || [ -s "$TMP/imp.err" ]; then
+    { echo "exit $rc from: $*"; cat "$TMP/imp.err"; } >>"$IMP_FAIL"
+  fi
+}
+
 # tanco 0.4 exits 0 when a test fails, so require its success line.
 # usage: run_tanco LABEL ORG "COMMAND"
 run_tanco() {
   label=$1 org=$2 cmd=$3
   log=$TMP/tanco.log
   echo "== $label: $org =="
+  : >"$IMP_FAIL"
   "$TANCO" run -t "$org" -c "'$cmd'" >"$log" 2>&1 || true
   tail -n 3 "$log"
   counts=$(grep -Eo '[0-9]+ of [0-9]+ tests passed|All [0-9]+ tests passed' "$log" | tail -n 1 || true)
-  if grep -q '^All .* tests passed\.$' "$log"; then
+  if [ -s "$IMP_FAIL" ]; then
+    echo "--- imp-b4 reported errors under tanco"; cat "$IMP_FAIL"
+    fail=1
+    summary="$summary
+  $label $org: FAILED ($counts, but imp-b4 reported errors)"
+  elif grep -q '^All .* tests passed\.$' "$log"; then
     n=$(echo "$counts" | grep -Eo '[0-9]+')
     summary="$summary
   $label $org: $n/$n"
@@ -65,18 +103,45 @@ run_tanco() {
     summary="$summary
   $label $org: FAILED ($counts)"
   fi
+  : >"$IMP_FAIL"
 }
 
-# usage: check LABEL EXPECTED ACTUAL
 checks=0 checks_ok=0
+pass() { checks=$((checks + 1)) checks_ok=$((checks_ok + 1)); }
+flunk() { checks=$((checks + 1)); fail=1; echo "FAIL $*"; }
+
+# usage: check LABEL EXPECTED ACTUAL
+# ACTUAL must match, and no imp run since the last check may have failed.
 check() {
-  checks=$((checks + 1))
-  if [ "$2" = "$3" ]; then
-    checks_ok=$((checks_ok + 1))
+  if [ "$2" = "$3" ] && [ ! -s "$IMP_FAIL" ]; then pass
   else
-    echo "FAIL $1"; echo "--- expected"; echo "$2"; echo "--- actual"; echo "$3"
-    fail=1
+    flunk "$1"; echo "--- expected"; echo "$2"; echo "--- actual"; echo "$3"
+    if [ -s "$IMP_FAIL" ]; then echo "--- imp-b4 failed"; cat "$IMP_FAIL"; fi
   fi
+  : >"$IMP_FAIL"
+}
+
+# usage: check_fails LABEL MESSAGE CMD ARGS...   (stdin passes through)
+# CMD must exit nonzero, say "imp-b4: ...MESSAGE..." on stderr, and not
+# crash with a node stack trace.
+check_fails() {
+  label=$1 msg=$2
+  shift 2
+  rc=0
+  "$@" >"$TMP/fails.out" 2>"$TMP/fails.err" || rc=$?
+  if [ "$rc" -ne 0 ] && grep -q "^imp-b4: .*$msg" "$TMP/fails.err" \
+     && ! grep -q '^    at \|node:internal\|Unhandled' "$TMP/fails.err"; then pass
+  else
+    flunk "$label: wanted a nonzero exit and 'imp-b4: ...$msg', got exit $rc"
+    cat "$TMP/fails.err"
+  fi
+}
+
+# usage: check_recorded LABEL : the runs since the last check must have
+# been recorded as failures (tests the guards themselves)
+check_recorded() {
+  if [ -s "$IMP_FAIL" ]; then pass; else flunk "$1: failure was not recorded"; fi
+  : >"$IMP_FAIL"
 }
 
 echo "== npm run build =="
@@ -86,15 +151,56 @@ npm run build --silent
 b4/imp-b4 -e '' >/dev/null
 
 run_tanco ts b4/b4-tests.org './imp -q'
-run_tanco b4 b4/b4-tests.org 'b4/imp-b4 -q'
-run_tanco b4 b4/b4-only-tests.org 'b4/imp-b4 -q'
+run_tanco b4 b4/b4-tests.org "$GUARD -q"
+run_tanco b4 b4/b4-only-tests.org "$GUARD -q"
 
 echo "== driver checks =="
-check reset-order "$(printf '2\nReady.\n4')" "$(printf '1 + 1\n/reset\n2 + 2\n' | b4/imp-b4 -q)"
+check reset-order "$(printf '2\nReady.\n4')" "$(printf '1 + 1\n/reset\n2 + 2\n' | imp b4/imp-b4 -q)"
 long=$(awk 'BEGIN { for (i = 0; i < 9000; i++) printf "1 + "; print "1" }')
 check too-long "$(printf '3\nError: line longer than 28672 bytes\n7')" \
-  "$(printf '1 + 2\n%s\n3 + 4\n' "$long" | b4/imp-b4 -q)"
-check -e-args "$(printf '3\n9')" "$(b4/imp-b4 -e '1 + 2' -e '' -e '1 + 2 * 3')"
+  "$(printf '1 + 2\n%s\n3 + 4\n' "$long" | imp b4/imp-b4 -q)"
+check -e-args "$(printf '3\n9')" "$(imp b4/imp-b4 -e '1 + 2' -e '' -e '1 + 2 * 3')"
+# the raw b4i hook is off unless IMP_B4_RAW=1: "/b4 1 2" is just implish
+check raw-off "Error: unknown word (milestone 1 knows ints and + - *)" \
+  "$(printf '/b4 1 2\n' | imp env -u IMP_B4_RAW b4/imp-b4 -q)"
+# stdout closing early (here, head exits after one line of 5000) ends
+# imp-b4 quietly: nonzero exit, but no stderr and no stack trace
+seq 5000 | b4/imp-b4 -q 2>"$TMP/closed.err" | head -n 1 >"$TMP/closed.out"
+if [ "$(cat "$TMP/closed.out")" = 1 ] && [ ! -s "$TMP/closed.err" ]; then pass
+else flunk stdout-closed; cat "$TMP/closed.out" "$TMP/closed.err"; fi
+
+echo "== failure checks =="
+# a raw b4i line that leaves values on the vm stack: stdout looks fine,
+# so only the driver's guard can catch it, on every vm
+printf '1 + 2\n/b4 1 2\n3 + 4\n' >"$TMP/dirty.imp"
+check_fails dirty-stack 'data stack not empty' env IMP_B4_RAW=1 b4/imp-b4 -q <"$TMP/dirty.imp"
+if [ -x "$B4I_PAS" ]; then
+  check_fails dirty-stack-pas 'data stack not empty' \
+    env IMP_B4_RAW=1 B4I="$B4I_PAS" b4/imp-b4 -q <"$TMP/dirty.imp"
+fi
+# ... and the test harness's own guards must record it
+imp env IMP_B4_RAW=1 b4/imp-b4 -q <"$TMP/dirty.imp" >/dev/null
+check_recorded imp-guard
+IMP_B4_RAW=1 "$GUARD" -q <"$TMP/dirty.imp" >/dev/null || true
+check_recorded tanco-guard
+
+# every way b4i can fail, through both the -e path and the repl path
+printf '#!/bin/sh\ncat >/dev/null\n' >"$TMP/mute-b4i"      # ignores the protocol
+chmod +x "$TMP/mute-b4i"
+printf 'not a program\n' >"$TMP/not-exec-b4i"
+chmod -x "$TMP/not-exec-b4i"
+printf ':imp-eval nosuchword rt\n' >"$TMP/broken.b4a"      # b4i rejects it at load
+run_e() { "$@" b4/imp-b4 -e '1 + 2'; }
+run_repl() { printf '1 + 2\n' | "$@" b4/imp-b4 -q; }
+for mode in e repl; do
+  check_fails "missing-b4i-$mode" "can't run b4i" run_$mode env B4I="$TMP/no-such-b4i"
+  check_fails "not-exec-b4i-$mode" "can't run b4i" run_$mode env B4I="$TMP/not-exec-b4i"
+  check_fails "b4i-exits-at-once-$mode" 'exited early' run_$mode env B4I=/bin/true
+  check_fails "b4i-mute-$mode" 'exited early' run_$mode env B4I="$TMP/mute-b4i"
+  check_fails "b4i-rejects-b4a-$mode" 'exited early' run_$mode env IMP_B4A="$TMP/broken.b4a"
+done
+printf '1 + 2\n/b4 /q\n3 + 4\n' >"$TMP/quits.imp"
+check_fails b4i-exits-mid-session 'exited early' env IMP_B4_RAW=1 b4/imp-b4 -q <"$TMP/quits.imp"
 
 # both b4 suites as one batch: "> " lines are input, the other lines
 # inside src blocks are the expected output
@@ -103,16 +209,15 @@ expected=$(awk '/^#\+begin_src/ { on = 1; next } /^#\+end_src/ { on = 0 }
   on && !/^>/' b4/b4-tests.org b4/b4-only-tests.org)
 awk '/^#\+begin_src/ { on = 1; next } /^#\+end_src/ { on = 0 }
   on && /^>/ { sub(/^> ?/, ""); print }' b4/b4-tests.org b4/b4-only-tests.org >"$inputs"
-check rust-batch "$expected" "$(b4/imp-b4 -q <"$inputs")"
-B4I_PAS=${B4I_PAS:-$B4/imp/pas/b4i}
+check rust-batch "$expected" "$(imp b4/imp-b4 -q <"$inputs")"
 if [ -x "$B4I_PAS" ]; then
   echo "== pascal b4i: $B4I_PAS =="
-  check pascal-batch "$expected" "$(B4I=$B4I_PAS b4/imp-b4 -q <"$inputs")"
+  check pascal-batch "$expected" "$(imp env B4I="$B4I_PAS" b4/imp-b4 -q <"$inputs")"
 else
   echo "== pascal b4i: skipped, no $B4I_PAS =="
 fi
 summary="$summary
-  driver + pascal checks: $checks_ok/$checks"
+  driver, failure and batch checks: $checks_ok/$checks"
 
 if [ -z "$only_b4" ]; then
   run_tanco ts imp-tests.org './imp -q'

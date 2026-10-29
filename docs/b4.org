@@ -81,6 +81,16 @@ B4I=~/ver/b4/imp/pas/b4i b4/imp-b4 -e '1 + 2'   # on the Pascal vm
 b4/test                           # all suites; b4/test b4 for just the b4 ones
 #+end_src
 
+Debugging hooks: =IMP_B4A=file.b4a= loads another interpreter, and with
+=IMP_B4_RAW=1= a repl line =/b4 ...= goes to =b4i= as it is (=/b4 ?d=,
+=/b4 ?8000=).
+
+If =b4i= can't start, exits early, rejects the interpreter, or leaves
+values on its data stack after a line, =imp-b4= says so on stderr
+(=imp-b4: ...=) and exits nonzero. =b4/test= treats any stderr or
+nonzero exit from a run that should succeed as a failure, and has a check
+for each of those failure modes.
+
 =b4/imp-b4= builds the Rust =b4i= from =$B4= (default =~/ver/b4=) into
 =.b4-build/= in this repo, so the b4 checkout is never written to.
 

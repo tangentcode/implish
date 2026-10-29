@@ -43,9 +43,14 @@ Error: expected a number after the dyad
 Error: expected a number after the dyad
 > 1 * -
 Error: expected a number after the dyad
+> 1 + 12x
+Error: expected a number after the dyad
 #+end_src
 
 The TypeScript version makes a projection (=+[1]=) here.
+
+Each error path in =imp.b4a= has a case in this file, and =b4/test=
+fails if any of them leaves values on the vm's data stack.
 
 * TEST b4.leading-dyad : a line can't start with a dyad yet
 #+begin_src
