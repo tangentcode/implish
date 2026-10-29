@@ -162,8 +162,14 @@ in vm memory across lines.
   own (=imparse='s comma threading) covers more.
 - =name:= assigns the rest of its clause (=a: b: 5=, =1 + x: 5=).
 - A lambda applies to the noun after it, like a monad (=f 3 + 1= is
-  =10=). A named arity-0 lambda runs when named (=k=). Names assigned
-  inside a lambda are local to the call, as in TS.
+  =10=). A named arity-0 lambda runs when named (=k=). Arity is the
+  highest of =x= / =y= / =z= read in the body (=z= after a second =,=).
+- Scope, as TS's =applyIfn=: a call saves =x=, =y= and =z=, binds its
+  arguments, and afterwards puts all three back (unbinding any that
+  weren't bound), so they are the only locals. Any other name assigned
+  in a body is the one global variable (=m3.scope*=). One difference:
+  TS restores only when the body returns, so after a failed call TS
+  leaves the arguments bound; b4 restores either way (=b4.scope-error=).
 - Where TS makes a projection (=f=, =g 3=, =+ 1=), b4 shows the lambda
   or reports an error; those are in the b4-only suite.
 - The null int =0N= is the 32-bit minimum, as =NULL_INT= in the TS
@@ -206,8 +212,8 @@ Values are int arrays with a rank and shape, allocated with mm.
 - [X] =rev=, and =^= (by squaring; ints only, so no negative exponents)
 - [X] variables: =x: 1 2 3=, held in a node of name/value pairs in mm;
   the leak check counts everything the variables don't own
-- [X] lambdas: ={x * x}=, arity from the names =x= / =y= in the body,
-  =x= and =y= bound for the call (names assigned inside are local)
+- [X] lambdas: ={x * x}=, arity from the names =x= / =y= / =z= in the
+  body; =x= =y= =z= saved, bound and put back around the call
 - [ ] the rest of the incunabulum set: identity, size/shape, box,
   catenate, index/from, reshape (and rank 2)
 

@@ -98,10 +98,44 @@ Error: toArray expects list, vector, or string
 Error: not a dyad: f
 > , rev
 Error: missing argument
+> h: {x + y + z}
+{x + y + z}
+> h 1, 2
+Error: missing argument
+> h 1
+Error: missing argument
 #+end_src
 
-TS shows =f= as =f[]= and =g 3= as =g[3]= (projections), and rejects a
-lambda literal after a dyad.
+TS shows =f= as =f[]=, =g 3= as =g[3]= and =h 1, 2= as =h[1; 2]=
+(projections), and rejects a lambda literal after a dyad.
+
+* TEST b4.scope-error : a call that fails still puts x y and z back
+#+begin_src
+> x: 5
+5
+> y: 7
+7
+> e: {y: x + 0, nope}
+{y: x + 0, nope}
+> e 1
+Error: undefined word: nope
+> x
+5
+> y
+7
+> n: {e x}
+{e x}
+> n 2
+Error: undefined word: nope
+> x
+5
+> y
+7
+#+end_src
+
+TS's =applyIfn= restores =x=, =y= and =z= only when the body returns,
+so after =e 1= fails it shows =1= for both =x= and =y=. b4 puts them
+back on the way out either way.
 
 * TEST b4.pow : ^ is int-only
 #+begin_src

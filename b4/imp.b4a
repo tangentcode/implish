@@ -67,6 +67,7 @@
 :imp-s-cm 02 ', 20                           # ", "
 :imp-s-x 01 'x
 :imp-s-y 01 'y
+:imp-s-z 01 'z
 :imp-s-cmo 02 '. ':                          # .:
 :imp-s-cmc 02 ': '.                          # :.
 :imp-delims 08 '[ '] '( ') '{ '} '` ';       # end a raw symbol
@@ -198,9 +199,11 @@
    zp zp n1 rt
 
 #-- variables -------------------------------------------------
-# imp-env is a node of name/value pairs. a lambda call binds x and y
-# by appending pairs, then cuts the env back to its old size, so a
-# name assigned inside a lambda is local to the call (as in TS).
+# imp-env is a node of name/value pairs, one per name: the variables
+# are global. as in TS (applyIfn), a lambda call saves x y and z,
+# binds its arguments to them, and puts all three back afterwards
+# (unbinding the ones that weren't bound), so only they are local:
+# any other name a lambda assigns stays assigned after the call.
 
 :imp-find                             # (w-i) the env slot holding name w, latest first; -1 if none
    @imp-env imp-n
@@ -214,20 +217,35 @@
    @E .i imp-drop imp-drop rt .t
    @imp-env sw dc sw imp-put cd imp-put !imp-env rt
 
-:imp-bindc                            # (vs-) bind counted string s's name to v; takes v
-   imp-name du c0 eq .i zp imp-drop rt .t
-   sw imp-bind rt
 
 :imp-set                              # (wv-) name w is v from now on; takes both
    ov imp-find du n1 eq .i zp imp-bind rt .t
    c1 ad @imp-env sw imp-it           # (wvp) p: the value's slot
    du ri imp-drop wi imp-drop rt
 
-:imp-trunc                            # (k-) drop the env's bindings past slot k
-   .w @imp-env imp-n ov sw lt .d
-      @imp-env du imp-n c1 sb imp-it ri imp-drop
-      @imp-env imp-d0 du ri c1 sb sw wi .o
-   zp rt
+:imp-setc                             # (vs-) counted string s's name is v from now on; takes v
+   imp-name du c0 eq .i zp imp-drop rt .t
+   sw imp-set rt
+
+:imp-unbind                           # (i-) remove the binding at env slot i (-1: none)
+   du n1 eq .i zp rt .t
+   @imp-env ov imp-it ri imp-drop
+   @imp-env ov c1 ad imp-it ri imp-drop
+   .w du c2 ad @imp-env imp-n lt .d   # (i) move the bindings after it down
+      du c2 ad @imp-env sw imp-it ri  # (iv)
+      ov @imp-env sw imp-it wi c1 ad .o
+   zp @imp-env imp-d0 du ri c2 sb sw wi rt
+
+:imp-save                             # (s-v) a copy of counted name s's value; 0 if unbound
+   imp-name du c0 eq .i rt .t
+   du imp-find sw imp-drop            # (i)
+   du n1 eq .i zp c0 rt .t
+   c1 ad @imp-env sw imp-it ri imp-dcopy rt
+
+:imp-restore                          # (vs-) counted name s is v again, or unbound if v is 0
+   ov .i imp-setc rt .t
+   sw zp imp-name du c0 eq .i zp rt .t
+   du imp-find sw imp-drop imp-unbind rt
 
 :imp-leaks                            # (-n) mm blocks in use that the variables don't own
    mm-count @imp-env imp-owned sb rt
@@ -434,7 +452,8 @@
    du imp-ptr? nt .i zp c0 rt .t
    du ri lb 02 eq nt .i zp c0 rt .t
    du imp-n c1 eq nt .i zp c0 rt .t
-   c0 imp-it ri du lb 'x eq .i zp c1 rt .t lb 'y eq .i c2 rt .t c0 rt
+   c0 imp-it ri du lb 'x eq .i zp c1 rt .t
+   du lb 'y eq .i zp c2 rt .t lb 'z eq .i lb 03 rt .t c0 rt
 
 :imp-arity                            # (l-n) the arity of a lambda with tokens l
    c0 sw du imp-n du .i .f            # (kl)
@@ -510,32 +529,32 @@
 :imp-dyads                            # (xt-xt) apply the dyads up to a , or the end
    .w imp-more? .d imp-dyad .o rt
 
-:imp-run                              # (tlk-tx) run lambda l's body, then cut the env back to k
-   dc @E .i imp-drop c0 cd imp-trunc rt .t
-   @I dc c0 !I cl >imp-expr cd !I     # (tlx)
-   sw imp-drop cd imp-trunc rt
+:imp-arg                              # (t-xt) the next noun, as an argument (0 once E is set)
+   @E .i c0 sw rt .t
+   cl >imp-noun sw rt
 
-:imp-call1                            # (tl-tx) call arity-1 lambda l: x is the next noun
-   sw cl >imp-noun                    # (ltx)
-   @E .i imp-drop sw imp-drop c0 rt .t
-   @imp-env imp-n dc li `imp-s-x imp-bindc cd   # (ltk)
-   dc sw cd imp-run rt
+:imp-arg-sep                             # (t-xt) a , then the next noun, as an argument
+   @E .i c0 sw rt .t
+   imp-sep? nt .i li `imp-e-arg imp-fail c0 sw rt .t
+   imp-arg rt
 
-:imp-call2                            # (tl-tx) call arity-2 lambda l: x, then y after a ,
-   sw cl >imp-noun                    # (ltx)
-   @E .i imp-drop sw imp-drop c0 rt .t
-   sw imp-sep? nt .i li `imp-e-arg imp-fail sw imp-drop sw imp-drop c0 rt .t
-   cl >imp-noun                       # (lxty)
-   @E .i imp-drop sw imp-drop sw imp-drop c0 rt .t
-   @imp-env imp-n dc                  # |k: the env's size before the call
-   sw dc sw li `imp-s-x imp-bindc li `imp-s-y imp-bindc   # (l|kt)
-   cd cd dc sw cd imp-run rt
+:imp-bindv                            # (vs-) bind counted name s to argument v, if it was passed
+   ov .i imp-setc rt .t zp zp rt
+
+:imp-run                              # (lxyz-x) run lambda l with its arguments (0: not passed)
+   @E .i imp-drop imp-drop imp-drop imp-drop c0 rt .t
+   li `imp-s-x imp-save dc li `imp-s-y imp-save dc li `imp-s-z imp-save dc
+   li `imp-s-z imp-bindv li `imp-s-y imp-bindv li `imp-s-x imp-bindv   # (l)
+   @E .i c0 .e @I dc c0 !I cl >imp-expr cd !I .t   # (lx)
+   sw imp-drop                        # put x y z back, even after an error
+   cd li `imp-s-z imp-restore cd li `imp-s-y imp-restore cd li `imp-s-x imp-restore rt
 
 :imp-call                             # (tl-tx) call lambda l on the args after it; frees l
-   du lb 0C ad ri
-   du c0 eq .i zp @imp-env imp-n imp-run rt .t
-   c1 eq .i imp-call1 rt .t
-   imp-call2 rt
+   du lb 0C ad ri dc sw               # (lt|n) n: l's arity
+   cd du dc c1 lt .i c0 sw .e imp-arg .t       # (lxt|n) x, if n > 0
+   cd du dc c2 lt .i c0 sw .e imp-arg-sep .t      # (lxyt|n) y after a , if n > 1
+   cd lb 03 lt .i c0 sw .e imp-arg-sep .t         # (lxyzt) z after another , if n > 2
+   dc imp-run cd sw rt
 
 :imp-lam0?                            # (x-?) is x a lambda of arity 0?
    du imp-ptr? nt .i zp c0 rt .t

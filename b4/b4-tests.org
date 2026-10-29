@@ -228,7 +228,7 @@ Error: toArray expects list, vector, or string
 A named arity-0 lambda runs when it is named; a lambda literal or an
 arity-1 or 2 one with nothing to take is itself.
 
-* TEST m3.scope : names assigned in a lambda are local to the call
+* TEST m3.scope : x y and z assigned in a lambda are local to the call
 #+begin_src
 > f: {x * x}
 {x * x}
@@ -245,6 +245,134 @@ arity-1 or 2 one with nothing to take is itself.
 > z
 Error: undefined word: z
 #+end_src
+
+* TEST m3.scope-xyz : x y and z are put back after a call, whatever its arity
+#+begin_src
+> y: 5
+5
+> f: {y: x + 1}
+{y: x + 1}
+> f 1
+2
+> y
+5
+> x: 9
+9
+> d: {x: x + 1}
+{x: x + 1}
+> d 1
+2
+> x
+9
+> z: 2
+2
+> g: {z: x * 10}
+{z: x * 10}
+> g 1
+10
+> z
+2
+> k: {x: 3}
+{x: 3}
+> k
+3
+> x
+9
+> a2: {x + y}
+{x + y}
+> a2 1, 2
+3
+> x
+9
+> y
+5
+#+end_src
+
+* TEST m3.arity3 : a lambda that reads z takes three arguments
+#+begin_src
+> h: {x + y + z}
+{x + y + z}
+> h 1, 2, 3
+6
+> h 10 20, 1, 5
+16 26
+> z
+Error: undefined word: z
+> y
+Error: undefined word: y
+> x
+Error: undefined word: x
+> t: {z: x + y + z}
+{z: x + y + z}
+> t 1, 2, 3
+6
+> z
+Error: undefined word: z
+#+end_src
+
+* TEST m3.scope-global : other names a lambda assigns are global, as at the top level
+#+begin_src
+> m: {u: x}
+{u: x}
+> m 8
+8
+> u
+8
+> w: 1
+1
+> q: {w: x + 0}
+{w: x + 0}
+> q 4
+4
+> w
+4
+> a: 1
+1
+> a: a + 1
+2
+> a
+2
+> b: {a: a * x}
+{a: a * x}
+> b 10
+20
+> a
+20
+#+end_src
+
+* TEST m3.scope-nested : nested calls each put back their own x y and z
+#+begin_src
+> y: 50
+50
+> in: {y: x * 2}
+{y: x * 2}
+> out: {in x + 1}
+{in x + 1}
+> out 3
+7
+> y
+50
+> w: {u: in x}
+{u: in x}
+> w 4
+8
+> u
+8
+> y
+50
+> x: 3
+3
+> o: {in 5 + x}
+{in 5 + x}
+> o 1
+11
+> x
+3
+#+end_src
+
+As in TS (=applyIfn= in =imp-eval.mts=), a call saves =x=, =y= and =z=,
+binds its arguments, and afterwards puts all three back (or unbinds
+them); any other name is one global variable.
 
 * TEST m3.show : a lambda shows as its tokens
 #+begin_src
