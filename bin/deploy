@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# bin/deploy: build web/ and publish dist-web/ to the implish.org docroot.
+#
+#   bin/deploy [--dry-run] [--skip-build]   build, back up live docroot, rsync
+#   bin/deploy --rollback [NAME] [--dry-run] restore newest (or NAME) backup
+#   bin/deploy --list-backups               list backups, oldest first
+#
+# Configuration comes from deploy/deploy.conf, overridden by environment:
+#   DEPLOY_HOST        ssh host, or "local" to treat DEPLOY_PATH as a local path
+#   DEPLOY_USER        ssh user (optional; empty = ssh default / ~/.ssh/config)
+#   DEPLOY_PATH        absolute path of the live docroot
+#   DEPLOY_BACKUP_DIR  where timestamped backups live (default: DEPLOY_PATH.backups)
+#   DEPLOY_KEEP        how many backups to keep (default 5)
+#   DEPLOY_SSH         ssh command (default: ssh -o BatchMode=yes)
+#   DEPLOY_BUILD_CMD   build command (default: npx vite build)
+#   DEPLOY_SRC         build output to publish (default: dist-web)
+#
+# Exits nonzero on any failure. Nothing on the target is touched until the
+# build has succeeded and produced an index.html.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CONF=${DEPLOY_CONF:-$ROOT/deploy/deploy.conf}
+
+die() { echo "deploy: $*" >&2; exit 1; }
+log() { echo "deploy: $*" >&2; }
+
+# Non-empty environment values win over the config file. Empty ones are
+# ignored, because CI maps unset repository variables to empty strings.
+declare -A from_env=()
+for v in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_BACKUP_DIR DEPLOY_KEEP \
+         DEPLOY_SSH DEPLOY_BUILD_CMD DEPLOY_SRC; do
+  [[ -n ${!v:-} ]] && from_env[$v]=${!v}
+done
+if [[ -f $CONF ]]; then
+  # shellcheck source=/dev/null
+  source "$CONF"
+fi
+for v in "${!from_env[@]}"; do printf -v "$v" '%s' "${from_env[$v]}"; done
+
+DEPLOY_HOST=${DEPLOY_HOST:-}
+DEPLOY_USER=${DEPLOY_USER:-}
+DEPLOY_PATH=${DEPLOY_PATH:-}
+DEPLOY_KEEP=${DEPLOY_KEEP:-5}
+DEPLOY_SSH=${DEPLOY_SSH:-ssh -o BatchMode=yes}
+DEPLOY_BUILD_CMD=${DEPLOY_BUILD_CMD:-npx vite build}
+DEPLOY_SRC=${DEPLOY_SRC:-dist-web}
+
+mode=deploy dry_run=0 skip_build=0 rollback_name=
+while (($#)); do
+  case $1 in
+    --dry-run|-n) dry_run=1 ;;
+    --skip-build) skip_build=1 ;;
+    --rollback)
+      mode=rollback
+      if [[ ${2:-} && ${2:0:1} != - ]]; then rollback_name=$2; shift; fi ;;
+    --list-backups) mode=list ;;
+    -h|--help) sed -n '2,/^set -e/{/^set -e/d;s/^# \{0,1\}//;p}' "$0"; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+# --- validate config before doing anything -------------------------------
+[[ -n $DEPLOY_HOST ]] || die "DEPLOY_HOST is not set (see deploy/deploy.conf)"
+[[ -n $DEPLOY_PATH ]] || die "DEPLOY_PATH is not set (see deploy/deploy.conf)"
+DEPLOY_PATH=${DEPLOY_PATH%/}
+DEPLOY_BACKUP_DIR=${DEPLOY_BACKUP_DIR:-$DEPLOY_PATH.backups}
+DEPLOY_BACKUP_DIR=${DEPLOY_BACKUP_DIR%/}
+check_path() { # name value: refuse paths that rsync --delete could wreck
+  local name=$1 p=$2
+  [[ $p == /* ]] || die "$name must be absolute: '$p'"
+  [[ $p =~ ^/+[^/]+/+[^/]+ ]] || die "$name is too shallow to be safe: '$p'"
+  [[ /$p/ != */../* && /$p/ != */./* ]] || die "$name must not contain . or .. : '$p'"
+  [[ $p != *[[:space:]\'\"\\]* ]] || die "$name must not contain spaces or quotes: '$p'"
+}
+check_path DEPLOY_PATH "$DEPLOY_PATH"
+check_path DEPLOY_BACKUP_DIR "$DEPLOY_BACKUP_DIR"
+[[ $DEPLOY_BACKUP_DIR != "$DEPLOY_PATH" && $DEPLOY_BACKUP_DIR/ != "$DEPLOY_PATH"/* ]] \
+  || die "DEPLOY_BACKUP_DIR must not be inside DEPLOY_PATH (rsync --delete would remove it)"
+[[ $DEPLOY_KEEP =~ ^[1-9][0-9]*$ ]] || die "DEPLOY_KEEP must be a positive integer: '$DEPLOY_KEEP'"
+
+if [[ $DEPLOY_HOST == local ]]; then
+  target=$DEPLOY_PATH
+else
+  target=${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST:$DEPLOY_PATH
+fi
+
+# on_target SCRIPT ARGS...: run a bash snippet where the docroot lives.
+on_target() {
+  local script=$1; shift
+  if [[ $DEPLOY_HOST == local ]]; then
+    bash -c "$script" on_target "$@"
+  else
+    local q; q=$(printf ' %q' "$@")
+    # shellcheck disable=SC2086
+    $DEPLOY_SSH "${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST" "bash -s --$q" <<<"$script"
+  fi
+}
+
+# rsync options shared by deploy and rollback. --checksum so CI checkouts
+# (fresh mtimes) only list files whose content changed. /.well-known/ is
+# protected from --delete because certbot keeps its challenges there.
+RSYNC_OPTS=(-rlp --checksum --delete --delay-updates --itemize-changes
+            --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --filter='P /.well-known/')
+rsync_to() { # SRC DEST [extra rsync args...]
+  local src=$1 dest=$2; shift 2
+  if [[ $DEPLOY_HOST == local ]]; then
+    rsync "${RSYNC_OPTS[@]}" "$@" "$src" "$dest"
+  else
+    rsync "${RSYNC_OPTS[@]}" -e "$DEPLOY_SSH" "$@" "$src" "$dest"
+  fi
+}
+
+# Runs on the target. Each step takes an flock on the backup dir so backup,
+# prune and drop never race each other; whole deploys are serialized by the
+# workflow's concurrency group. Backup names are UTC timestamps, so name
+# order = age order.
+# shellcheck disable=SC2016
+REMOTE_LIB='
+set -euo pipefail
+docroot=$1 backups=$2 keep=$3 action=$4 arg=${5:-}
+mkdir -p "$backups"
+exec 9>"$backups/.lock"
+flock -w 60 9 || { echo "deploy: another deploy holds $backups/.lock" >&2; exit 1; }
+list() { find "$backups" -mindepth 1 -maxdepth 1 -type d -name "20*Z" -printf "%f\n" | LC_ALL=C sort; }
+case $action in
+  list) list ;;
+  backup)
+    if [[ ! -d $docroot ]] || [[ -z $(ls -A "$docroot") ]]; then
+      echo "deploy: $docroot is empty or missing; no backup needed" >&2; exit 0
+    fi
+    while :; do
+      name=$(date -u +%Y%m%dT%H%M%SZ)
+      [[ -e $backups/$name ]] || break
+      sleep 1
+    done
+    cp -a "$docroot" "$backups/$name.tmp"
+    mv "$backups/$name.tmp" "$backups/$name"
+    echo "deploy: backed up $docroot to $backups/$name" >&2 ;;
+  prune)
+    list | head -n -"$keep" | while read -r old; do
+      rm -rf -- "${backups:?}/$old"; echo "deploy: pruned backup $old" >&2
+    done ;;
+  pick) # print the backup to roll back to
+    if [[ -n $arg ]]; then
+      [[ $arg =~ ^20[0-9]{6}T[0-9]{6}Z$ && -d $backups/$arg ]] \
+        || { echo "deploy: no such backup: $arg" >&2; exit 1; }
+      name=$arg
+    else
+      name=$(list | tail -n 1)
+      [[ -n $name ]] || { echo "deploy: no backups in $backups" >&2; exit 1; }
+    fi
+    [[ -f $backups/$name/index.html ]] \
+      || { echo "deploy: backup $name has no index.html; refusing to restore it" >&2; exit 1; }
+    echo "$name" ;;
+  drop) rm -rf -- "${backups:?}/$arg" ;;
+  mkroot) mkdir -p "$docroot" ;;
+esac
+'
+remote() { on_target "$REMOTE_LIB" "$DEPLOY_PATH" "$DEPLOY_BACKUP_DIR" "$DEPLOY_KEEP" "$@"; }
+
+case $mode in
+  list) remote list; exit 0 ;;
+
+  rollback)
+    name=$(remote pick "$rollback_name")
+    src=$DEPLOY_BACKUP_DIR/$name/
+    log "rolling back $target to backup $name"
+    if ((dry_run)); then
+      # rsync can't read a remote source into a remote dest; run it there.
+      on_target 'rsync -rl --checksum --delete --dry-run --itemize-changes --filter="P /.well-known/" "$1" "$2/"' \
+        "$src" "$DEPLOY_PATH"
+      log "dry run: nothing changed"
+      exit 0
+    fi
+    on_target 'rsync -rlp --checksum --delete --delay-updates --filter="P /.well-known/" "$1" "$2/"' \
+      "$src" "$DEPLOY_PATH"
+    # The restored tree is now live, so the backup is redundant. Dropping it
+    # makes a second --rollback step one deploy further back.
+    if [[ -z $rollback_name ]]; then remote drop "$name"; fi
+    log "rolled back to $name"
+    exit 0 ;;
+esac
+
+# --- deploy ---------------------------------------------------------------
+cd "$ROOT"
+if ((skip_build)); then
+  log "skipping build (--skip-build)"
+else
+  log "building: $DEPLOY_BUILD_CMD"
+  bash -c "$DEPLOY_BUILD_CMD" || die "build failed; nothing was deployed"
+fi
+[[ -f $DEPLOY_SRC/index.html ]] || die "$DEPLOY_SRC/index.html missing after build; nothing was deployed"
+
+if ((dry_run)); then
+  log "dry run: changes that would be made to $target"
+  exists=$(on_target '[[ -d $1 ]] && echo yes || echo no' "$DEPLOY_PATH")
+  if [[ $exists == no ]]; then
+    log "(docroot does not exist yet; every file would be new)"
+    (cd "$DEPLOY_SRC" && find . -type f -printf '>f+++++++++ %P\n' | LC_ALL=C sort)
+  else
+    rsync_to "$DEPLOY_SRC/" "$target/" --dry-run
+  fi
+  log "dry run: nothing changed"
+  exit 0
+fi
+
+remote backup
+remote mkroot
+rsync_to "$DEPLOY_SRC/" "$target/"
+remote prune
+log "deployed $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo '?') to $target"

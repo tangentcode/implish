@@ -1,0 +1,70 @@
+name: deploy implish.org
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref (branch, tag or SHA) to deploy. Empty = the selected branch.
+        required: false
+        default: ''
+
+# One deploy at a time; a newer push waits rather than cancelling a deploy
+# that is halfway through its rsync.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-{0}', github.ref) || 'deploy-implish-org' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm run test:deploy
+
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Install deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "::error::secret DEPLOY_SSH_KEY is not set; see deploy/README.md"
+            exit 1
+          fi
+          install -m 700 -d "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/ssh/id"
+          chmod 600 "$RUNNER_TEMP/ssh/id"
+          echo "DEPLOY_SSH=ssh -i $RUNNER_TEMP/ssh/id -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$GITHUB_WORKSPACE/deploy/known_hosts" >> "$GITHUB_ENV"
+      - run: bin/deploy
+      - name: Check the live site
+        run: curl -fsS --retry 3 https://implish.org/ -o /dev/null
+      - name: Remove deploy key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ssh"
