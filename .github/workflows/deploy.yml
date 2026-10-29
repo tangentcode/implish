@@ -20,13 +20,19 @@ concurrency:
 permissions:
   contents: read
 
+# Tooling vs. source: both jobs run bin/deploy, deploy/* and the tests from
+# the workflow's own commit (github.sha). Only the application source that
+# gets built comes from the `ref` input, exported separately by
+# deploy/select-ref.sh. So redeploying an old commit (even one from before
+# bin/deploy existed) still uses the current deploy tooling.
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
+          fetch-depth: 0   # the tests export a pre-tooling commit from history
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -54,17 +60,20 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Select commit (only commits already merged into main)
+      - name: Export source to build (only commits already merged into main)
         env:
           REF: ${{ inputs.ref }}
         run: |
-          sha=$(deploy/select-ref.sh "$REF" "$GITHUB_SHA")
-          git checkout --detach "$sha"
-          echo "deploying ${REF:-main} = $sha"
+          src=$RUNNER_TEMP/source
+          sha=$(deploy/select-ref.sh "$REF" "$GITHUB_SHA" "$src")
+          echo "DEPLOY_SOURCE_DIR=$src" >> "$GITHUB_ENV"
+          echo "building ${REF:-main} = $sha with tooling from $GITHUB_SHA"
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund
+      - name: Install the source's dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: ${{ runner.temp }}/source
       - name: Install deploy key
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}

@@ -213,7 +213,7 @@ npm run preview
 
 The Vite build automatically runs `npm run build` (TypeScript compilation) first via the `ensureCoreBuild` plugin, then bundles everything for the browser.
 
-**Deployment**: `dist-web/` is the live site served at implish.org (nginx on 45.79.174.182). Deploy only with `bin/deploy`; never copy files by hand. Pushes to main deploy automatically via `.github/workflows/deploy.yml`. Use `bin/deploy --dry-run` to preview and `bin/deploy --rollback` to restore the previous tree. Host, user and docroot live in `deploy/deploy.conf` and the `production` environment's `DEPLOY_*` variables; the deploy key is an environment secret released only to main. Server-side steps are in `deploy/remote.sh`. See `deploy/README.md`. Tests: `npm run test:deploy`. Vite 7 needs Node >= 20.19.
+**Deployment**: `dist-web/` is the live site served at implish.org (nginx on 45.79.174.182). Deploy only with `bin/deploy`; never copy files by hand. Pushes to main deploy automatically via `.github/workflows/deploy.yml`. Each deploy uploads a new release dir and atomically switches the docroot symlink to it. Use `bin/deploy --dry-run` to preview and `bin/deploy --rollback` to switch back to the previous release. CI runs the deploy tooling from the workflow's own commit and only builds the selected (merged) commit's source. Host, user and docroot live in `deploy/deploy.conf` and the `production` environment's `DEPLOY_*` variables; the deploy key is an environment secret released only to main. Server-side steps are in `deploy/remote.sh`. See `deploy/README.md`. Tests: `npm run test:deploy`. Vite 7 needs Node >= 20.19.
 
 ### TypeScript Details
 

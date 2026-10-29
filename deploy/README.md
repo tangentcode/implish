@@ -7,43 +7,75 @@ nginx on 45.79.174.182 (Ubuntu) serves those files from a docroot.
 
 ```bash
 bin/deploy --dry-run          # build, then list what would change; touches nothing
-bin/deploy                    # build, back up live docroot, rsync dist-web/ over it
-bin/deploy --list-backups     # timestamped backups, oldest first
-bin/deploy --rollback         # restore the newest backup (repeat to step further back)
-bin/deploy --rollback 20261029T120000Z   # restore a specific backup
+bin/deploy                    # build, upload a new release, switch the site to it
+bin/deploy --list-releases    # releases, oldest first, live one marked
+bin/deploy --rollback         # switch to the release before the live one (repeat to go further back)
+bin/deploy --rollback 20261029T120000Z   # switch to a specific release (also rolls forward)
 bin/deploy --rollback --dry-run          # show what a rollback would change
 ```
 
+## Layout: releases and one symlink
+
+```
+/var/www/implish.org            -> /var/www/implish.org.releases/20261029T120501Z   (symlink: nginx root)
+/var/www/implish.org.releases/
+    20261029T110000Z/            older release (rollback target)
+    20261029T120501Z/            live release
+    .lock
+```
+
+Every deploy uploads a complete tree to a new release dir, then repoints the
+docroot symlink with a single `rename(2)`. The live tree is never edited in
+place. nginx serves the complete old site until the switch and the complete
+new site after it. Vite's hashed assets therefore never go missing under a
+live `index.html`, and an interrupted upload leaves the old site untouched.
+Rollback is the same atomic switch to an older release. Older releases are
+the backups.
+
 What a deploy does, in order (any failure exits nonzero and stops):
 
-1. Validates config. `DEPLOY_PATH` and `DEPLOY_BACKUP_DIR` must be absolute,
-   at least two levels deep, free of `.`/`..`/spaces, and the backup dir
+1. Validates config. `DEPLOY_PATH` and `DEPLOY_RELEASES` must be absolute,
+   at least two levels deep, free of `.`/`..`/spaces, and the releases dir
    must not be inside the docroot.
-2. Builds. If the build fails or leaves no `dist-web/index.html`, it stops
-   here and nothing on the server has been touched.
-3. Takes `DEPLOY_BACKUP_DIR/.lock` on the server and holds it until the
+2. Builds in `DEPLOY_SOURCE_DIR` (default: this checkout). If the build fails
+   or leaves no `dist-web/index.html`, it stops here and nothing on the
+   server has been touched.
+3. Takes `DEPLOY_RELEASES/.lock` on the server and holds it until the
    deploy ends, waiting up to `DEPLOY_LOCK_WAIT` seconds (default 60). A
    manual `--rollback` takes the same lock, so it can't interleave with a CI
    deploy. A held ssh session keeps the lock; if the script dies or the
    connection drops, the lock is released.
-4. Copies the live docroot to `DEPLOY_BACKUP_DIR/<UTC timestamp>`, via a
-   `.tmp` copy that is renamed when complete. It skips this on the first
-   deploy, when the docroot is missing or empty. If the copy fails, the
-   partial `.tmp` is removed and the deploy stops before rsync. Stale `.tmp`
-   dirs from a killed run are removed on the next backup or prune.
-5. Runs rsync `dist-web/` → docroot with `--delete --checksum --delay-updates`.
-   Files come out 644 and dirs 755. `/.well-known/` is never deleted, because
-   certbot uses it.
-6. Prunes the backups down to the newest `DEPLOY_KEEP` (default 5).
+4. Creates `DEPLOY_RELEASES/<UTC timestamp>.tmp` and copies `/.well-known/`
+   (certbot) into it from the live tree. Stale `.tmp` dirs from a killed run
+   are removed first.
+5. Uses rsync to upload `dist-web/` into the `.tmp` dir. Unchanged files are
+   hard-linked from the live release (`--link-dest`), so they aren't re-sent;
+   rsync never writes into the live tree. Files come out 644, dirs 755, and
+   everything on the target is created under `umask 022`, so nginx can read
+   it whatever umask the deploy shell has. If the upload fails, the `.tmp`
+   is removed and the live site is unchanged.
+6. Activates: renames `.tmp` to its final name and atomically switches the
+   symlink. On the **first deploy**, if the docroot is still a plain
+   directory, it is moved into the releases dir (one second older than the
+   new release, so it becomes the rollback target). That migration is two
+   back-to-back renames, so for a moment the path is missing. This is the
+   one non-atomic step, and it happens once. An empty or missing docroot
+   just becomes the symlink.
+7. Prunes down to the newest `DEPLOY_KEEP` releases (default 5). The live
+   release is never pruned, even after a rollback to an old one.
 
-The server-side half (backup, prune, restore, drop) is `deploy/remote.sh`,
-which `bin/deploy` pipes to `bash` over ssh. Every `rm -rf` there checks
-that the name is exactly a backup timestamp (`^20[0-9]{6}T[0-9]{6}Z$`), so
-an empty or malformed name can't reach the backup dir itself.
+The server-side half is `deploy/remote.sh`, which `bin/deploy` pipes to
+`bash` over ssh. Every `rm -rf` there checks that the name is exactly a
+release timestamp (`^20[0-9]{6}T[0-9]{6}Z$`), so an empty or malformed
+name can't reach the releases dir itself. `switch` refuses to replace a
+docroot that is a real directory; only the first deploy's migration does
+that.
 
-Rollback rsyncs a backup back over the docroot and then removes that backup,
-because the same tree is now live. The next `--rollback` therefore goes one
-deploy further back. A named rollback keeps its backup.
+Rollback switches to the newest release older than the live one, and keeps
+the release it leaves. So repeated `--rollback` steps back, and
+`--rollback NAME` can roll forward again. Certbot challenge files written
+after a release was made aren't in older releases. That's harmless, because
+certbot writes fresh ones for each renewal.
 
 ## Configuration
 
@@ -55,7 +87,8 @@ of the same name overrides them. See `bin/deploy --help` for the full list.
 | `DEPLOY_HOST` | `45.79.174.182` (set in deploy.conf) |
 | `DEPLOY_USER` | **unknown: fill in** (repo variable or deploy.conf) |
 | `DEPLOY_PATH` | **unknown: fill in** the nginx `root` for implish.org |
-| `DEPLOY_BACKUP_DIR` | default `$DEPLOY_PATH.backups` |
+| `DEPLOY_RELEASES` | default `$DEPLOY_PATH.releases` |
+| `DEPLOY_SOURCE_DIR` | default: this checkout (CI sets it to the exported source) |
 | `DEPLOY_KEEP` | 5 |
 
 The user and docroot are unknown because the machine that wrote this had no
@@ -76,20 +109,32 @@ Check them on the server with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`
 
 ## One-time setup (Michal)
 
-The server needs `rsync` and `flock`, which stock Ubuntu has. The deploy user
-needs write access to the docroot and to its parent directory, or to wherever
-`DEPLOY_BACKUP_DIR` points. Steps 2 and 3 need root.
+The server needs `rsync` and `flock`, which stock Ubuntu has, and nginx must
+follow symlinks. That's the default; check that `disable_symlinks` isn't
+turned on. Because the docroot becomes a symlink that the deploy swaps, the
+deploy user needs write access to the docroot's **parent directory** (to
+rename entries there) and to `DEPLOY_RELEASES`. Steps 2 and 3 need root.
 
 1. Generate a dedicated key on your machine. Don't commit it:
    ```bash
    ssh-keygen -t ed25519 -N '' -C implish-deploy@github-actions -f implish-deploy
    ```
-2. On the server, give the deploy user ownership of the docroot and backup
-   dir. The docroot below is an example; use the real `root` from nginx:
+2. On the server, give the deploy user a parent dir it owns. If the nginx
+   `root` today is directly under a root-owned dir like `/var/www`, the
+   least-privilege option is a dedicated parent. Move the site one level
+   down, and point nginx (and certbot's webroot, if it uses one) at the new
+   path:
    ```bash
-   sudo mkdir -p /var/www/implish.org.backups
-   sudo chown -R DEPLOYUSER: /var/www/implish.org /var/www/implish.org.backups
+   sudo mkdir -p /var/www/implish
+   sudo mv /var/www/implish.org /var/www/implish/site      # current root -> new spot
+   sudo chown -R DEPLOYUSER: /var/www/implish
+   # nginx: root /var/www/implish/site;   then: sudo nginx -t && sudo systemctl reload nginx
    ```
+   Then set `DEPLOY_PATH=/var/www/implish/site`. Releases go to
+   `/var/www/implish/site.releases`. The alternative is to give the deploy
+   user write access to the existing parent dir, which is broader.
+   On the first deploy, `bin/deploy` turns `site` into a symlink and keeps
+   the old tree as the oldest release.
 3. Append one line to `~DEPLOYUSER/.ssh/authorized_keys` on the server.
    `restrict` turns off pty, agent, port and X11 forwarding. The key can
    still run the `bash` and `rsync` commands that the deploy needs:
@@ -133,6 +178,17 @@ needs write access to the docroot and to its parent directory, or to wherever
   dispatching an older merged SHA, or with `bin/deploy --rollback` from a
   machine that has the key.
 
+**Tooling vs. source.** Both jobs always run `bin/deploy`, `deploy/*` and
+the tests from the workflow's own commit (`github.sha`). Only the
+application source comes from `ref`: `select-ref.sh` exports it with
+`git archive` into `$RUNNER_TEMP/source`, and `bin/deploy` builds there via
+`DEPLOY_SOURCE_DIR`. So you can redeploy a commit from before `bin/deploy`
+existed (e.g. `6813323`), and fixes to the deploy tooling apply to
+redeploys of old code too. The old commit's own `package.json` and
+`vite.config.js` are used for its build. A commit too old to build with
+`npx vite build` fails at the build step, before anything on the server is
+touched.
+
 Three layers keep the key away from unmerged code:
 
 1. The `production` environment only releases `DEPLOY_SSH_KEY` to jobs on
@@ -151,4 +207,8 @@ message that points here.
 `npm run test:deploy` runs `test/deploy.test.sh`. It tests against throwaway
 docroots in `.deploy-test/`, both with `DEPLOY_HOST=local` and through a
 fake `ssh` that runs the remote half locally, so the ssh/rsync `-e` path is
-exercised too.
+exercised too. An rsync wrapper (`DEPLOY_RSYNC`) checks that the live tree
+stays byte-identical for the whole upload, and simulates cut-off and killed
+transfers. One case exports the real pre-tooling commit `6813323` from this
+repo's history and deploys it with the current `bin/deploy`; CI checks out
+with `fetch-depth: 0` for that.
