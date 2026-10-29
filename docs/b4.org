@@ -1,0 +1,142 @@
+#+title: implish on the b4 vm
+#+date: 2026-10-29
+
+* goal
+
+Michal (2026-10-29): "get implish running on my b4 vm."
+
+Acceptance: a documented command on tcode evaluates an implish expression
+on the b4 vm and prints the right result, with tests passing.
+
+* prior intent in both repos
+
+- implish =notes.org=: "bootstrap in js / real thing runs on tiny
+  multi-core virtual machine". The TypeScript version is the bootstrap;
+  the destination is a small vm.
+- b4 =plan.org=: "TODO implement implish atop b4".
+- b4 =goals.org=: a computing system individuals can understand from the
+  ground up, built as a "trail" of tanco test suites, each layer built
+  from the one below. =implish: a new dynamic language= is listed as a
+  forthcoming trail, after b4f, b4s and =pre=.
+- b4 =ref/tower.org=: "a tower of languages ... each language is
+  implemented in terms of the layer below."
+- implish =README.md=: "ultraportable" across tech stacks;
+  "objects are just separate copies of the virtual machine".
+
+* chosen approach: an implish interpreter written in b4a
+
+Implish runs /on/ the vm: the lexer and evaluator are b4a code
+(=b4/imp.b4a=), assembled into the machine by =b4i -a=. The host side is
+only a thin driver (=b4/imp-b4.mjs=) that copies each source line into vm
+ram and calls =imp-eval=; the vm itself parses, evaluates and prints.
+
+Why:
+
+- It is the stated intent on both sides: the vm is where implish is meant
+  to live, and b4's plan names implish as a layer of its tower.
+- Portability comes from b4. Every b4 implementation with a level-1
+  =b4i= (=-a=, labels, =.i/.w/.f= macros) can run implish: today Rust and
+  Pascal, later the others as they reach level 1. Implish gets as many
+  host stacks as b4 has, which is the "ultraportable" goal.
+- It is one more trail on b4's tech tree: the code needs only core ops
+  plus =io 'e= for output, so a reader can follow it from =b4-tests.org=.
+- It needs nothing new from b4: no new ops, no b4 changes.
+
+The shared test file runs against /both/ the TypeScript implementation and
+the b4 one, so the TS version stays the reference for semantics.
+
+* rejected alternatives
+
+- *implish-to-b4a compiler in TypeScript.* Faster code, but implish
+  would only run where node runs; the vm would be a backend, not a home.
+  It also puts the interesting part (the evaluator) outside the system you
+  can inspect from the ground up. Worth revisiting later as an optimizer
+  that emits b4a for hot words, once an on-vm interpreter exists.
+- *TS evaluator calling a b4 vm for primitives (host ops via
+  =Vm::add_op= or the JS =addOp=).* Easy, but implish isn't on the vm at
+  all; it's TS with a b4 accelerator.
+- *Waiting for b4s (the lisp layer) and writing implish in b4s.* That is
+  the long-term tower shape, but b4s has no evaluator yet
+  (=b4s.b4a= has cells, reader and printer). Milestones 1-3 below are
+  plain b4a; once b4s can evaluate, implish's tree walker can move onto
+  b4s cells instead of growing its own allocator (milestone 4).
+
+* layout
+
+| path                   | what                                                  |
+|------------------------+-------------------------------------------------------|
+| =b4/imp.b4a=           | the implish interpreter, in b4 assembly               |
+| =b4/imp-b4.mjs=        | driver: runs =b4i -a b4/imp.b4a=, feeds it lines      |
+| =b4/imp-b4=            | shell wrapper for the driver                          |
+| =b4/b4-tests.org=      | tanco tests shared by the TS and b4 implementations   |
+| =b4/b4-only-tests.org= | tanco tests for b4-specific behavior (errors, limits) |
+| =b4/test=              | builds b4i, runs every suite above                    |
+
+* how the driver talks to the vm
+
+For each input line the driver sends =b4i= two lines:
+
+#+begin_src b4a
+:8000 31 20 2B 20 32 00     # the source bytes, as hex, nul-terminated
+8000 imp-eval               # evaluate the line at $8000 and print the result
+#+end_src
+
+Hex bytes avoid any quoting of the source in b4a. =$8000= is free ram on
+the Rust and Pascal vms (stacks sit at the top of the 64k). One =b4i=
+process serves the whole session, so later milestones can keep variables
+in vm memory across lines.
+
+* semantics notes
+
+- Implish evaluates infix dyads left to right with no precedence:
+  =1 + 2 * 3= is =9=. The b4 version matches.
+- Ints on b4 are 32-bit cells; the TS version uses js numbers. Overflow
+  wraps on b4. The shared tests stay inside 32 bits; the b4-only tests
+  pin the wraparound.
+- Tokens are whitespace separated, as in the TS loader: =1+2= is the
+  single word =1+2=, not a sum.
+- Error text differs for now (the TS version reports =undefined word=,
+  projections etc.); errors are tested in the b4-only suite.
+
+* milestones
+
+** milestone 1: integer literals and dyads
+- decimal int literals, including negative (=-7=)
+- =+ - *= as left-to-right dyads; =%= (integer divide) is deferred to
+  milestone 2 so its rounding can be matched to the TS version
+- print the result in decimal, like the TS repl; blank line prints nothing
+- errors print =Error: ...= and the session continues
+- =b4/imp-b4 -e '1 + 2'= prints =3=; =b4/imp-b4= is a line repl on stdin
+- tests: shared suite passes on TS and on b4 (Rust b4i); b4-only suite
+  passes; existing =imp-tests.org= and =prim-tests.org= still pass on TS
+
+** milestone 2: grouping and the rest of integer arithmetic
+- parentheses, =%=, comparisons (=< > ==), =nil= / =ok=
+- a token buffer, so the evaluator works on tokens rather than raw bytes
+
+** milestone 3: names and the imperative core
+- symbol table in vm memory; =x: 123=, =x=, =:x=
+- sequences (=;= and whitespace), =ite[...]=, =while[...]=
+- this is the README's imperative core: the language becomes
+  Turing-complete on the vm
+
+** milestone 4: values on the heap
+- strands / vectors (=1 2 3 + 10=), strings, symbols
+- heap cells, ideally shared with b4s (=b4a/b4s.b4a=) so the tower stays
+  one tower; a b4 PR may be needed here, which is a separate decision
+
+** milestone 5: lambdas and adverbs
+- ={x + 1}=, projection =f[...]=, =each=
+
+** later
+- run the full =imp-tests.org= against the b4 version and track the count
+- a native =b4i.b4a= host (b4's own self-hosted interpreter) instead of
+  the node driver
+- more b4 implementations as they reach b4i level 1
+
+* asks for b4
+
+None for milestone 1. Possible later asks, each its own b4 PR decision:
+- a documented "free ram" region for guests like implish (now assumed
+  =$8000=..=$F7FF=)
+- =io= input so the vm can read stdin itself (Rust has it; not portable yet)
