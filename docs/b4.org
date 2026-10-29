@@ -154,6 +154,18 @@ in vm memory across lines.
   to right: =! 10 + 1= is =(! 10) + 1=.
 - =!10= (no space) is a =!msg2= symbol in the TS lexer, so TS itself
   rejects =1 + !10= (=invalid word class: M=). The tests write =! 10=.
+- =,= : after a =,=, a clause that starts with a dyad or a monad takes
+  the value so far as its (left) argument (=! 10, * 2=, =! 5, rev=);
+  one that starts with a noun replaces it (=1, 2= is =2=). An arity-2
+  lambda takes its =y= after a =,= (=g 3, 5=). This is the smallest
+  rule that matches TS on the demo and the probes in =m3.sep=; TS's
+  own (=imparse='s comma threading) covers more.
+- =name:= assigns the rest of its clause (=a: b: 5=, =1 + x: 5=).
+- A lambda applies to the noun after it, like a monad (=f 3 + 1= is
+  =10=). A named arity-0 lambda runs when named (=k=). Names assigned
+  inside a lambda are local to the call, as in TS.
+- Where TS makes a projection (=f=, =g 3=, =+ 1=), b4 shows the lambda
+  or reports an error; those are in the b4-only suite.
 - The null int =0N= is the 32-bit minimum, as =NULL_INT= in the TS
   version, so it prints the same on both.
 - Error text differs for now (the TS version reports =undefined word=,
@@ -181,17 +193,23 @@ scanning is gone.
   (stopping at whitespace, =[](){}`;= and the separators =,|=)
 - [X] token tree in mm: a node array whose items are tokens; a run of
   ints becomes one int array (a strand), as =collectStrand= does
-- [ ] the rest of the subset, as the demo checklist needs it: =x:=
-  set-words, =.: :.= comments, =,= separators, ={ }= and =[ ;]= nesting
+- [X] the rest of the subset the demo needs: =.: :.= comments (they
+  nest), =,= separators (not =,name=, TS's unquote), =name:= set-words,
+  ={ }= lambdas (a nested token list)
+- [ ] =[ ; ]= and =( )=: no demo line needs them yet
 
 ** milestone 3: arrays on mm
 Values are int arrays with a rank and shape, allocated with mm.
 
 - [X] header: =type rank d0 d1 d2=, then the items (cells)
 - [X] =!= (iota) and itemwise =+ - *=, an atom paired with each item
-- [ ] the incunabulum set: identity, size/shape, box, catenate,
-  index/from, reshape (and rank 2)
-- [ ] variables: =x: 1 2 3=
+- [X] =rev=, and =^= (by squaring; ints only, so no negative exponents)
+- [X] variables: =x: 1 2 3=, held in a node of name/value pairs in mm;
+  the leak check counts everything the variables don't own
+- [X] lambdas: ={x * x}=, arity from the names =x= / =y= in the body,
+  =x= and =y= bound for the call (names assigned inside are local)
+- [ ] the rest of the incunabulum set: identity, size/shape, box,
+  catenate, index/from, reshape (and rank 2)
 
 ** DONE deliverable: =web/b4.html=
 A REPL page like the demo page (=web/index.html=) that runs the b4
@@ -218,22 +236,27 @@ shared tanco test whose expected output comes from TS (one session, so
 
 | # | input              | TS output                  | done |
 |---+--------------------+----------------------------+------|
-| 0 | =1 + ! 10=         | =1 2 3 4 5 6 7 8 9 10=     | X    |
-| 1 | =x: 1 2 3=         | =1 2 3=                    |      |
-| 2 | =x + 10=           | =11 12 13=                 |      |
-| 3 | =rev 1 2 3=        | =3 2 1=                    |      |
-| 4 | =2 + rev 1 2 3=    | =5 4 3=                    |      |
-| 5 | =rev 1 2 3 + 10=   | =13 12 11=                 |      |
-| 6 | =2 + 3 * 5=        | =25=                       | X    |
-| 7 | =2 ^ ! 5=          | =1 2 4 8 16=               |      |
-| 8 | =! 5, rev=         | =4 3 2 1 0=                |      |
-| 9 | =! 10, * 2, + 1=   | =1 3 5 7 9 11 13 15 17 19= |      |
-| 10 | =f: {x * x}=      | ={x * x}=                  |      |
-| 11 | =f 7=             | =49=                       |      |
-| 12 | =g: {x + y * 2}=  | ={x + y * 2}=              |      |
-| 13 | =g 3, 5=          | =16=                       |      |
+| #  | input             | TS output                  | done |
+|----+-------------------+----------------------------+------|
+| 0  | =1 + ! 10=        | =1 2 3 4 5 6 7 8 9 10=     | X    |
+| 1  | =x: 1 2 3=        | =1 2 3=                    | X    |
+| 2  | =x + 10=          | =11 12 13=                 | X    |
+| 3  | =rev 1 2 3=       | =3 2 1=                    | X    |
+| 4  | =2 + rev 1 2 3=   | =5 4 3=                    | X    |
+| 5  | =rev 1 2 3 + 10=  | =13 12 11=                 | X    |
+| 6  | =2 + 3 * 5=       | =25=                       | X    |
+| 7  | =2 ^ ! 5=         | =1 2 4 8 16=               | X    |
+| 8  | =! 5, rev=        | =4 3 2 1 0=                | X    |
+| 9  | =! 10, * 2, + 1=  | =1 3 5 7 9 11 13 15 17 19= | X    |
+| 10 | =f: {x * x}=      | ={x * x}=                  | X    |
+| 11 | =f 7=             | =49=                       | X    |
+| 12 | =g: {x + y * 2}=  | ={x + y * 2}=              | X    |
+| 13 | =g 3, 5=          | =16=                       | X    |
 
-The demo lines also carry =.: ... :.= comments.
+The tests (=demo.0= .. =demo.13=, and =demo.comments= for the comment
+lines) use the demo's lines exactly, =.: ... :.= comments and all, and
+their expected output came from the TS repl. =web/b4.html= runs the
+same lines at startup: [[file:img/b4-page.png]].
 
 ** scope: an incunabulum-sized implish
 About the size of Whitney's one-page J interpreter, in implish syntax:
@@ -280,6 +303,10 @@ here and in the PR, for a separate b4 decision:
   decimal matcher is in =imp.b4a= (=imp-dec=)
 - the js assembler (=imp/js=) lacks =.[ .]= quotations, =>= forward
   refs and strings with spaces, so it can't assemble =pre.b4a=
+- the js vm's =ad sb ml= don't wrap at 32 bits and =dv= rounds down
+  (Rust and Pascal wrap and truncate), so e.g. =3 ^ 40= differed;
+  =b4/imp-b4-js.mts= subclasses the vm to wrap (vendored file unchanged)
+- the js vm's ram is 4k (Rust's is 64k); the page gives it 64k
 - a documented "free ram" region for guests like implish (now assumed
   =$8000=..=$F7FF=)
 - =io= input so the vm can read stdin itself (Rust has it; not portable yet)

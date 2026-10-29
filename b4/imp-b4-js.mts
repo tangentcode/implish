@@ -6,9 +6,20 @@
 // by b4/mkimage.mjs from the same files b4/imp-b4 loads). Each line
 // goes through the same protocol as b4/imp-b4.mjs: the source bytes at
 // $8000, nul-terminated, then imp-eval, then checks that the data stack
-// is empty and mm has no blocks in use.
+// is empty and mm has no blocks in use beyond the variables'.
 
 import { B4VM } from '../vendor/b4/b4.mjs'
+
+// b4's js vm keeps ad sb ml results as unbounded js numbers and divides
+// with Math.floor; the Rust and Pascal vms wrap at 32 bits and truncate.
+// imp.b4a's ints are 32-bit (0N is the minimum), so match them here.
+class B4VM32 extends B4VM {
+  ad(): this { return this.dput((this.dpop() + this.dpop()) | 0) }
+  sb(): this { const y = this.dpop(); return this.dput((this.dpop() - y) | 0) }
+  ml(): this { return this.dput(Math.imul(this.dpop(), this.dpop())) }
+  dv(): this { const y = this.dpop(); return this.dput(Math.trunc(this.dpop() / y) | 0) }
+  md(): this { const y = this.dpop(); return this.dput((this.dpop() % y) | 0) }
+}
 
 export interface B4Image { end: number, labels: Record<string, number>, ram: string, b4commit: string }
 
@@ -27,7 +38,7 @@ function decode(b64: string): Uint8Array {
 }
 
 export class ImpB4 {
-  vm = new B4VM()
+  vm = new B4VM32()
   labels: Record<string, number>
 
   constructor(image: B4Image) {
@@ -63,7 +74,7 @@ export class ImpB4 {
       problems.push(`vm data stack not empty after eval: [${vm.ds.map(x => x.toString(16).toUpperCase()).join(' ')}]`)
       vm.ds = []
     }
-    this.call('mm-count')
+    this.call('imp-leaks')
     const used = vm.dpop()
     if (used) problems.push(`vm has ${used} mm block(s) still in use after eval`)
     return { out: text === '' ? null : text === ' ' ? '' : text, problems }

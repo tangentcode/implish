@@ -7,8 +7,8 @@
 //
 //   :8000 31 20 2B 20 32 00     (the line's bytes, nul-terminated, 16 per line)
 //   8000 imp-eval               (the vm evaluates and prints it)
-//   mm-count ?d zp              (sentinel: marks the end of the output, and
-//                               shows the mm blocks still in use)
+//   imp-leaks ?d zp             (sentinel: marks the end of the output, and
+//                               shows mm blocks in use beyond the variables)
 //
 // usage:
 //   b4/imp-b4 -e '1 + 2'        evaluate expressions, print results
@@ -139,7 +139,7 @@ const vmExit = new Promise(resolve => vm.on('close', (code, signal) => {
 function sendVm(cmds) {
   return new Promise(resolve => {
     pending.push({ resolve, text: undefined })
-    vm.stdin.write(cmds + 'mm-count ?d zp\n')
+    vm.stdin.write(cmds + 'imp-leaks ?d zp\n')
   })
 }
 

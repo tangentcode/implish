@@ -248,12 +248,13 @@ MM_EOF
 done
 
 # both b4 suites as one batch: "> " lines are input, the other lines
-# inside src blocks are the expected output
+# inside src blocks are the expected output. each test starts with
+# /reset, as under tanco, so variables don't carry over
 inputs=$TMP/inputs.imp
-expected=$(awk '/^#\+begin_src/ { on = 1; next } /^#\+end_src/ { on = 0 }
-  on && !/^>/' b4/b4-tests.org b4/b4-only-tests.org)
-awk '/^#\+begin_src/ { on = 1; next } /^#\+end_src/ { on = 0 }
-  on && /^>/ { sub(/^> ?/, ""); print }' b4/b4-tests.org b4/b4-only-tests.org >"$inputs"
+expected=$(awk '/^\* TEST/ { print "Ready." } /^#\+begin_src/ { on = 1; next }
+  /^#\+end_src/ { on = 0 } on && !/^>/' b4/b4-tests.org b4/b4-only-tests.org)
+awk '/^\* TEST/ { print "/reset" } /^#\+begin_src/ { on = 1; next }
+  /^#\+end_src/ { on = 0 } on && /^>/ { sub(/^> ?/, ""); print }' b4/b4-tests.org b4/b4-only-tests.org >"$inputs"
 check rust-batch "$expected" "$(imp b4/imp-b4 -q <"$inputs")"
 if [ -x "$B4I_PAS" ]; then
   echo "== pascal b4i: $B4I_PAS =="

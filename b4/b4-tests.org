@@ -18,6 +18,254 @@ with =b4/test=. See [[file:../docs/b4.org][docs/b4.org]].
 each of its items. Written =! 10= with a space: the TypeScript lexer
 reads =!10= as a =!msg2= symbol, so =1 + !10= is an error there.
 
+* TEST demo.comments : the demo's comment lines print nothing
+#+begin_src
+> .: Basics :.
+> .: Monadic functions :.
+> .: Dyadic operators :.
+> .: Sequencing :.
+> .: Functions :.
+> 1 + ! 10
+1 2 3 4 5 6 7 8 9 10
+#+end_src
+
+The interactions on implish.org's demo page (=web/index.html=), one
+test each, as written there, comments and all. Expected output from TS.
+A test that needs an earlier line (=x=, =f=, =g=) repeats it first.
+
+* TEST demo.0 : the first target
+#+begin_src
+> 1 + ! 10
+1 2 3 4 5 6 7 8 9 10
+#+end_src
+
+* TEST demo.1 : assign a strand
+#+begin_src
+> x: 1 2 3  .: juxtapose values to build a vector :.
+1 2 3
+#+end_src
+
+* TEST demo.2 : add an atom to each item
+#+begin_src
+> x: 1 2 3  .: juxtapose values to build a vector :.
+1 2 3
+> x + 10  .: add scalar to each element :.
+11 12 13
+#+end_src
+
+* TEST demo.3 : rev
+#+begin_src
+> rev 1 2 3  .: reverse a vector :.
+3 2 1
+#+end_src
+
+* TEST demo.4 : infix after a monad
+#+begin_src
+> 2 + rev 1 2 3  .: infix after monadic :.
+5 4 3
+#+end_src
+
+* TEST demo.5 : a monad takes the noun after it
+#+begin_src
+> rev 1 2 3 + 10  .: eager evaluation order :.
+13 12 11
+#+end_src
+
+* TEST demo.6 : left to right
+#+begin_src
+> 2 + 3 * 5  .: left-to-right precedence :.
+25
+#+end_src
+
+* TEST demo.7 : ^ over a range
+#+begin_src
+> 2 ^ ! 5  .: exponentiate a range :.
+1 2 4 8 16
+#+end_src
+
+* TEST demo.8 : pipe a range through rev
+#+begin_src
+> ! 5, rev  .: pipe a range through rev :.
+4 3 2 1 0
+#+end_src
+
+* TEST demo.9 : compose with ,
+#+begin_src
+> ! 10, * 2, + 1  .: compose transformations :.
+1 3 5 7 9 11 13 15 17 19
+#+end_src
+
+* TEST demo.10 : assign a lambda
+#+begin_src
+> f: {x * x}  .: implicit arity-1 :.
+{x * x}
+#+end_src
+
+* TEST demo.11 : call an arity-1 lambda
+#+begin_src
+> f: {x * x}  .: implicit arity-1 :.
+{x * x}
+> f 7  .: call a unary function :.
+49
+#+end_src
+
+* TEST demo.12 : an arity-2 lambda
+#+begin_src
+> g: {x + y * 2}  .: implicit arity-2 :.
+{x + y * 2}
+#+end_src
+
+* TEST demo.13 : call it with ,
+#+begin_src
+> g: {x + y * 2}  .: implicit arity-2 :.
+{x + y * 2}
+> g 3, 5  .: call a dyadic function :.
+16
+#+end_src
+
+* TEST m3.assign : name: assigns the rest of its clause
+#+begin_src
+> x: 1 + 2
+3
+> x
+3
+> a: b: 5
+5
+> b
+5
+> 1 + x: 5
+6
+> x
+5
+> x: 1, 2
+2
+> x
+1
+#+end_src
+
+* TEST m3.comments : =.: :.= comments, which nest
+#+begin_src
+> .: c :. 1
+1
+> 1 .: a :. + 2
+3
+> .: a .: b :. c :. 5
+5
+#+end_src
+
+* TEST m3.sep : =,= feeds the value so far to the next clause
+#+begin_src
+> 1, 2
+2
+> ! 3,
+0 1 2
+> ! 5, * 2
+0 2 4 6 8
+> x, + 1
+Error: undefined word: x,
+> ! 3, rev, rev
+Error: undefined word: rev,
+#+end_src
+
+A clause starting with a dyad or a monad takes the value so far as its
+(left) argument; one starting with a noun replaces it. A =,= with no
+space before the next word is part of the symbol, as in the TS lexer.
+
+* TEST m3.rev-pow : =rev= and =^=
+#+begin_src
+> rev ! 0
+
+> rev 5
+Error: toArray expects list, vector, or string
+> 2 ^ 0
+1
+> 0 ^ 0
+1
+> -2 ^ 3
+-8
+> 3 ^ 3
+27
+> 1 2 3 ^ 2
+1 4 9
+> 2 ^ 1 2 3
+2 4 8
+#+end_src
+
+* TEST m3.lambda : lambdas take x (and y after a =,=)
+#+begin_src
+> f: {x * x}
+{x * x}
+> f 7, + 1
+50
+> f f 3
+81
+> {x * x} 7
+49
+> f ! 3
+0 1 4
+> 2 + f 3
+11
+> f 3 + 1
+10
+> f: {x * x} 7
+49
+> f
+49
+> h: {y}
+{y}
+> h 1, 2
+2
+> {y} 1, 2
+2
+> {x} 1 2
+1 2
+> k: {1 + 2}
+{1 + 2}
+> k
+3
+#+end_src
+
+A named arity-0 lambda runs when it is named; a lambda literal or an
+arity-1 or 2 one with nothing to take is itself.
+
+* TEST m3.scope : names assigned in a lambda are local to the call
+#+begin_src
+> f: {x * x}
+{x * x}
+> x: 5
+5
+> f 2
+4
+> x
+5
+> q: {z: x + 1}
+{z: x + 1}
+> q 1
+2
+> z
+Error: undefined word: z
+#+end_src
+
+* TEST m3.show : a lambda shows as its tokens
+#+begin_src
+> { x  *  x }
+{x * x}
+> {x, rev}
+{x, rev}
+> {1 2 3}
+{1, 2, 3}
+> {0N}
+{0N}
+> {-5 + x}
+{-5 + x}
+> { {x} }
+{{x}}
+> {x: 1}
+{x: 1}
+#+end_src
+
+TS shows adjacent ints inside a lambda with commas.
+
 * TEST m2.iota : =! n= is the ints 0 .. n-1
 #+begin_src
 > ! 3

@@ -43,22 +43,80 @@ Error: ! needs a single int
 
 The TypeScript version prints an empty line for these.
 
-* TEST b4.syntax : syntax outside the milestone 2 subset
+* TEST b4.syntax : syntax outside the subset
 #+begin_src
 > (1 + 2) * 3
 Error: unsupported syntax at: (
-> 1 2, 3
+> 1 2 ,x
 Error: unsupported syntax at: ,
-> x: 5
-Error: undefined word: x:
 > !10
 Error: undefined word: !10
 > 1.5
 Error: undefined word: .5
+> :x
+Error: undefined word: :x
 #+end_src
 
 =!10= is a =!msg2= symbol in the TypeScript lexer too, where
-=1 + !10= fails with =invalid word class: M=; write =! 10=.
+=1 + !10= fails with =invalid word class: M=; write =! 10=. =,x= is
+an unquote, =:x= a get-word: neither is in the subset.
+
+* TEST b4.delims : an open comment or lambda is an error, not a wait
+#+begin_src
+> .: open
+Error: unterminated comment
+> 1 .: a .: b :. 2
+Error: unterminated comment
+> {1 + 2
+Error: unclosed {
+> 1 }
+Error: unexpected }
+#+end_src
+
+The TS repl reads more lines until the delimiters close; the b4
+driver takes one line at a time.
+
+* TEST b4.lambda : where TS makes a projection
+#+begin_src
+> f: {x * x}
+{x * x}
+> f
+{x * x}
+> x: f
+{x * x}
+> g: {x + y * 2}
+{x + y * 2}
+> g 3
+Error: missing argument
+> 1 + {x} 2
+3
+> f + 1
+Error: expected number or vector
+> rev f
+Error: toArray expects list, vector, or string
+> 1 2 f
+Error: not a dyad: f
+> , rev
+Error: missing argument
+#+end_src
+
+TS shows =f= as =f[]= and =g 3= as =g[3]= (projections), and rejects a
+lambda literal after a dyad.
+
+* TEST b4.pow : ^ is int-only
+#+begin_src
+> 2 ^ -1
+Error: ^ needs a non-negative exponent
+> 2 ^ 31
+0N
+> 3 ^ 40
+689956897
+> 7 ^ 13
+-1895237401
+#+end_src
+
+TS gives =0.5= and =2147483648=; b4 has no floats, and its ints wrap
+at 32 bits (the js vm is made to wrap the same way).
 
 * TEST b4.errors-continue : an error doesn't end the session
 #+begin_src

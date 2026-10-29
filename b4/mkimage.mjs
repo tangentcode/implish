@@ -24,7 +24,7 @@ const b4i = process.env.B4I
 if (!b4i) { console.error('mkimage: set B4I to a Rust b4i binary'); process.exit(2) }
 const out = process.argv[2] || path.join(root, 'web', 'b4-image.json')
 const files = [path.join(B4, 'b4a', 'pre.b4a'), path.join(here, 'mm.b4a'), process.env.IMP_B4A || path.join(here, 'imp.b4a')]
-const WORDS = ['imp-eval', 'imp-reset', 'mm-count']
+const WORDS = ['imp-eval', 'imp-reset', 'imp-leaks']
 
 function b4iRun(cmds) {
   const args = files.flatMap(f => ['-a', f])
