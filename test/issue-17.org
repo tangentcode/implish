@@ -1,0 +1,115 @@
+#+title: issue #17 regression tests: error and multi-line string values
+
+Multi-line strings use the triple-backtick syntax the README documents,
+and =show= writes them so they read back the same. A read failure is an
+error (catchable with =try=), never a value with no syntax of its own.
+
+* TEST mls-load : a ``` string loads as one multi-line string
+#+begin_src
+> m: value rd %test/fixtures/mls.imp
+```
+hi
+there
+```
+> type? :m
+mls!
+> match[:m; value show :m]
+1
+> type? value show :m
+mls!
+#+end_src
+
+* TEST mls-repl-lines : a ``` string can span REPL lines
+#+begin_src
+> m: ```
+> a
+>   b
+> ```
+```
+a
+  b
+```
+> show :m
+"```\na\n  b\n```"
+> match[:m; value show :m]
+1
+#+end_src
+
+* TEST mls-one-line : opening and closing on one line
+#+begin_src
+> m: ```one line```
+```
+one line```
+> match[:m; value show :m]
+1
+#+end_src
+
+* TEST mls-empty : an empty ``` string round-trips
+#+begin_src
+> m: ``````
+```
+```
+> match[:m; value show :m]
+1
+#+end_src
+
+* TEST mls-in-list : a ``` string inside a list or dict round-trips
+#+begin_src
+> l: [1; ```
+> x```; 2]
+[1 ```
+x``` 2]
+> match[:l; value show :l]
+1
+> d: :[`k ```
+> x
+> ```]
+:[`k ```
+x
+```]
+> match[:d; value show :d]
+1
+#+end_src
+
+* TEST mls-in-comment : ``` inside a comment is comment text
+#+begin_src
+> 1 .: a ``` b :. 2
+1 2
+> "a```b"
+"a```b"
+#+end_src
+
+* TEST mls-unclosed : an unclosed ``` string is a read error
+#+begin_src
+> try[load; "x: ```abc"]
+[1 "failed to read: unclosed multi-line string: ```"]
+#+end_src
+
+* TEST err-load-catchable : a read failure is an error, not a value
+#+begin_src
+> try[load; "[1"]
+[1 "failed to read: unclosed delimiters: ["]
+> try[value; "(1 + "]
+[1 "failed to read: unclosed delimiters: ("]
+> load "[1"
+Error: failed to read: unclosed delimiters: [
+#+end_src
+
+* TEST err-repl-waits : the REPL reads more lines while input is unclosed
+#+begin_src
+> [1
+> 2]
+[1 2]
+> 3
+3
+#+end_src
+
+* TEST err-symbol : error symbols still round-trip
+#+begin_src
+> e: ?oops
+?oops
+> match[:e; value show :e]
+1
+> type? value show :e
+sym!
+#+end_src

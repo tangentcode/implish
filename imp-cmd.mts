@@ -158,15 +158,17 @@ async function quietRepl() {
     }
     try {
       il.send(line)
+      if (il.waiting) continue  // unclosed delimiter or ```: read more lines
       let r = il.read()
-      if (r) {
-        let e = await impEval(r)
-        if (e[0] !== ImpT.NIL) console.log(impShow(e))
-      }
+      if (r[0] === ImpT.ERR) throw r[2]
+      let e = await impEval(r)
+      if (e[0] !== ImpT.NIL) console.log(impShow(e))
     } catch (e) {
       console.log("Error: " + e)
     }
   }
+  let r = il.read()
+  if (r[0] === ImpT.ERR) console.log("Error: " + r[2])
 
   setInputProvider(null);
 }
@@ -365,13 +367,13 @@ async function interactiveRepl() {
     }
     try {
       il.send(line)
+      if (il.waiting) { rl.prompt(); continue }  // unclosed delimiter or ```
       let r = il.read()
-      if (r) {
-        let e = await impEval(r)
-        if (e[0] !== ImpT.NIL) {
-          const output = impShow(e)
-          console.log(isTerminal ? highlightCode(output) : output)
-        }
+      if (r[0] === ImpT.ERR) throw r[2]
+      let e = await impEval(r)
+      if (e[0] !== ImpT.NIL) {
+        const output = impShow(e)
+        console.log(isTerminal ? highlightCode(output) : output)
       }
     } catch (e) {
       console.log("Error: " + e)
