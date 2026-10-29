@@ -4,83 +4,95 @@
 #+todo: TODO | DONE TEST
 
 Behavior of the b4 implementation that the TypeScript one doesn't share
-(yet): error messages for what milestone 1 can't do, and 32-bit
-wraparound. Run with =b4/test=. See [[file:../docs/b4.org][docs/b4.org]].
+(yet): errors for what the TypeScript version does but b4 can't yet
+(projections, syntax outside the milestone 2 subset), memory limits,
+and 32-bit wraparound. Run with =b4/test=. See [[file:../docs/b4.org][docs/b4.org]].
 
-* TEST b4.unknown-word : anything but ints and =+ - *= is an unknown word
+* TEST b4.projection : a primitive without its arguments is an error
 #+begin_src
-> x
-Error: unknown word (milestone 1 knows ints and + - *)
-> 1 / 2
-Error: unknown word (milestone 1 knows ints and + - *)
-> 1 + x
-Error: expected a number after the dyad
-> 0Nx
-Error: unknown word (milestone 1 knows ints and + - *)
-> -0N
-Error: unknown word (milestone 1 knows ints and + - *)
 > -
-Error: unknown word (milestone 1 knows ints and + - *)
-#+end_src
-
-* TEST b4.no-space : tokens need whitespace between them
-#+begin_src
-> 1+2
-Error: unknown word (milestone 1 knows ints and + - *)
-> 12x
-Error: unknown word (milestone 1 knows ints and + - *)
-> 1 +2
-Error: unknown word (milestone 1 knows ints and + - *)
-#+end_src
-
-As in the TypeScript loader, =1+2= is one word, not a sum.
-
-* TEST b4.missing-arg : a dyad needs a right argument
-#+begin_src
-> 1 +
-Error: expected a number after the dyad
-> 1 + 
-Error: expected a number after the dyad
-> 1 * -
-Error: expected a number after the dyad
-> 1 + 12x
-Error: expected a number after the dyad
-#+end_src
-
-The TypeScript version makes a projection (=+[1]=) here.
-
-Each error path in =imp.b4a= has a case in this file, and =b4/test=
-fails if any of them leaves values on the vm's data stack.
-
-* TEST b4.leading-dyad : a line can't start with a dyad yet
-#+begin_src
-> + 1
-Error: unknown word (milestone 1 knows ints and + - *)
+Error: no left argument for -
 > - 5
-Error: unknown word (milestone 1 knows ints and + - *)
+Error: no left argument for -
+> + 1
+Error: no left argument for +
+> 1 +
+Error: missing argument
+> 1 + 
+Error: missing argument
+> 1 * -
+Error: no left argument for -
+> !
+Error: missing argument
+> 1 ! 2
+Error: not a dyad: !
 #+end_src
 
-* TEST b4.strand : strands are milestone 4
+The TypeScript version makes projections here (=-[5]=, =+[1]=, =![]=)
+or reports a valence error. Each error path in =imp.b4a= has a case in
+this file, and =b4/test= fails if any of them leaves values on the vm's
+data stack or memory allocated.
+
+* TEST b4.iota-atom : =!= takes one int
 #+begin_src
-> 1 2
-Error: strands are not supported yet
-> 1 + 2 3
-Error: strands are not supported yet
-> 1 -2
-Error: strands are not supported yet
+> ! 2 3
+Error: ! needs a single int
+> ! ! 3
+Error: ! needs a single int
 #+end_src
+
+The TypeScript version prints an empty line for these.
+
+* TEST b4.syntax : syntax outside the milestone 2 subset
+#+begin_src
+> (1 + 2) * 3
+Error: unsupported syntax at: (
+> 1 2, 3
+Error: unsupported syntax at: ,
+> x: 5
+Error: undefined word: x:
+> !10
+Error: undefined word: !10
+> 1.5
+Error: undefined word: .5
+#+end_src
+
+=!10= is a =!msg2= symbol in the TypeScript lexer too, where
+=1 + !10= fails with =invalid word class: M=; write =! 10=.
 
 * TEST b4.errors-continue : an error doesn't end the session
 #+begin_src
 > x
-Error: unknown word (milestone 1 knows ints and + - *)
+Error: undefined word: x
 > 1 + 2
 3
-> 1 2
-Error: strands are not supported yet
+> (
+Error: unsupported syntax at: (
 > 6 * 7
 42
 #+end_src
+
+* TEST b4.memory : arrays live in mm's arena
+#+begin_src
+> ! 100000
+Error: out of memory
+> ! 1073741824
+Error: out of memory
+> 1 + ! 10
+1 2 3 4 5 6 7 8 9 10
+> 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 + 1
+2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41
+> 0 * ! 5000
+Error: out of memory
+> 1 + ! 3
+1 2 3
+#+end_src
+
+The arena is =$9000=..=$F7FF= (26k): =! 5000= (20k) fits, but not
+with a second array of that size for the product. Running out is an
+error, and the next line has the whole arena again. =! 1073741824=
+checks the size before multiplying: 4n bytes would wrap to 0. The 40-int strand
+grows its array several times as it lexes.
 
 * TEST b4.wrap : ints wrap at 32 bits
 #+begin_src

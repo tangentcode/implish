@@ -8,8 +8,10 @@
 # 2. tanco: b4/b4-tests.org on TS (./imp -q) and on b4 (b4/imp-b4 -q)
 # 3. tanco: b4/b4-only-tests.org on b4
 # 4. driver checks tanco can't express (/reset, too-long lines, -e)
-# 5. failure checks: a dirty vm stack and every way b4i can fail must
-#    make imp-b4 exit nonzero with an "imp-b4:" message
+# 5. failure checks: a dirty vm stack, memory left allocated, and every
+#    way b4i can fail must make imp-b4 exit nonzero with an "imp-b4:" message
+# 5b. vm checks: the code fits below the source line, and b4/mm.b4a's
+#    allocator, run directly on each b4i
 # 6. both b4 suites as one batch, through Rust and through Pascal's b4i
 #    (B4I_PAS, default $B4/imp/pas/b4i), against the suites' expected
 #    output. Pascal buffers stdout until exit, so it can't run under tanco.
@@ -157,11 +159,11 @@ run_tanco b4 b4/b4-only-tests.org "$GUARD -q"
 echo "== driver checks =="
 check reset-order "$(printf '2\nReady.\n4')" "$(printf '1 + 1\n/reset\n2 + 2\n' | imp b4/imp-b4 -q)"
 long=$(awk 'BEGIN { for (i = 0; i < 9000; i++) printf "1 + "; print "1" }')
-check too-long "$(printf '3\nError: line longer than 28672 bytes\n7')" \
+check too-long "$(printf '3\nError: line longer than 4095 bytes\n7')" \
   "$(printf '1 + 2\n%s\n3 + 4\n' "$long" | imp b4/imp-b4 -q)"
 check -e-args "$(printf '3\n9')" "$(imp b4/imp-b4 -e '1 + 2' -e '' -e '1 + 2 * 3')"
 # the raw b4i hook is off unless IMP_B4_RAW=1: "/b4 1 2" is just implish
-check raw-off "Error: unknown word (milestone 1 knows ints and + - *)" \
+check raw-off "Error: undefined word: /b4" \
   "$(printf '/b4 1 2\n' | imp env -u IMP_B4_RAW b4/imp-b4 -q)"
 # stdout closing early (here, head exits after one line of 5000) ends
 # imp-b4 quietly: nonzero exit, but no stderr and no stack trace
@@ -177,6 +179,13 @@ check_fails dirty-stack 'data stack not empty' env IMP_B4_RAW=1 b4/imp-b4 -q <"$
 if [ -x "$B4I_PAS" ]; then
   check_fails dirty-stack-pas 'data stack not empty' \
     env IMP_B4_RAW=1 B4I="$B4I_PAS" b4/imp-b4 -q <"$TMP/dirty.imp"
+fi
+# memory still allocated after a line: also invisible in stdout
+printf '1 + 2\n/b4 10 mm-alloc zp\n3 + 4\n' >"$TMP/leak.imp"
+check_fails mm-leak 'still in use' env IMP_B4_RAW=1 b4/imp-b4 -q <"$TMP/leak.imp"
+if [ -x "$B4I_PAS" ]; then
+  check_fails mm-leak-pas 'still in use' \
+    env IMP_B4_RAW=1 B4I="$B4I_PAS" b4/imp-b4 -q <"$TMP/leak.imp"
 fi
 # ... and the test harness's own guards must record it
 imp env IMP_B4_RAW=1 b4/imp-b4 -q <"$TMP/dirty.imp" >/dev/null
@@ -201,6 +210,32 @@ for mode in e repl; do
 done
 printf '1 + 2\n/b4 /q\n3 + 4\n' >"$TMP/quits.imp"
 check_fails b4i-exits-mid-session 'exited early' env IMP_B4_RAW=1 b4/imp-b4 -q <"$TMP/quits.imp"
+
+echo "== vm checks =="
+B4I_RS=$ROOT/.b4-build/release/b4i
+for vm in "$B4I_RS" "$B4I_PAS"; do
+  [ -x "$vm" ] || continue
+  name=$(basename "$(dirname "$vm")")       # rs's binary is in release/
+  # the assembled code must end below $8000, where the source line goes
+  here=$(printf '@_ ?d\n/q\n' | "$vm" -a "$B4/b4a/pre.b4a" -a b4/mm.b4a -a b4/imp.b4a)
+  case $here in
+    "ds: ["[0-7][0-9A-F][0-9A-F][0-9A-F]"]"|"ds: ["[0-9A-F][0-9A-F][0-9A-F]"]") pass ;;
+    *) flunk "code-fits-$name: code ends at $here, past \$8000" ;;
+  esac
+  # mm: first fit, splitting, merging freed neighbors, sizes out of range
+  check "mm-$name" "$(printf 'ds: [900C 9028 9038 3]\nds: [0]\nds: [900C]\nds: [0]\nds: [900C 9038 9064]\nds: [900C]\nds: [0 0 0 0 0]')" \
+    "$(imp "$vm" -a b4/mm.b4a <<'MM_EOF'
+mm-init 10 mm-alloc 0 mm-alloc 100 mm-alloc mm-count ?d
+zp mm-free mm-free mm-free mm-count ?d
+zp 67F4 mm-alloc ?d
+mm-free 67F5 mm-alloc ?d
+zp 20 mm-alloc 20 mm-alloc 20 mm-alloc ?d
+zp sw mm-free mm-free 40 mm-alloc ?d
+mm-free mm-init FFFFFFFF mm-alloc 6801 mm-alloc 7FFFFFFF mm-alloc 67F5 mm-alloc mm-count ?d
+/q
+MM_EOF
+)"
+done
 
 # both b4 suites as one batch: "> " lines are input, the other lines
 # inside src blocks are the expected output

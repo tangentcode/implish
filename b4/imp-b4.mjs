@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // imp-b4.mjs : run implish on the b4 virtual machine.
 //
-// The interpreter itself is b4/imp.b4a. This driver starts one b4i
-// process with it loaded, then for each line of implish:
+// The interpreter itself is b4/imp.b4a, on top of b4's pre.b4a (the
+// matchers its lexer uses) and b4/mm.b4a (memory). This driver starts
+// one b4i process with those loaded, then for each line of implish:
 //
 //   :8000 31 20 2B 20 32 00     (the line's bytes, nul-terminated, 16 per line)
 //   8000 imp-eval               (the vm evaluates and prints it)
-//   ?d                          (sentinel: marks the end of the output)
+//   mm-count ?d zp              (sentinel: marks the end of the output, and
+//                               shows the mm blocks still in use)
 //
 // usage:
 //   b4/imp-b4 -e '1 + 2'        evaluate expressions, print results
@@ -15,24 +17,30 @@
 // env:
 //   B4I                          path to a b4i binary (default: built by b4/imp-b4)
 //   IMP_B4A                      interpreter to load (default: b4/imp.b4a)
+//   B4                           the b4 checkout, for b4a/pre.b4a (default: ~/ver/b4)
 //   IMP_B4_RAW=1                 repl lines "/b4 ..." go to b4i as they are
 //                                (for debugging, and for testing the driver)
 //
 // Anything that goes wrong with b4i (can't start, exits early, rejects
-// the interpreter, leaves values on its data stack) prints an imp-b4:
-// message on stderr and makes the exit code nonzero.
+// the interpreter, leaves values on its data stack, or memory still
+// allocated after a line) prints an imp-b4: message on stderr and
+// makes the exit code nonzero.
 
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import os from 'node:os'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const IMP_B4A = process.env.IMP_B4A || path.join(here, 'imp.b4a')
+const B4 = process.env.B4 || path.join(os.homedir(), 'ver', 'b4')
+const PRE_B4A = path.join(B4, 'b4a', 'pre.b4a')
+const MM_B4A = path.join(here, 'mm.b4a')
 const RAW = process.env.IMP_B4_RAW === '1'
 const SRC_ADDR = 0x8000
-const MAX_LINE = 0x7000          // keeps the line below the vm stacks at $F800
-const SENTINEL = /^ds: \[(.*)\]$/
+const MAX_LINE = 0x1000 - 1      // the line and its nul fit below mm's arena at $9000
+const SENTINEL = /^ds: \[(.*?) ?(-?[0-9A-F]+)\]$/
 
 function usage() {
   console.error("usage: imp-b4 [-q] [-e expr ...]")
@@ -79,10 +87,11 @@ function die(msg) {              // every b4i failure ends here, once
 process.stdout.on('error', () => process.exit(1))
 
 let quitting = false             // set once we've sent /q
-const vm = spawn(b4i, ['-a', IMP_B4A], { stdio: ['pipe', 'pipe', 'inherit'] })
+const vm = spawn(b4i, ['-a', PRE_B4A, '-a', MM_B4A, '-a', IMP_B4A], { stdio: ['pipe', 'pipe', 'inherit'] })
 vm.on('error', err => die(`can't run b4i ${b4i}: ${err.message}`))
 // a write after b4i exits fails with EPIPE; 'close' below reports why
 vm.stdin.on('error', () => {})
+vm.stdin.write('imp-reset\n')     // set up mm's arena
 const out = createInterface({ input: vm.stdout })
 // Lines stream to the vm without waiting, since some b4i builds (Pascal)
 // buffer stdout until exit. Each sentinel closes the oldest pending line;
@@ -104,8 +113,16 @@ out.on('line', line => {
       console.error(`imp-b4: vm data stack not empty after eval: [${m[1]}]`)
       exitCode = 1
     }
+    if (m[2] !== '0') {
+      console.error(`imp-b4: vm has ${parseInt(m[2], 16)} mm block(s) still in use after eval`)
+      exitCode = 1
+    }
     pending.shift().resolve(); flush()
-  } else process.stdout.write(line + '\n')
+  }
+  // b4i only ends lines that printed something, so imp.b4a prints an
+  // empty line as one space (it emits a newline, and b4i shows control
+  // characters as spaces)
+  else process.stdout.write(line === ' ' ? '\n' : line + '\n')
 })
 
 const vmExit = new Promise(resolve => vm.on('close', (code, signal) => {
@@ -122,7 +139,7 @@ const vmExit = new Promise(resolve => vm.on('close', (code, signal) => {
 function sendVm(cmds) {
   return new Promise(resolve => {
     pending.push({ resolve, text: undefined })
-    vm.stdin.write(cmds + '?d\n')
+    vm.stdin.write(cmds + 'mm-count ?d zp\n')
   })
 }
 

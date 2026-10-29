@@ -8,6 +8,105 @@ These tests run against /both/ implementations: the TypeScript one
 the reference, so anything here must already pass there. Run them all
 with =b4/test=. See [[file:../docs/b4.org][docs/b4.org]].
 
+* TEST m2.iota-plus : =1 + ! 10= (the first target)
+#+begin_src
+> 1 + ! 10
+1 2 3 4 5 6 7 8 9 10
+#+end_src
+
+=! 10= is an mm-allocated int array, and =+= pairs the atom =1= with
+each of its items. Written =! 10= with a space: the TypeScript lexer
+reads =!10= as a =!msg2= symbol, so =1 + !10= is an error there.
+
+* TEST m2.iota : =! n= is the ints 0 .. n-1
+#+begin_src
+> ! 3
+0 1 2
+> ! 1
+0
+> ! 0
+
+> 1 + 2 * ! 3
+0 3 6
+#+end_src
+
+An empty array prints as an empty line.
+
+* TEST m2.monad : a monad applies to the noun right after it
+#+begin_src
+> ! 10 + 1
+1 2 3 4 5 6 7 8 9 10
+> 2 + ! 3 + 10
+12 13 14
+> ! 3 - 1
+-1 0 1
+> 5 - ! 3
+5 4 3
+> ! 3 * ! 3
+0 1 4
+#+end_src
+
+=! 10 + 1= is =(! 10) + 1=, not =! 11=: dyads still go left to right.
+
+* TEST m2.strand : juxtaposed ints are one array
+#+begin_src
+> 1 2 3
+1 2 3
+> 1 -2
+1 -2
+> 1 + 2 3
+3 4
+> 1 2 + 10 20
+11 22
+> 1 2 3 * 2
+2 4 6
+> -5 + ! 3
+-5 -4 -3
+#+end_src
+
+* TEST m2.errors : errors the TypeScript version reports the same way
+#+begin_src
+> 1 2 + 1 2 3
+Error: vector length mismatch
+> ! -1
+Error: ! requires non-negative integer
+> ! 0N
+Error: ! requires non-negative integer
+> 1 2 3
+1 2 3
+#+end_src
+
+The session goes on after an error.
+
+* TEST m2.undefined : names that aren't primitives
+#+begin_src
+> x
+Error: undefined word: x
+> 1 + x
+Error: undefined word: x
+> 1 / 2
+Error: undefined word: /
+#+end_src
+
+* TEST m2.lex : where one token ends and the next begins
+#+begin_src
+> 1+2
+Error: undefined word: +2
+> 1 +2
+Error: undefined word: +2
+> 12x
+Error: undefined word: x
+> 0Nx
+Error: undefined word: Nx
+> -0N
+Error: undefined word: N
+#+end_src
+
+These follow the TypeScript lexer table (=imp-load.mts=): tokens need
+no space between them, an int is =0N\b= or =-?\d+=, and anything
+else up to a space or delimiter is a symbol. So =1+2= is =1= then
+=+2=, and =0Nx= is =0= then =Nx=.
+
 * TEST m1.int : an integer literal evaluates to itself
 #+begin_src
 > 42

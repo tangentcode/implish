@@ -47,8 +47,9 @@ The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it
 
 ### Implish on b4
 `b4/imp-b4 -e '1 + 2'` evaluates implish on the b4 vm (`~/ver/b4`, or `B4=...`).
-The interpreter is b4 assembly in `b4/imp.b4a`; `b4/imp-b4.mjs` only feeds
-it source lines. Plan and milestones: `docs/b4.org`.
+The interpreter is b4 assembly in `b4/imp.b4a`, loaded after b4's
+`b4a/pre.b4a` (its lexer's matchers) and `b4/mm.b4a` (memory);
+`b4/imp-b4.mjs` only feeds it source lines. Plan and milestones: `docs/b4.org`.
 
 ## Architecture
 

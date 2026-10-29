@@ -1,25 +1,55 @@
 # imp.b4a : implish on the b4 virtual machine
 #
-# milestone 1: decimal integer literals (and 0N, the null int) and the
-# dyads + - *, evaluated left to right (implish has no operator
-# precedence). ints are 32-bit cells; 0N is the smallest one, as in
-# the TypeScript implementation (NULL_INT in imp-core.mts).
+# milestone 2: the lexer is built from b4's pre (b4a/pre.b4a) matchers,
+# and every value is an array allocated with mm (mm.b4a). load order:
 #
-#   :8000 31 20 2B 20 32 00     # "1 + 2", nul-terminated
-#   8000 imp-eval               # prints 3
+#   b4i -a $B4/b4a/pre.b4a -a b4/mm.b4a -a b4/imp.b4a
 #
-# needs only core ops and io 'e (emit). io 'e buffers characters and
-# b4i ends each input line that printed something with a newline, so
-# one call to imp-eval prints one line. uses registers K and N.
+#   :8000 31 20 2B 20 21 20 31 30 00   # "1 + ! 10", nul-terminated
+#   8000 imp-eval                      # prints 1 2 3 4 5 6 7 8 9 10
+#
+# imp-load turns the line into a token tree, imp-eval evaluates it the
+# way the TypeScript implementation does: dyads left to right with no
+# precedence, a monad applying to the noun right after it.
+#
+# arrays, in cells: type rank d0 d1 d2, then the items. d0 is the
+# item count (milestone 2 has ranks 0 and 1 only). types:
+#
+#   0 ints     a run of int literals is one rank-1 array (a strand);
+#              a lone int is rank 0
+#   1 node     a token tree: items are tokens
+#   2 chars    a name; the items are its bytes (still one cell each)
+#
+# a token is a cell: a pointer to an ints or chars array, or for a
+# primitive, its index i as i*4+1 (low bits 01, so never a pointer).
+#
+# ownership: every array has one owner. the token tree owns its
+# arrays; the evaluator copies a literal before using it, and frees
+# each value once it's used, so after imp-eval mm has nothing in use
+# (the driver checks this with mm-count).
+#
+# errors: imp-fail prints "Error: ..." and sets E. every word that
+# can fail returns normally with E set, and its caller cleans up.
+# output: io 'e buffers characters and b4i ends each input line that
+# printed something with a newline, so imp-eval prints one line.
+# registers: K M S N (pre's), E (error), I (token index), X Y Z F.
 # see ../docs/b4.org for the plan.
 
 #-- strings (backtick refs must come after the label) ------
 
 :imp-0n ."0N"
 :imp-e-pre ."Error: "
-:imp-e-arg ."expected a number after the dyad"
-:imp-e-word ."unknown word (milestone 1 knows ints and + - *)"
-:imp-e-strand ."strands are not supported yet"
+:imp-e-undef ."undefined word: "
+:imp-e-lex ."unsupported syntax at: "
+:imp-e-mem ."out of memory"
+:imp-e-len ."vector length mismatch"
+:imp-e-iota ."! requires non-negative integer"
+:imp-e-atom ."! needs a single int"
+:imp-e-arg ."missing argument"
+:imp-e-dyad ."no left argument for "
+:imp-e-mon ."not a dyad: "
+:imp-delims 08 '[ '] '( ') '{ '} '` ';       # end a raw symbol
+:imp-seps 02 ', '|                           # separators (not yet)
 
 #-- output ----------------------------------------------------
 
@@ -45,66 +75,230 @@
    .f cd cd imp-emit dc .n            # pop chars from under the loop counter
    rt
 
-:imp-err                              # (a-) print "Error: " and message a
-   li `imp-e-pre imp-puts imp-puts rt
+:imp-fail                             # (a-) print "Error: " and message a; set E
+   @E .i zp rt .t                     # only the first error prints
+   li `imp-e-pre imp-puts imp-puts n1 !E rt
 
-#-- scanning --------------------------------------------------
+#-- arrays ----------------------------------------------------
 
-:imp-ch @K rb rt                      # (-c) current character
-:imp-adv c1 +K zp rt                  # (-) advance one character
-:imp-reset rt                         # (-) clear implish state (none yet)
+:imp-rk c4 ad rt                      # (a-a) rank field
+:imp-d0 lb 08 ad rt                   # (a-a) d0 field: the item count
+:imp-n imp-d0 ri rt                   # (a-n) item count
+:imp-it c4 ml ad lb 14 ad rt          # (ai-a) address of item i
 
-:imp-ws?                              # (c-?) space or tab?
-   du lb 20 eq sw lb 09 eq or rt
+:imp-new                              # (tn-a) rank-1 array of n items of type t; 0 on failure
+   du li 00 00 01 00 lt nt ov c0 lt or   # n out of range: n*4 would wrap
+   .i zp zp li `imp-e-mem imp-fail c0 rt .t
+   du c4 ml lb 14 ad mm-alloc         # (tn-tna)
+   du c0 eq .i zp zp zp li `imp-e-mem imp-fail c0 rt .t
+   sw ov imp-d0 wi                    # (ta) d0 = n
+   c1 ov imp-rk wi                    # rank 1
+   sw ov wi                           # type
+   c0 ov lb 0C ad wi c0 ov lb 10 ad wi rt   # d1 = d2 = 0
 
-:imp-sep?                             # (-?) at whitespace or end of line?
-   imp-ch du imp-ws? sw c0 eq or rt
+:imp-cells                            # (a-n) cells in a: header and items
+   imp-n lb 05 ad rt
 
-:imp-dig?                             # (c-?) '0'..'9'?
-   du lb '0 lt nt sw lb 3A lt an rt
+:imp-move                             # (abn-) copy n cells from a to b
+   du .i .f ov ri ov wi c4 ad sw c4 ad sw .n zp zp rt
+   .t zp zp zp rt
 
-:imp-skip                             # (-) skip whitespace
-   .w imp-ch imp-ws? .d imp-adv .o rt
+:imp-copy                             # (a-b) a fresh copy of a; 0 on failure
+   du imp-cells c4 ml mm-alloc
+   du c0 eq .i zp zp li `imp-e-mem imp-fail c0 rt .t
+   sw ov ov imp-cells imp-move rt
 
-:imp-num?                             # (-?) does a number start here?
-   imp-ch imp-dig? .i n1 rt .t
-   imp-ch lb '- eq .i @K c1 ad rb imp-dig? rt .t
-   c0 rt
 
-:imp-num                              # (-n) read a number; imp-num? was true
-   imp-ch lb '0 eq @K c1 ad rb lb 'N eq an
-   .i imp-adv imp-adv li 00 00 00 80 rt .t   # 0N: the null int
-   c0 !N
-   imp-ch lb '- eq .i n1 !N imp-adv .t
-   c0                                 # accumulator
-   .w imp-ch imp-dig? .d
-      lb 0A ml imp-ch lb '0 sb ad imp-adv .o
-   @N .i c0 sw sb .t rt
+:imp-room                             # (a-a) room for one more item; a may move
+   du imp-n lb 06 ad c4 ml            # (a-ab) b: bytes for n+1 items
+   ov mm-size sw lt nt .i rt .t       # it fits already
+   du mm-size du ad mm-alloc          # (a-ab) b: a block twice the size
+   du c0 eq .i zp li `imp-e-mem imp-fail rt .t   # (a) a stays, E is set
+   ov ov ov imp-cells imp-move
+   sw mm-free rt
 
-:imp-int                              # (-n -1 | 0) read an int token
-   imp-num? nt .i c0 rt .t
-   imp-num imp-sep? nt .i zp c0 rt .t
-   n1 rt
+:imp-put                              # (ax-a) append item x; imp-room made room
+   ov du imp-n imp-it wi
+   du imp-d0 du ri c1 ad sw wi rt
+
+:imp-get                              # (ai-v) item i of a; an atom's item for any i
+   ov imp-rk ri c0 eq .i zp c0 .t imp-it ri rt
+
+:imp-drop                             # (x-) free x, and if it's a node, its tokens
+   du lb 03 an .i zp rt .t            # a primitive: nothing to free
+   du c0 eq .i zp rt .t                  # 0: nothing
+   du ri c1 eq .i
+      du imp-n du .i .f du cd du dc c1 sb imp-it ri imp-drop .n .e zp .t
+   .t mm-free rt
+
+:imp-putw                             # (a-) print chars array a
+   du imp-n sw c0 imp-it sw
+   .f du ri imp-emit c4 ad .n zp rt
+
+:imp-show                             # (x-) print ints x, separated by spaces
+   du imp-n du c0 eq .i zp zp lb 0A imp-emit rt .t   # no items: an empty line
+   sw c0 imp-it sw                    # (pn)
+   .f du ri imp-putn
+      cd du dc c1 eq nt .i lb 20 imp-emit .t
+      c4 ad .n
+   zp rt
+
+#-- primitives ------------------------------------------------
+# a dyad is (xy-xyz), a monad (x-xz): z is a new array, or 0 with E
+# set on failure. the caller frees x and y.
+
+:imp-shape2                           # (xy-xyrn) rank and count of an itemwise dyad's result
+   ov imp-rk ri c0 eq .i du imp-rk ri ov imp-n rt .t   # x is an atom: y's shape
+   du imp-rk ri c0 eq .i ov imp-rk ri dc ov imp-n cd sw rt .t   # y is: x's
+   ov imp-n ov imp-n ov eq .i c1 sw rt .t
+   zp li `imp-e-len imp-fail c0 c0 rt
+
+:imp-zip !F                           # (xyf-xyz) z: f of x's and y's items, pairwise
+   imp-shape2 @E .i zp zp c0 rt .t    # (xyrn)
+   c0 sw imp-new du c0 eq .i sw zp rt .t # (xyrz)
+   sw ov imp-rk wi                    # (xyz)
+   !Z !Y !X @Z imp-n du .i
+      .f cd du dc c1 sb               # (i)
+         @X ov imp-get ov @Y sw imp-get   # (i x_i y_i)
+         @F do sw @Z sw imp-it wi .n
+   .e zp .t
+   @X @Y @Z rt
+
+:imp-ad ad rt   :imp-sb sb rt   :imp-ml ml rt
+:imp-add li `imp-ad imp-zip rt
+:imp-sub li `imp-sb imp-zip rt
+:imp-mul li `imp-ml imp-zip rt
+
+:imp-iota                             # (x-xz) ! n: the ints 0 .. n-1
+   du imp-rk ri .i li `imp-e-atom imp-fail c0 rt .t
+   du c0 imp-it ri                    # (xn)
+   du c0 lt .i zp li `imp-e-iota imp-fail c0 rt .t
+   c0 sw imp-new du c0 eq .i rt .t       # (xz)
+   du imp-n du .i
+      .f du cd du dc c1 sb sw ov imp-it wi .n
+   .e zp .t rt
+
+# primitive i is named by the i-th counted string here, and its code
+# is the i-th address in imp-ops. the first imp-ndy are dyads, the
+# rest monads.
+:imp-names 01 '+ 01 '- 01 '* 01 '! 00
+:imp-ops `imp-add `imp-sub `imp-mul `imp-iota
+:imp-ndy lb 03 rt
+:imp-op c4 ml li `imp-ops ad ri rt    # (i-a) code for primitive i
+
+:imp-putp li `imp-names sw            # (i-) print primitive i's name
+   du .i .f du rb c1 ad ad .n .e zp .t
+   imp-puts rt
+
+#-- lexing, with pre's matchers -------------------------------
+# each imp-tok starts a token at @K (pre's cursor) by setting @S, the
+# start, and @M, the match flag. the matchers move @K past what they
+# match; S..K is then the token's text.
+
+:imp-at @K !S n1 !M rt                # (-) start a token at @K
+
+:imp-wch                              # matches a \w char
+   .[ digit m| lb 'A lb 'Z btw m| lb 'a lb 'z btw m| lb '_ chr rt .] try rt
+:imp-null m\                          # 0N, not followed by a \w char (0N\b)
+   li `imp-0n lit li `imp-wch neg
+   @M .i li 00 00 00 80 !N .t rt
+:imp-dig m\ digit                     # one decimal digit, added to @N
+   @M .i @N lb 0A ml lc lb '0 sb ad !N .t rt
+:imp-dec m\ c0 !N                     # -?\d+, value in @N
+   .[ .[ lb '- chr rt .] opt li `imp-dig rep rt .] try
+   @M .i @S rb lb '- eq .i c0 @N sb !N .t .t rt
+:imp-int m\                           # an int: 0N or -?\d+, value in @N
+   .[ imp-null m| imp-dec rt .] try rt
+
+:imp-rch m\ li `ws neg                # one char of a raw symbol: not space,
+   .[ li `imp-delims chs rt .] neg    # a delimiter, a separator or the end
+   .[ li `imp-seps chs rt .] neg any rt
+:imp-raw m\ li `imp-rch rep rt        # a raw symbol
+
+:imp-same?                            # (a-?) is counted string a the token S..K?
+   du rb ln eq nt .i zp c0 rt .t
+   c1 ad @S ln                        # (pqn)
+   .f ov rb ov rb eq nt .i zp zp cd zp c0 rt .t
+      c1 ad sw c1 ad sw .n
+   zp zp n1 rt
+
+:imp-prim                             # (-i) index of the primitive named S..K, or -1
+   c0 li `imp-names                   # (ia)
+   .w du rb .d
+      du imp-same? .i zp rt .t
+      du rb c1 ad ad sw c1 ad sw .o
+   zp zp n1 rt
+
+:imp-sym                              # (-a) a chars array holding S..K; 0 on failure
+   lb 02 ln imp-new du c0 eq .i rt .t
+   ln .f du cd du dc c1 sb            # (aai)
+      du @S ad rb dc imp-it cd sw wi .n rt
+
+:imp-last                             # (t-tx) t's last token, or 1 (no pointer) if none
+   du imp-n du .i c1 sb ov sw imp-it ri rt .t
+   zp c1 rt
+
+:imp-int1                             # (t-t) put a new int atom @N at t's end
+   imp-room @E .i rt .t
+   c0 c1 imp-new du c0 eq .i zp rt .t
+   c0 ov imp-rk wi @N ov c0 imp-it wi imp-put rt
+
+:imp-tok-int                          # (t-t) @N joins the strand at t's end, or starts one
+   imp-last
+   du lb 03 an .i zp imp-int1 rt .t   # t is empty or ends in a primitive
+   du ri .i zp imp-int1 rt .t         # t ends in a name
+   imp-room @E .i zp rt .t            # (ts) the strand s may move
+   @N imp-put c1 ov imp-rk wi         # a strand has rank 1
+   ov du imp-n c1 sb imp-it wi rt     # store s back in t
+
+:imp-tok-raw                          # (t-t) put a primitive or a name at t's end
+   imp-room @E .i rt .t
+   imp-prim du n1 eq nt .i c4 ml c1 ad imp-put rt .t
+   zp imp-sym du c0 eq .i zp rt .t imp-put rt
+
+:imp-tok                              # (t-t) lex the token at @K onto t
+   imp-at imp-int @M .i imp-tok-int rt .t
+   imp-at imp-raw @M .i imp-tok-raw rt .t
+   li `imp-e-lex imp-fail ch imp-emit rt
+
+:imp-load                             # (a-t) token tree for the line at a; 0 on failure
+   !K lb 01 c0 imp-new du c0 eq .i rt .t
+   .w n1 !M ws* ch @E nt an .d imp-tok .o
+   rt
 
 #-- evaluation ------------------------------------------------
+# the tree's tokens are read in order, from @I.
 
-:imp-step                             # (n-r -1 | 0) apply one "dyad int" pair
-   imp-num? .i zp li `imp-e-strand imp-err c0 rt .t
-   imp-ch imp-adv                     # (nc) the dyad's character
-   imp-sep? nt .i zp zp li `imp-e-word imp-err c0 rt .t
-   du lb '+ eq ov lb '- eq or ov lb '* eq or
-   nt .i zp zp li `imp-e-word imp-err c0 rt .t
-   imp-skip imp-int                   # (nc-ncm -1 | nc 0)
-   nt .i zp zp li `imp-e-arg imp-err c0 rt .t
-   sw                                 # (nmc)
-   du lb '+ eq .i zp ad n1 rt .t
-   du lb '- eq .i zp sb n1 rt .t
-   zp ml n1 rt
+:imp-done? @I ov imp-n lt nt rt       # (t-t?) are t's tokens used up?
+:imp-next du @I imp-it ri c1 +I zp rt # (t-tc) the next token
 
-:imp-eval                             # (a-) evaluate the line at a, print result
-   !K imp-skip
-   imp-ch c0 eq .i rt .t              # blank line is nil: print nothing
-   imp-int nt .i li `imp-e-word imp-err rt .t
-   .w imp-skip imp-ch .d              # while not at end of line:
-      imp-step nt .i rt .t .o
-   imp-putn rt
+:imp-noun                             # (t-tx) evaluate the noun at @I; x is 0 on failure
+   imp-done? .i li `imp-e-arg imp-fail c0 rt .t
+   imp-next
+   du lb 03 an c0 eq .i                  # not a primitive:
+      du ri .i li `imp-e-undef imp-fail imp-putw c0 rt .t
+      imp-copy rt .t                  # ints
+   c4 dv du imp-ndy lt .i li `imp-e-dyad imp-fail imp-putp c0 rt .t
+   dc imp-noun cd                     # (txi) a monad: its argument first
+   ov c0 eq .i zp rt .t
+   imp-op do sw imp-drop rt
+
+:imp-dyad                             # (xt-zt) apply the dyad at @I to x and the noun after it
+   imp-next
+   du lb 03 an c0 eq .i li `imp-e-undef imp-fail imp-putw rt .t
+   c4 dv du imp-ndy lt nt .i li `imp-e-mon imp-fail imp-putp rt .t
+   dc imp-noun                        # (xty|i)
+   du c0 eq .i zp cd zp rt .t
+   sw cd sw dc                        # (xyi|t)
+   imp-op do sw imp-drop sw imp-drop cd rt
+
+:imp-reset mm-init rt                 # (-) forget everything
+
+:imp-eval                             # (a-) evaluate the line at a, print its value
+   c0 !E c0 !I
+   imp-load du c0 eq .i zp rt .t         # (t)
+   @E .i imp-drop rt .t               # it didn't lex
+   du imp-n c0 eq .i imp-drop rt .t      # a blank line is nil: it prints nothing
+   imp-noun sw                        # (xt)
+   .w imp-done? nt @E nt an .d imp-dyad .o
+   imp-drop @E nt .i du imp-show .t imp-drop rt
