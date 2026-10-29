@@ -50,6 +50,10 @@ The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it
 The interpreter is b4 assembly in `b4/imp.b4a`, loaded after b4's
 `b4a/pre.b4a` (its lexer's matchers) and `b4/mm.b4a` (memory);
 `b4/imp-b4.mjs` only feeds it source lines. Plan and milestones: `docs/b4.org`.
+`web/b4.html` runs the same code in the browser on b4's js vm (vendored in
+`vendor/b4/`) from `web/b4-image.json`; after changing `b4/imp.b4a` or
+`b4/mm.b4a`, regenerate it with `B4I=.b4-build/release/b4i node b4/mkimage.mjs`
+(`b4/test` fails while it is stale).
 
 ## Architecture
 

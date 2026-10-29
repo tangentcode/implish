@@ -15,7 +15,11 @@
 # 6. both b4 suites as one batch, through Rust and through Pascal's b4i
 #    (B4I_PAS, default $B4/imp/pas/b4i), against the suites' expected
 #    output. Pascal buffers stdout until exit, so it can't run under tanco.
-# 7. imp-tests.org and prim-tests.org on TS, unless "b4" was given
+# 7. the browser page's engine (b4/imp-b4-js: b4's js vm, loading
+#    web/b4-image.json): both b4 suites under tanco; the committed image
+#    must match a fresh b4/mkimage.mjs; vite must emit dist-web/b4.html
+#    (built into .tmp/, with a node new enough for vite, if there is one)
+# 8. imp-tests.org and prim-tests.org on TS, unless "b4" was given
 #
 # Every imp-b4 run in 2-6 that should succeed must also exit 0 and print
 # nothing on stderr: that is where the driver reports a dirty vm stack
@@ -70,6 +74,12 @@ cat >"$GUARD" <<'GUARD_EOF'
 exec "$ROOT/b4/imp-b4" "$@" 2>>"$IMP_FAIL"
 GUARD_EOF
 chmod +x "$GUARD"
+GUARD_JS=$TMP/imp-b4-js-guarded
+cat >"$GUARD_JS" <<'GUARD_EOF'
+#!/bin/sh
+exec "$ROOT/b4/imp-b4-js" "$@" 2>>"$IMP_FAIL"
+GUARD_EOF
+chmod +x "$GUARD_JS"
 
 # usage: imp CMD ARGS...   (stdin passes through; prints CMD's stdout)
 imp() {
@@ -131,7 +141,7 @@ check_fails() {
   shift 2
   rc=0
   "$@" >"$TMP/fails.out" 2>"$TMP/fails.err" || rc=$?
-  if [ "$rc" -ne 0 ] && grep -q "^imp-b4: .*$msg" "$TMP/fails.err" \
+  if [ "$rc" -ne 0 ] && grep -q "^imp-b4[-js]*: .*$msg" "$TMP/fails.err" \
      && ! grep -q '^    at \|node:internal\|Unhandled' "$TMP/fails.err"; then pass
   else
     flunk "$label: wanted a nonzero exit and 'imp-b4: ...$msg', got exit $rc"
@@ -251,8 +261,40 @@ if [ -x "$B4I_PAS" ]; then
 else
   echo "== pascal b4i: skipped, no $B4I_PAS =="
 fi
+
+echo "== browser engine: b4's js vm =="
+B4I="$B4I_RS" node b4/mkimage.mjs "$TMP/b4-image.json"
+if cmp -s "$TMP/b4-image.json" web/b4-image.json; then pass
+else flunk "b4-image: web/b4-image.json is stale; run: B4I=$B4I_RS node b4/mkimage.mjs"; fi
+check js-batch "$expected" "$(imp b4/imp-b4-js -q <"$inputs")"
+# the js engine's own guards: an interpreter that never frees its
+# result, and one that leaves a value on the stack
+sed 's/^   imp-drop @E nt .i du imp-show .t imp-drop rt$/   imp-drop @E nt .i du imp-show .t zp rt/' b4/imp.b4a >"$TMP/leaky.b4a"
+sed 's/^   imp-drop @E nt .i du imp-show .t imp-drop rt$/   imp-drop @E nt .i du imp-show .t c0 sw imp-drop rt/' b4/imp.b4a >"$TMP/dirty.b4a"
+for bad in leaky:'still in use' dirty:'data stack not empty'; do
+  IMP_B4A="$TMP/${bad%%:*}.b4a" B4I="$B4I_RS" node b4/mkimage.mjs "$TMP/bad-image.json"
+  check_fails "js-${bad%%:*}" "${bad#*:}" env IMP_B4_IMAGE="$TMP/bad-image.json" b4/imp-b4-js -e '1 + 2'
+done
+# vite 7 needs node >= 20.19
+VITE_NODE=
+for n in node /usr/bin/node; do
+  if command -v "$n" >/dev/null 2>&1 && "$n" -e 'const [a,b]=process.versions.node.split(".").map(Number); process.exit(a>20||(a==20&&b>=19)?0:1)'; then
+    VITE_NODE=$(command -v "$n"); break
+  fi
+done
+if [ -n "$VITE_NODE" ]; then
+  rm -rf "$TMP/dist-web"
+  if PATH=$(dirname "$VITE_NODE"):$PATH npx vite build --outDir "$TMP/dist-web" --emptyOutDir >"$TMP/vite.log" 2>&1 \
+     && grep -q 'b4-image\|imp-eval\|ImpB4' "$TMP"/dist-web/assets/b4-*.js \
+     && [ -f "$TMP/dist-web/b4.html" ] && ! grep -q 'b4.html' "$TMP/dist-web/index.html"; then pass
+  else flunk "vite: no dist-web/b4.html (or index.html links it)"; tail -20 "$TMP/vite.log"; fi
+else
+  echo "vite check skipped: no node >= 20.19"
+fi
 summary="$summary
   driver, failure and batch checks: $checks_ok/$checks"
+run_tanco js b4/b4-tests.org "$GUARD_JS -q"
+run_tanco js b4/b4-only-tests.org "$GUARD_JS -q"
 
 if [ -z "$only_b4" ]; then
   run_tanco ts imp-tests.org './imp -q'

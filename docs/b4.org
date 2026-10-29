@@ -74,6 +74,11 @@ the b4 one, so the TS version stays the reference for semantics.
 | =b4/b4-tests.org=      | tanco tests shared by the TS and b4 implementations   |
 | =b4/b4-only-tests.org= | tanco tests for b4-specific behavior (errors, limits) |
 | =b4/test=              | builds b4i, runs every suite above                    |
+| =web/b4.html=          | the browser repl (vite: =dist-web/b4.html=, unlinked) |
+| =b4/imp-b4-js.mts=     | the page's engine: b4's js vm running the ram image   |
+| =b4/imp-b4-js=         | that engine as a line repl, so =b4/test= can run it   |
+| =b4/mkimage.mjs=       | assembles with Rust =b4i=, writes =web/b4-image.json= |
+| =vendor/b4/b4.mts=     | b4's js vm (=imp/js/b4.mts=, b4 =6bf9a57=), unchanged |
 
 * running it
 
@@ -83,6 +88,9 @@ b4/imp-b4 -e '1 + 2 * 3'          # 9
 echo '6 * 7' | b4/imp-b4 -q       # 42
 B4I=~/ver/b4/imp/pas/b4i b4/imp-b4 -e '1 + 2'   # on the Pascal vm
 b4/test                           # all suites; b4/test b4 for just the b4 ones
+b4/imp-b4-js -e '1 + ! 10'        # the browser page's engine, in node
+B4I=.b4-build/release/b4i node b4/mkimage.mjs   # after changing imp.b4a or mm.b4a
+PATH=/usr/bin:$PATH npx vite build              # dist-web/b4.html (vite needs node >= 20.19)
 #+end_src
 
 Debugging hooks: =IMP_B4A=file.b4a= loads another interpreter, and with
@@ -185,7 +193,7 @@ Values are int arrays with a rank and shape, allocated with mm.
   index/from, reshape (and rank 2)
 - [ ] variables: =x: 1 2 3=
 
-** deliverable: =web/b4.html=
+** DONE deliverable: =web/b4.html=
 A REPL page like the demo page (=web/index.html=) that runs the b4
 version in the browser, built by vite into =dist-web/b4.html= and not
 linked from the home page. =1 + ! 10= first, then each demo
@@ -197,8 +205,11 @@ interaction below as it comes online.
   =>= forward refs, no strings with spaces), so =b4/mkimage.mjs=
   assembles them with the Rust =b4i= and saves the ram image and labels
   to =web/b4-image.json=; =b4/test= fails if that file is stale.
-- check: =npx vite build= emits =dist-web/b4.html=; a screenshot of it
-  running =1 + ! 10= goes in the PR.
+- =b4/test= runs both b4 suites on this engine too (=b4/imp-b4-js=,
+  the same module the page imports), checks that the image is fresh,
+  that the engine catches a leaky or stack-dirtying interpreter, and
+  that =npx vite build= emits =dist-web/b4.html= without =index.html=
+  linking it. A screenshot of the page is in the PR.
 
 ** the demo checklist
 The interactions on implish.org's demo page, in order. Each gets a

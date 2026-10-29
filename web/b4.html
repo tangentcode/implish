@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implish on b4</title>
+  <meta name="description" content="Implish running on the b4 virtual machine, in your browser.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap">
+  <!-- not linked from index.html yet: this page runs implish's b4 version
+       (b4/imp.b4a) on b4's javascript vm. see docs/b4.org -->
+  <style>
+    :root {
+      color-scheme: dark;
+      --safe-top: 0px;
+      --safe-bottom: 0px;
+    }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Roboto Mono', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+      background: #1f1f1f;
+      color: #a9b7c6;
+      padding: 24px;
+      margin: 0;
+      font-size: 16px;
+      height: 100dvh;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    #container {
+      max-width: 900px;
+      margin: 0 auto;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .banner {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 0;
+      margin-bottom: 16px;
+    }
+    .banner h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+      color: #e0e4ea;
+    }
+    .banner h1 span { color: #cc7832; }
+    .hint { color: #8f9ba8; font-size: 14px; }
+    .hint a { color: #6c99ff; text-decoration: none; }
+    .hint a:hover { color: #89adff; }
+    #output {
+      background: #2b2b2b;
+      padding: 18px;
+      border-radius: 8px;
+      margin: 0;
+      white-space: pre-wrap;
+      overflow-y: auto;
+      border: 1px solid #393939;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      flex: 1;
+      min-height: 0;
+    }
+    #input-container {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 0 6px 12px;
+    }
+    .prompt { color: #cc7832; font-weight: 500; }
+    #input {
+      flex: 1;
+      min-height: 44px;
+      padding: 10px;
+      background: #1c1f21;
+      border: none;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 16px;
+      color: #d8dee9;
+      caret-color: #eaeaea;
+      outline: none;
+      box-sizing: border-box;
+    }
+    #input:focus { box-shadow: 0 0 0 2px rgba(108, 153, 255, 0.15); }
+    .repl-line {
+      font-size: 15px;
+      line-height: 1.25;
+      padding: 2px 6px;
+      border-radius: 4px;
+      min-height: 1.25em;
+    }
+    .repl-line + .repl-line { margin-top: 2px; }
+    .repl-code { color: #a9b7c6; background: rgba(0, 0, 0, 0.2); }
+    .repl-code::before { content: '> '; color: #cc7832; }
+    .repl-result { color: #c8d3f5; }
+    .repl-system { color: #808080; font-style: italic; }
+    .repl-error { color: #ff6b68; }
+    @media (max-width: 640px) {
+      body { padding: 16px 16px 10px; }
+      .banner { flex-direction: column; gap: 4px; }
+      #output { padding: 10px 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <div class="banner">
+      <h1>implish <span>on b4</span></h1>
+      <div class="hint">
+        the interpreter is <a href="https://github.com/tangentcode/implish/blob/main/b4/imp.b4a" target="_blank">b4 assembly</a>
+        on the <a href="https://github.com/tangentstorm/b4" target="_blank">b4 vm</a> | "clear" clears
+      </div>
+    </div>
+    <div id="output"></div>
+    <div id="input-container">
+      <span class="prompt">&gt;</span>
+      <input id="input" type="text" placeholder="1 + ! 10" autocomplete="off" spellcheck="false" autofocus>
+    </div>
+  </div>
+  <script type="module">
+    import { ImpB4 } from '/dist/b4/imp-b4-js.mjs'
+    import image from './b4-image.json'
+
+    const output = document.getElementById('output')
+    const input = document.getElementById('input')
+    let imp = new ImpB4(image)
+
+    function append(cls, text) {
+      const div = document.createElement('div')
+      div.className = `repl-line ${cls}`
+      div.textContent = text
+      output.appendChild(div)
+      output.scrollTop = output.scrollHeight
+    }
+
+    function run(line) {
+      append('repl-code', line)
+      if (line.trim() === 'clear') { output.textContent = ''; return }
+      let r
+      try { r = imp.eval(line) }
+      catch (e) {                     // the vm itself failed: start a fresh one
+        append('repl-error', `vm error: ${e}`)
+        imp = new ImpB4(image)
+        return
+      }
+      if (r.out !== null) append(r.out.startsWith('Error:') ? 'repl-error' : 'repl-result', r.out)
+      for (const p of r.problems) append('repl-error', `imp-b4: ${p}`)
+    }
+
+    const history = []
+    let hpos = 0
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const line = input.value
+        input.value = ''
+        if (line.trim()) history.push(line)
+        hpos = history.length
+        run(line)
+      } else if (e.key === 'ArrowUp' && hpos > 0) {
+        input.value = history[--hpos]; e.preventDefault()
+      } else if (e.key === 'ArrowDown' && hpos < history.length) {
+        input.value = history[++hpos] ?? ''; e.preventDefault()
+      }
+    })
+
+    // the home page's examples (web/index.html), after the first target
+    const examples = [
+      '1 + ! 10',
+      '.: Basics :.',
+      'x: 1 2 3  .: juxtapose values to build a vector :.',
+      'x + 10  .: add scalar to each element :.',
+      '.: Monadic functions :.',
+      'rev 1 2 3  .: reverse a vector :.',
+      '2 + rev 1 2 3  .: infix after monadic :.',
+      'rev 1 2 3 + 10  .: eager evaluation order :.',
+      '.: Dyadic operators :.',
+      '2 + 3 * 5  .: left-to-right precedence :.',
+      '2 ^ ! 5  .: exponentiate a range :.',
+      '.: Sequencing :.',
+      '! 5, rev  .: pipe a range through rev :.',
+      '! 10, * 2, + 1  .: compose transformations :.',
+      '.: Functions :.',
+      'f: {x * x}  .: implicit arity-1 :.',
+      'f 7  .: call a unary function :.',
+      'g: {x + y * 2}  .: implicit arity-2 :.',
+      'g 3, 5  .: call a dyadic function :.'
+    ]
+
+    append('repl-system', `implish on b4: b4/imp.b4a on b4's js vm (b4 ${image.b4commit.slice(0, 7)})`)
+    examples.forEach(run)
+    input.focus()
+  </script>
+</body>
+</html>
