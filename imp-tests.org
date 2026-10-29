@@ -266,16 +266,16 @@ hello
 [1 2 3]
 #+end_src
 
-* TEST quoted-list-quote : quoted list with quote (strips one layer)
+* TEST quoted-list-quote : quoted list with quote (strips one layer; shown with its quote so it reads back unevaluated)
 #+begin_src imp
 > '[a b c]
-[a b c]
+'[a b c]
 #+end_src
 
 * TEST quoted-list-nested : quoted list with nested quotes
 #+begin_src imp
 > '[a 'b '[c]]
-[a 'b '[c]]
+'[a 'b '[c]]
 #+end_src
 
 * TEST get-undefined : get/set: get undefined returns fault
@@ -399,7 +399,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 > b: 20
 20
 > `[sum is ,a plus ,b]
-[sum is 10 plus 20]
+'[sum is 10 plus 20]
 #+end_src
 
 * TEST quasiquote-nested : quasiquotation: nested lists
@@ -407,7 +407,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 > y: 99
 99
 > `[outer [inner ,y]]
-[outer [inner 99]]
+'[outer [inner 99]]
 #+end_src
 
 * TEST quasiquote-unquote-lit : quasiquotation: unquote quoted symbol
@@ -415,7 +415,7 @@ Getting a mix of defined and undefined variables returns values and faults.
 > x: 'two
 'two
 > `[one ,x three]
-[one two three]
+'[one two three]
 #+end_src
 
 * TEST strand-ints : strands: integer vector
@@ -569,7 +569,7 @@ nil!
 > 7 tk "abc"
 "abcabca"
 > 5 tk '[x y]
-[x y x y x]
+'[x y x y x]
 #+end_src
 
 * TEST rev : rev (reverse)
@@ -577,7 +577,7 @@ nil!
 > rev 1 2 3 4
 4 3 2 1
 > rev '[a b c]
-[c b a]
+'[c b a]
 > rev `x `y `z
 `z `y `x
 #+end_src
