@@ -978,17 +978,22 @@ dct!
 
 The type? function returns dct! for dictionaries.
 
-* TEST dict-symbol-values : dictionaries: symbol values with comma
+* TEST dict-symbol-values : dictionaries: symbol values
 #+begin_src imp
 > d: :[`c `d; `e `f `g]
-:[`c, `d; `e, `f `g]
+:[`c `d; `e `f `g]
 > d`c
 `d
 > d`e
 `f `g
+> keys value show d
+`c `e
 #+end_src
 
-When a dictionary value is a backtick symbol, it's printed with a comma to distinguish it from the key. If the value is a strand of symbols, only the first gets the comma.
+Each entry is a key followed by its value, so a backtick-symbol value
+needs no separator: the first symbol is the key, and the rest (up to
+the next =;=) is the value. A comma would become part of the key,
+because the loader reads =`c,= as the symbol =c,=.
 
 * [0/7] upcoming tests
 
