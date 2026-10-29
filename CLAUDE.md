@@ -37,7 +37,9 @@ npm run preview
 ```
 
 ### Testing
-No formal test suite yet. Use `imp-tests.org` for manual testing examples.
+`npm test` builds, then runs every `TEST` heading in `imp-tests.org`, `prim-tests.org` and
+`test/*.org` through the quiet REPL (`test/run-org-tests.mjs`, no dependencies).
+Add regression tests for each fixed issue in `test/issue-N.org` (fixtures in `test/fixtures/`).
 
 The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it easier to pipe test cases and compare outputs.
 

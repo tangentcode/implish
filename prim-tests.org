@@ -110,7 +110,7 @@ Dyadic =!= with negative left arg divides y by x and truncates. Right atomic.
 > map[`a `b; 3 4]
 :[`a 3; `b 4]
 > map[4 5; 6 7]
-[4 5 ! 6 7]
+'[4 5 ! 6 7]
 #+end_src
 
 Dyadic =!= can make a dictionary from x keys and y value(s).

@@ -6,6 +6,50 @@ function q(x:string):string {
 
 export class ImpWriter {
 
+  // > 0 while showing source tokens (a function body, a loaded program or
+  // the contents of a quoted list), where items are written as they are.
+  private codeDepth = 0
+
+  private asCode(f: () => string): string {
+    this.codeDepth++
+    try { return f() } finally { this.codeDepth-- }
+  }
+
+  // Does this list item stand for code rather than a value? Evaluating it
+  // would look it up, assign, act on a message, or run it as a group.
+  private isCode(x: ImpVal): boolean {
+    switch (x[0]) {
+      case ImpT.SEP: return true
+      case ImpT.LST: return this.isCodeList(x[1].open || '')
+      case ImpT.SYM:
+        switch (x[1].kind) {
+          case SymT.RAW: case SymT.SET: case SymT.GET: case SymT.PATH:
+          case SymT.MSG: case SymT.KW: case SymT.MSG2: case SymT.KW2:
+          case SymT.UNQ:
+            return true
+          default: return false
+        }
+      default: return false
+    }
+  }
+
+  // Any opener but a plain '[' makes a list of code when evaluated as a
+  // value: ( { :[ name[ and quoted openers all mean something else unquoted.
+  private isCodeList(open: string): boolean {
+    return open !== '' && open !== '['
+  }
+
+  // A list value read from code (a quoted list, or one taken out of one)
+  // must be written with a quote, or loading it evaluates its items.
+  // Source tokens are written as they are, with no separators inserted.
+  private showLst(open: string, close: string, xs: ImpVal[], showList: (xs: ImpVal[]) => string): string {
+    let asWritten = () => xs.map(item => this.show(item)).join(' ')
+    if (this.codeDepth > 0) return open + asWritten() + close
+    if (this.isCodeList(open) || xs.some(item => this.isCode(item)))
+      return "'" + open + this.asCode(asWritten) + close
+    return open + showList(xs) + close
+  }
+
   // Get the "kind" of a noun for comma separation purposes
   // Returns 'number' for numeric items, 'bqt-symbol' for backtick symbols, null otherwise
   private nounKind(x: ImpVal): string | null {
@@ -54,7 +98,7 @@ export class ImpWriter {
       return result
     }
     switch (x[0]) {
-      case ImpT.TOP: return showList(x[2])
+      case ImpT.TOP: return this.asCode(() => showList(x[2]))
       case ImpT.ERR: return `?${q(x[2])}`
       case ImpT.SEP: return x[2]
       case ImpT.INT: return x[2] === NULL_INT ? '0N' : x[2].toString()
@@ -89,7 +133,7 @@ export class ImpWriter {
           default: return name
         }
       }
-      case ImpT.LST: return (x[1].open||'') + showList(x[2]) + (x[1].close||'')
+      case ImpT.LST: return this.showLst(x[1].open||'', x[1].close||'', x[2], showList)
       case ImpT.DCT: {
         const dct = x[2] as Map<string, ImpVal>
         if (dct.size === 0) return ':[]'
@@ -108,7 +152,7 @@ export class ImpWriter {
         }
         return ':[' + pairs.join('; ') + ']'
       }
-      case ImpT.IFN: return '{' + showList(x[2]) + '}'
+      case ImpT.IFN: return '{' + this.asCode(() => showList(x[2])) + '}'
       case ImpT.JSF: {
         // If it's a partial application, show as {source}[args]
         if (x[1].capturedArgs) {

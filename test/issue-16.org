@@ -1,0 +1,102 @@
+#+title: issue #16 regression tests: quoted lists keep their quote when shown
+
+A list value read from code (a quoted list, or one taken out of one)
+holds source tokens. =show= writes it with a quote, so =value show= gives
+back the same list instead of evaluating its items.
+
+* TEST quoted-words : a quoted list of words round-trips
+#+begin_src
+> l: '[a b]
+'[a b]
+> match[:l; value show :l]
+1
+#+end_src
+
+* TEST quoted-expr : a quoted expression is not evaluated on reload
+#+begin_src
+> l: '[1 + 2]
+'[1 + 2]
+> match[:l; value show :l]
+1
+#+end_src
+
+* TEST quoted-set-get-sep : set-words, get-words and separators are code
+#+begin_src
+> l: '[a: 1; :b]
+'[a: 1 ; :b]
+> match[:l; value show :l]
+1
+#+end_src
+
+* TEST quoted-twice : a doubly quoted list keeps both quotes
+#+begin_src
+> l: ''[a]
+''[a]
+> match[:l; value show :l]
+1
+#+end_src
+
+* TEST quoted-nested : only the outer list is quoted
+#+begin_src
+> l: '[[a b] c]
+'[[a b] c]
+> match[:l; value show :l]
+1
+#+end_src
+
+* TEST value-list-with-quoted-item : a value list holding a code list quotes just the item
+#+begin_src
+> l: '[[a b] 1]
+['[a b] 1]
+> match[:l; value show :l]
+1
+> m: [1; '[a b]]
+[1 '[a b]]
+> match[:m; value show :m]
+1
+#+end_src
+
+* TEST quoted-group : a group taken out of a quoted list is quoted
+#+begin_src
+> g: first '[(1 + 2)]
+'(1 + 2)
+> match[:g; value show :g]
+1
+#+end_src
+
+* TEST quoted-derived : a list made from a quoted list is still quoted
+#+begin_src
+> l: rev '[a b]
+'[b a]
+> match[:l; value show :l]
+1
+#+end_src
+
+* TEST quoted-in-dict : a quoted list as a dict value round-trips
+#+begin_src
+> d: :[`k '[a b]]
+:[`k '[a b]]
+> match[:d; value show :d]
+1
+#+end_src
+
+* TEST code-not-quoted : function bodies and loaded code are written as they are
+#+begin_src
+> g: {[a b]}
+{[a b]}
+> show load "[a b] 1"
+"[a b] 1"
+> [1; 2]
+[1, 2]
+#+end_src
+
+* TEST quoted-numbers-as-written : numbers in a quoted list get no inserted commas
+# Written '[a 1, 2] it would reload with a ',' separator in the list.
+#+begin_src
+> l: '[a 1 2]
+'[a 1 2]
+> match[:l; value show :l]
+1
+> count value show :l
+3
+#+end_src
