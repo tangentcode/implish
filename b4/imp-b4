@@ -1,0 +1,19 @@
+#!/bin/sh
+# imp-b4 : run implish on the b4 virtual machine.
+#   b4/imp-b4 -e '1 + 2 * 3'     prints 9
+#   b4/imp-b4                    line repl on stdin
+# B4I=path/to/b4i picks the vm (any b4i with -a, e.g. imp/pas/b4i).
+# Otherwise the Rust b4i is built from B4 (default ~/ver/b4) into
+# .b4-build/, leaving the b4 checkout untouched.
+set -eu
+ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+if [ -z "${B4I:-}" ]; then
+  B4=${B4:-$HOME/ver/b4}
+  B4I=$ROOT/.b4-build/release/b4i
+  if [ ! -x "$B4I" ]; then
+    echo "imp-b4: building b4i from $B4/imp/rs" >&2
+    (cd "$B4/imp/rs" && CARGO_TARGET_DIR="$ROOT/.b4-build" cargo build --release --quiet) >&2
+  fi
+  export B4I
+fi
+exec node "$ROOT/b4/imp-b4.mjs" "$@"

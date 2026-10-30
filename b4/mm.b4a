@@ -1,0 +1,81 @@
+# mm.b4a : implish's memory manager, standing in for b4's b4a/mm.b4a.org
+#
+# b4's mm doesn't run yet (see "asks for b4" in ../docs/b4.org), so this
+# file implements its interface with its block layout:
+#
+#   mm-init     (-)     make the whole arena one free block
+#   mm-alloc    (n-a)   a: n bytes of memory, or 0 if nothing fits
+#   mm-free     (a-)    give back a block from mm-alloc
+#
+# plus two words implish needs:
+#
+#   mm-size     (a-n)   how many bytes block a can hold (at least n)
+#   mm-count    (-n)    how many blocks are in use (the driver's leak check)
+#
+# each block starts with a header of three cells: next, size, used.
+# next is the following block's address (0 for the last); blocks stay
+# in address order, each right after the one before. size and used
+# count bytes of data; used=0 means the block is free. mm-alloc returns
+# the address just past the header. free blocks merge with the free
+# blocks after them as mm-alloc walks past.
+#
+# the arena is $9000..$F7F7: the driver puts each source line at $8000,
+# and b4i's data stack starts at $F7F8 (MINDATA*4 in imp/rs/src/vm.rs,
+# mindata in imp/pas/ub4.pas), with the control stack above it.
+
+:mm-lo li 00 90 00 00 rt              # (-a) the first block
+:mm-hi li F8 F7 00 00 rt              # (-a) end of the arena: the data stack
+:mm-hdr lb 0C rt                      # (-n) header size in bytes
+:mm-sz c4 ad rt                       # (p-a) block p's size field
+:mm-us lb 08 ad rt                    # (p-a) block p's used field
+:mm-n 00 00 00 00                     # bytes wanted, in mm-alloc
+
+:mm-init
+   c0 mm-lo wi                        # next = 0
+   mm-hi mm-lo sb mm-hdr sb mm-lo mm-sz wi
+   c0 mm-lo mm-us wi rt               # used = 0
+
+:mm-join                              # (p-) free block p takes in the free blocks after it
+   .w du ri du .d                     # (p-pq) while q, p's next, isn't 0:
+      du mm-us ri .i zp zp rt .t      #   q is in use: done
+      du mm-sz ri mm-hdr ad           #   (pq-pqk) k: q's size and header
+      sw ri dc                        #   (pqk-pk|n) n: q's next
+      ov mm-sz ri ad ov mm-sz wi      #   (pk-p) p's size += k
+      cd ov wi .o                     #   (p) p's next = n
+   zp zp rt
+
+:mm-take                              # (p-a) claim free block p for @mm-n bytes
+   du mm-sz ri @mm-n sb               # (p-pr) r: bytes left over
+   du mm-hdr lb 10 ad lt nt .i        # enough left for a block of 16 bytes?
+      mm-hdr sb ov mm-hdr ad @mm-n ad # (pr-pzq) q: new block after p's data
+      sw ov mm-sz wi                  # (pq) q's size = z, the rest
+      c0 ov mm-us wi                  # q is free
+      ov ri ov wi                     # q's next = p's next
+      ov wi                           # (p) p's next = q
+      @mm-n ov mm-sz wi               # p's size = n
+   .e zp .t
+   @mm-n ov mm-us wi                  # p's used = n
+   mm-hdr ad rt
+
+:mm-alloc                             # (n-a)
+   du c0 lt ov mm-hi mm-lo sb sw lt or   # less than 0, or more than the arena?
+   .i zp c0 rt .t
+   du c0 eq .i zp c4 .t               # 0 bytes: take 4, so used is never 0
+   lb 03 ad lb 03 nt an !mm-n         # round up to whole cells
+   mm-lo                              # (p) first fit:
+   .w du .d
+      du mm-us ri c0 eq .i            # p is free:
+         du mm-join
+         du mm-sz ri @mm-n lt nt      #   and big enough?
+         .i mm-take rt .t .t
+      ri .o                           # p = p's next
+   rt                                 # (0) nothing fits
+
+:mm-free mm-hdr sb c0 sw mm-us wi rt  # (a-)
+:mm-size mm-hdr sb mm-sz ri rt        # (a-n)
+
+:mm-count c0 mm-lo                    # (-n)
+   .w du .d
+      du mm-us ri .i sw c1 ad sw .t
+      ri .o
+   zp rt
