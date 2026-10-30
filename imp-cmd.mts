@@ -126,10 +126,10 @@ function completeWord(token: string): [string[], string] {
   return [matches, token]
 }
 
-// A line is a REPL command only when it starts a new input. While the
-// loader waits for more (an open ``` string or delimiter), it's content.
+// Inside an open ``` string every line is string content, so it's never a
+// REPL command. An open delimiter doesn't count: /reset is the way out.
 function isCommand(line: string, cmd: string): boolean {
-  return !il.waiting && line.trim() === cmd
+  return il.mls === null && line.trim() === cmd
 }
 
 // Quiet mode REPL: simple line-by-line reading without readline

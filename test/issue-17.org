@@ -165,15 +165,20 @@ there
 "```\n/reset\n  /reset  \n```"
 #+end_src
 
-* TEST repl-command-in-list : a /reset line inside an open [ is a refinement symbol
+* TEST repl-reset-escapes-bracket : /reset still gets out of an unclosed [
+# This test leaves [1 2 open. The runner's /reset before the next test must
+# end it, or the next test's input would join the open list and fail.
 #+begin_src
-> l: [1
-> /reset
-> ]
-[1 /reset]
-> count :l
-2
+> [1 2
 #+end_src
 
-# /reset still works once input is closed: the runner sends /reset after
-# every test, and these tests would misalign if it were swallowed.
+* TEST repl-after-reset-from-bracket : input after that /reset starts fresh
+#+begin_src
+> 3
+3
+> [4 5]
+[4 5]
+#+end_src
+
+# /reset still works once a ``` string is closed: the runner sends /reset
+# before every test, and these tests would misalign if it were swallowed.
