@@ -58,9 +58,11 @@ export class ImpLoader {
   symtbl = new SymTable() // global table for symbols
   buffer: string[] = []           // input buffer (list of strings)
   expect: Array<{open: string, close: string}> = []           // expected closing tokens
+  // raw text of an open ``` multi-line string, from just after the fence
+  mls: {text: string} | null = null
 
   get empty() { return this.buffer.length===0 }
-  get waiting() { return this.expect.length>0 }
+  get waiting() { return this.expect.length>0 || this.mls !== null }
   get ready() { return this.empty && !this.waiting }
 
   clear(): void { this.tree = new TreeBuilder() }
@@ -79,9 +81,28 @@ export class ImpLoader {
       if (closeTok !== ':.') this.tree.emit(imp.lst(ex, that))}
     else console.error("expected", ex.close, "got", closeTok)}
 
+  // ``` starts and ends a multi-line string, as in markdown. Line endings
+  // inside it (CRLF, CR, or a line break between sends) all become \n, and
+  // the one right after the opening ``` is not part of the string.
+  mlsOpen(src: string): void {
+    this.mls = {text: ''}
+    this.mlsText(src.slice(3))
+  }
+  mlsText(src: string): void {
+    let end = src.indexOf('```')
+    if (end < 0) { this.mls!.text += src; return }
+    let text = (this.mls!.text + src.slice(0, end)).replace(/\r\n?/g, '\n')
+    this.emit(ImpC.mls(text.startsWith('\n') ? text.slice(1) : text))
+    this.mls = null
+    let rest = src.slice(end + 3)
+    if (rest) this.buffer.unshift(rest)
+  }
+
   dump(): void { console.log(this.tree.root) }
   send(s: string): ImpLoader {
-    this.buffer.push(s);
+    // Inside an open ``` string, each later send is a new line of it.
+    if (this.mls) this.mlsText('\n' + s)
+    else this.buffer.push(s);
     while (!this.empty) this.scan();
     return this }
 
@@ -94,6 +115,8 @@ export class ImpLoader {
       // Provide detailed error about why reading failed
       if (!this.empty) {
         return ImpC.err(`failed to read: ${this.buffer.length} unprocessed tokens remaining`)
+      } else if (this.mls) {
+        return ImpC.err("failed to read: unclosed multi-line string: ```")
       } else if (this.waiting) {
         let unclosed = this.expect.map(e => e.open).join(', ')
         return ImpC.err(`failed to read: unclosed delimiters: ${unclosed}`)
@@ -146,6 +169,11 @@ export class ImpLoader {
   scan(): void { // match and process the next token
     if (!this.empty) {
       let src = this.buffer.shift()
+      if (src?.startsWith('```')) {
+        // inside a .: comment, ``` is just comment text
+        if (this.expect.at(-1)?.open === '.:') this.buffer.unshift(src.slice(3))
+        else this.mlsOpen(src)
+        return }
       if (src) {
         let m: RegExpExecArray | null = null
         let tokType: string | null = null
@@ -180,5 +208,10 @@ export class ImpLoader {
 }
 
 // impStr -> impData (parse string into tree)
+// A read failure is thrown, not returned: an error value has no syntax
+// of its own, so it couldn't be shown or loaded back as data.
 export let load: (impStr: ImpStr) => ImpVal
-  = (impStr) => new ImpLoader().send(impStr[2]).read() ?? NIL
+  = (impStr) => {
+    let res = new ImpLoader().send(impStr[2]).read() ?? NIL
+    if (res[0] === ImpT.ERR) throw res[2]
+    return res }
