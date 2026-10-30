@@ -32,6 +32,32 @@ live `index.html`, and an interrupted upload leaves the old site untouched.
 Rollback is the same atomic switch to an older release. Older releases are
 the backups.
 
+### Grace period: no 404s for pages loaded just before a switch
+
+A browser can fetch `index.html` from release N, then request the hashed
+`assets/index-AbC123.js` that it names after the site has switched to N+1,
+which doesn't contain that file. The same is true of any other file a page
+loads later, such as fetched data like `b4-image.json`, and of rollbacks in
+either direction. Keeping old releases on disk doesn't help, because URLs
+resolve through the docroot symlink.
+
+So before **every** switch (deploy, rollback, roll-forward), the target
+release gets hard links to every file that the last `DEPLOY_ASSET_GRACE`
+(default 3) *live* releases shipped and the target lacks:
+
+- Its own files are never overwritten, so a changed `data.json` serves the
+  new version, while a removed one stays reachable.
+- Each release's shipped files are recorded in `RELEASES/<name>.files`. Files
+  that were only carried aren't recorded, so the window doesn't snowball:
+  a file disappears once it has been out of every one of the last N live
+  releases.
+- `RELEASES/.history` records which release was live when, so after a
+  rollback the window follows what browsers actually saw, not name order.
+- Prune never removes a release inside the window. Files already carried
+  are hard links, so they also survive their source release being pruned.
+- Consequence: a file you delete stays reachable for N more deploys. Dry
+  runs say so. `DEPLOY_ASSET_GRACE=0` turns this off.
+
 What a deploy does, in order (any failure exits nonzero and stops):
 
 1. Validates config. `DEPLOY_PATH` and `DEPLOY_RELEASES` must be absolute,
@@ -54,15 +80,17 @@ What a deploy does, in order (any failure exits nonzero and stops):
    everything on the target is created under `umask 022`, so nginx can read
    it whatever umask the deploy shell has. If the upload fails, the `.tmp`
    is removed and the live site is unchanged.
-6. Activates: renames `.tmp` to its final name and atomically switches the
-   symlink. On the **first deploy**, if the docroot is still a plain
+6. Activates: records the release's file list, renames `.tmp` to its final
+   name, carries in the grace-window files (see above), and atomically
+   switches the symlink. On the **first deploy**, if the docroot is still a plain
    directory, it is moved into the releases dir (one second older than the
    new release, so it becomes the rollback target). That migration is two
    back-to-back renames, so for a moment the path is missing. This is the
    one non-atomic step, and it happens once. An empty or missing docroot
    just becomes the symlink.
 7. Prunes down to the newest `DEPLOY_KEEP` releases (default 5). The live
-   release is never pruned, even after a rollback to an old one.
+   release and the releases in the grace window are never pruned, even
+   after a rollback to an old one.
 
 The server-side half is `deploy/remote.sh`, which `bin/deploy` pipes to
 `bash` over ssh. Every `rm -rf` there checks that the name is exactly a
@@ -88,6 +116,7 @@ of the same name overrides them. See `bin/deploy --help` for the full list.
 | `DEPLOY_USER` | **unknown: fill in** (repo variable or deploy.conf) |
 | `DEPLOY_PATH` | **unknown: fill in** the nginx `root` for implish.org |
 | `DEPLOY_RELEASES` | default `$DEPLOY_PATH.releases` |
+| `DEPLOY_ASSET_GRACE` | 3 (live releases whose files stay reachable after a switch) |
 | `DEPLOY_SOURCE_DIR` | default: this checkout (CI sets it to the exported source) |
 | `DEPLOY_KEEP` | 5 |
 
@@ -209,6 +238,8 @@ docroots in `.deploy-test/`, both with `DEPLOY_HOST=local` and through a
 fake `ssh` that runs the remote half locally, so the ssh/rsync `-e` path is
 exercised too. An rsync wrapper (`DEPLOY_RSYNC`) checks that the live tree
 stays byte-identical for the whole upload, and simulates cut-off and killed
-transfers. One case exports the real pre-tooling commit `6813323` from this
+transfers. The grace-period tests serve the docroot with `python3 -m
+http.server`, which resolves the symlink per request like nginx. They fetch
+`index.html`, switch (deploy or rollback), then fetch the asset it named. One case exports the real pre-tooling commit `6813323` from this
 repo's history and deploys it with the current `bin/deploy`; CI checks out
 with `fetch-depth: 0` for that.

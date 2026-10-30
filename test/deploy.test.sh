@@ -46,6 +46,17 @@ releases() { ls "$R" 2>/dev/null | grep -E '^20[0-9]{6}T[0-9]{6}Z$' || true; }
 live() { readlink "$DEPLOY_PATH"; }
 site() { head -c 100 "$DEPLOY_PATH/index.html" | cut -d' ' -f1; }   # version that is live
 tree() { (cd "$1" && find . -type f -printf '%P\t' -exec cat {} \; | LC_ALL=C sort); }
+# a release's own files (its manifest) with contents: what it shipped, ignoring carried files
+own() { (cd "$R/$1" && while IFS= read -r f; do printf '%s\t%s\n' "$f" "$(cat "$f")"; done < "$R/$1.files"); }
+# serve DEPLOY_PATH over HTTP like nginx: the symlink is resolved per request
+serve() {
+  HTTP_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+  python3 -m http.server --bind 127.0.0.1 --directory "$DEPLOY_PATH" "$HTTP_PORT" >/dev/null 2>&1 & HTTP_PID=$!
+  for _ in $(seq 50); do curl -fs "http://127.0.0.1:$HTTP_PORT/" >/dev/null && return 0; sleep 0.1; done
+  return 1
+}
+get() { curl -s -o "$T/body" -w '%{http_code}' "http://127.0.0.1:$HTTP_PORT/$1"; }   # prints status
+asset_of() { cut -d' ' -f2 <<<"$1"; }   # the asset an index.html body refers to
 deploy_v() { echo "$1" > "$T/src/version"; "$DEPLOY" >/dev/null 2>&1; }
 # the page works only if the asset its index.html names is present
 page_ok() { local a; a=$(cut -d' ' -f2 "$DEPLOY_PATH/index.html"); [[ -f $DEPLOY_PATH/$a ]]; }
@@ -90,7 +101,9 @@ t_deploy_migrates_plain_docroot() {
   "$DEPLOY" >/dev/null 2>&1 || fail "deploy failed" || return 1
   [[ -L $DEPLOY_PATH ]] || fail "docroot is not a symlink now" || return 1
   [[ $(site) == new ]] && page_ok || fail "new site not live/complete" || return 1
-  [[ ! -e $DEPLOY_PATH/stale.js && ! -e $DEPLOY_PATH/assets/app-old.js ]] || fail "old files in new release" || return 1
+  # the old site's files stay reachable (carried) but aren't part of the new release
+  [[ -f $DEPLOY_PATH/stale.js && -f $DEPLOY_PATH/assets/app-old.js ]] || fail "old files not kept reachable" || return 1
+  ! grep -q 'stale.js\|app-old.js' "$R/$(basename "$(live)").files" || fail "carried files in new manifest" || return 1
   [[ -f $DEPLOY_PATH/.well-known/acme/tok ]] || fail ".well-known not carried over" || return 1
   [[ $(stat -c %a "$DEPLOY_PATH/index.html") == 644 ]] || fail "index.html not 644" || return 1
   mapfile -t rs < <(releases)
@@ -192,11 +205,15 @@ t_rollback_restores_previous() {
   "$DEPLOY" >/dev/null 2>&1 || fail "deploy failed" || return 1
   newrel=$(live)
   out=$("$DEPLOY" --rollback --dry-run 2>&1) || fail "rollback dry run: $out" || return 1
-  grep -q 'app-old.js' <<<"$out" || fail "dry run did not list changes: $out" || return 1
+  grep -q 'index.html' <<<"$out" || fail "dry run did not list changes: $out" || return 1
   [[ $(live) == "$newrel" ]] || fail "rollback dry run switched" || return 1
   "$DEPLOY" --rollback >/dev/null 2>&1 || fail "rollback failed" || return 1
-  [[ $(tree "$DEPLOY_PATH") == "$before" ]] || fail "tree differs after rollback:
+  # every file of the old tree is back, byte for byte; the only extras are the
+  # rolled-back release's files, kept reachable for pages loaded from it
+  extra=$(comm -13 <(echo "$before") <(tree "$DEPLOY_PATH"))
+  [[ -z $(comm -23 <(echo "$before") <(tree "$DEPLOY_PATH")) ]] || fail "old tree not restored:
 $(diff <(echo "$before") <(tree "$DEPLOY_PATH"))" || return 1
+  [[ $(cut -f1 <<<"$extra" | tr '\n' ' ') == "assets/app-new.js " ]] || fail "unexpected extras: $extra" || return 1
   [[ -L $DEPLOY_PATH ]] && page_ok || fail "rollback broke the symlink/page" || return 1
   # the release we left is kept, so we can roll forward by name
   "$DEPLOY" --rollback "$(basename "$newrel")" >/dev/null 2>&1 && [[ $(site) == new ]] || fail "roll forward" || return 1
@@ -205,10 +222,10 @@ $(diff <(echo "$before") <(tree "$DEPLOY_PATH"))" || return 1
 t_rollback_is_one_atomic_switch() {
   deploy_v v1 && deploy_v v2 || fail "deploys" || return 1
   v1=$(releases | tail -n 2 | head -n 1); v2=$(releases | tail -n 1)
-  t1=$(tree "$R/$v1"); t2=$(tree "$R/$v2")
+  t1=$(own "$v1"); t2=$(own "$v2")
   "$DEPLOY" --rollback >/dev/null 2>&1 || fail "rollback" || return 1
   [[ $(live) == "$R/$v1" ]] || fail "live is $(live), expected $v1" || return 1
-  [[ $(tree "$R/$v1") == "$t1" && $(tree "$R/$v2") == "$t2" ]] || fail "rollback modified a release" || return 1
+  [[ $(own "$v1") == "$t1" && $(own "$v2") == "$t2" ]] || fail "rollback changed a release's own files" || return 1
   [[ -z $(ls -a "$(dirname "$DEPLOY_PATH")" | grep switch) ]] || fail "temp symlink left behind" || return 1
 }
 
@@ -252,8 +269,88 @@ t_retention_keeps_last_n() {
 t_prune_never_removes_live() {
   for v in v1 v2 v3; do deploy_v $v || fail "deploy $v" || return 1; done
   "$DEPLOY" --rollback >/dev/null 2>&1 && "$DEPLOY" --rollback >/dev/null 2>&1 || fail "rollbacks" || return 1
-  bash "$REMOTE" "$DEPLOY_PATH" "$R" 1 prune >/dev/null 2>&1 || fail "prune" || return 1
+  bash "$REMOTE" "$DEPLOY_PATH" "$R" 1 3 prune >/dev/null 2>&1 || fail "prune" || return 1
   [[ $(site) == v1 ]] && page_ok || fail "prune removed the live release" || return 1
+}
+
+# --- grace period: pages from release N can fetch N's files after a switch ---
+
+# Codex P2 repro: a browser loads index.html, the site switches, then the
+# browser fetches the asset that index.html named. Over real HTTP.
+t_old_index_then_switch_no_404() {
+  serve || fail "http server did not start" || return 1
+  trap 'kill $HTTP_PID 2>/dev/null' RETURN
+  for v in v1 v2 v3; do
+    [[ $(get /) == 200 ]] || fail "GET / before $v" || return 1
+    page=$(cat "$T/body"); asset=$(asset_of "$page")
+    deploy_v $v || fail "deploy $v" || return 1
+    [[ $(get /) == 200 && $(cat "$T/body") == "$v assets/app-$v.js" ]] || fail "$v not live" || return 1
+    code=$(get "$asset")
+    [[ $code == 200 ]] || fail "after switching to $v, the previous page's $asset is $code" || return 1
+    [[ $(cat "$T/body") == "$(cut -d' ' -f1 <<<"$page")-js" ]] || fail "$asset has the wrong content" || return 1
+  done
+}
+
+t_old_index_then_rollback_no_404() {
+  deploy_v v1 && deploy_v v2 || fail "deploys" || return 1
+  serve || fail "http server" || return 1
+  trap 'kill $HTTP_PID 2>/dev/null' RETURN
+  get / >/dev/null; page2=$(cat "$T/body")
+  "$DEPLOY" --rollback >/dev/null 2>&1 || fail "rollback" || return 1
+  [[ $(get "$(asset_of "$page2")") == 200 ]] || fail "rollback: v2 page's asset gone" || return 1
+  get / >/dev/null; page1=$(cat "$T/body"); [[ $page1 == "v1 "* ]] || fail "v1 not live" || return 1
+  # roll forward again: pages loaded from v1 during the rollback keep working
+  "$DEPLOY" --rollback "$(releases | tail -n 1)" >/dev/null 2>&1 || fail "roll forward" || return 1
+  [[ $(get "$(asset_of "$page1")") == 200 ]] || fail "roll forward: v1 page's asset gone" || return 1
+}
+
+t_removed_data_file_stays_reachable() {
+  # not just hashed assets: any file a page may fetch (e.g. b4-image.json)
+  DEPLOY_BUILD_CMD="$DEPLOY_BUILD_CMD"' && echo "$v data" > out/data.json && echo "$v" > out/only-$v.json' \
+    "$DEPLOY" >/dev/null 2>&1 || fail "deploy with data" || return 1
+  echo v2 > "$T/src/version"
+  DEPLOY_BUILD_CMD="$DEPLOY_BUILD_CMD"' && echo "$v data" > out/data.json' "$DEPLOY" >/dev/null 2>&1 || fail "deploy 2" || return 1
+  [[ $(cat "$DEPLOY_PATH/only-new.json" 2>/dev/null) == new ]] || fail "removed data file not reachable" || return 1
+  # a file the new release ships itself is never overwritten by an older copy
+  [[ $(cat "$DEPLOY_PATH/data.json") == "v2 data" ]] || fail "carried file overwrote the new release's own" || return 1
+}
+
+t_grace_window_is_bounded() {
+  for v in v1 v2 v3 v4; do DEPLOY_ASSET_GRACE=2 deploy_v $v || fail "deploy $v" || return 1; done
+  # live v4; the two releases live before it (v3, v2) stay reachable, v1 has aged out
+  for v in v4 v3 v2; do [[ -f $DEPLOY_PATH/assets/app-$v.js ]] || fail "app-$v.js missing" || return 1; done
+  [[ ! -e $DEPLOY_PATH/assets/app-v1.js ]] || fail "app-v1.js still carried after the window" || return 1
+  [[ ! -e $DEPLOY_PATH/assets/app-new.js && ! -e $DEPLOY_PATH/assets/app-old.js ]] || fail "older files still carried" || return 1
+}
+
+t_prune_keeps_grace_window() {
+  # KEEP=1 would keep only the live release; the grace window must win
+  for v in v1 v2 v3 v4; do DEPLOY_KEEP=1 DEPLOY_ASSET_GRACE=2 deploy_v $v || fail "deploy $v" || return 1; done
+  mapfile -t rs < <(releases)
+  got=$(for r in "${rs[@]}"; do cut -d' ' -f1 "$R/$r/index.html"; done | tr '\n' ' ')
+  [[ $got == "v3 v4 " ]] || fail "expected v3 v4 kept, got: $got" || return 1
+  # v2 was pruned, but its files carried into v4 are hard links and survive
+  [[ $(cat "$DEPLOY_PATH/assets/app-v2.js") == v2-js ]] || fail "pruning v2 broke its carried asset" || return 1
+  [[ $(ls "$R" | grep -c '\.files$') == 2 ]] || fail "pruned releases' manifests left behind: $(ls "$R")" || return 1
+}
+
+t_carry_ignores_bad_manifest_entries() {
+  deploy_v v1 || fail "deploy" || return 1
+  v1=$(basename "$(live)")
+  # entries with .. or a leading / are skipped even when they resolve to a real file
+  echo planted > "$R/$v1/planted.txt"; echo planted > "$R/$v1/abs.txt"
+  printf '%s\n' 'assets/../planted.txt' '/abs.txt' '../../escape' >> "$R/$v1.files"
+  deploy_v v2 || fail "deploy 2" || return 1
+  [[ ! -e $DEPLOY_PATH/planted.txt && ! -e $DEPLOY_PATH/abs.txt ]] || fail "followed a bad manifest entry" || return 1
+  [[ -z $(find "$T" -name 'escape*') ]] || fail "manifest entry escaped the release" || return 1
+  [[ -f $DEPLOY_PATH/assets/app-v1.js ]] || fail "good entries no longer carried" || return 1
+}
+
+t_grace_zero_disables_carry() {
+  DEPLOY_ASSET_GRACE=0 deploy_v v1 || fail "deploy" || return 1
+  [[ ! -e $DEPLOY_PATH/assets/app-old.js ]] || fail "carried with grace 0" || return 1
+  DEPLOY_ASSET_GRACE=x "$DEPLOY" --dry-run >/dev/null 2>&1 && fail "accepted DEPLOY_ASSET_GRACE=x" && return 1
+  return 0
 }
 
 # --- guards -----------------------------------------------------------------
@@ -263,14 +360,14 @@ t_remote_rejects_bad_names() {
   keep=$(releases); was=$(live)
   for bad in '' . .. '*' '../site' '20261029T120000Z/..' 'x' '20261029T120000Z.tmp'; do
     for act in discard switch activate diff; do
-      bash "$REMOTE" "$DEPLOY_PATH" "$R" 3 $act "$bad" >/dev/null 2>&1 \
+      bash "$REMOTE" "$DEPLOY_PATH" "$R" 3 3 $act "$bad" >/dev/null 2>&1 \
         && fail "$act accepted '$bad'" && return 1
     done
   done
   [[ $(releases) == "$keep" && $(live) == "$was" ]] && page_ok || fail "releases or live damaged" || return 1
   # a dir that only looks like a release (glob match, not the exact format) is never pruned
   mkdir -p "$R/20xxZ"
-  bash "$REMOTE" "$DEPLOY_PATH" "$R" 1 prune >/dev/null 2>&1 || fail "prune failed" || return 1
+  bash "$REMOTE" "$DEPLOY_PATH" "$R" 1 3 prune >/dev/null 2>&1 || fail "prune failed" || return 1
   [[ -d $R/20xxZ ]] || fail "prune touched a non-release dir" || return 1
 }
 
@@ -278,7 +375,7 @@ t_switch_refuses_plain_dir() {
   deploy_v v1 || fail "deploy" || return 1
   name=$(releases | tail -n 1)
   rm "$DEPLOY_PATH"; mkdir "$DEPLOY_PATH"; echo hand > "$DEPLOY_PATH/index.html"
-  bash "$REMOTE" "$DEPLOY_PATH" "$R" 3 switch "$name" >/dev/null 2>&1 && fail "replaced a real dir" && return 1
+  bash "$REMOTE" "$DEPLOY_PATH" "$R" 3 3 switch "$name" >/dev/null 2>&1 && fail "replaced a real dir" && return 1
   [[ $(cat "$DEPLOY_PATH/index.html") == hand ]] || fail "real dir touched" || return 1
 }
 

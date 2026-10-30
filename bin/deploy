@@ -16,6 +16,9 @@
 #   DEPLOY_PATH        absolute path of the live docroot (nginx root); becomes a symlink
 #   DEPLOY_RELEASES    where releases live (default: DEPLOY_PATH.releases)
 #   DEPLOY_KEEP        how many releases to keep, live one included (default 5)
+#   DEPLOY_ASSET_GRACE files of the last N live releases stay reachable after a
+#                      switch, so pages loaded before it can still fetch their
+#                      hashed assets (default 3; 0 disables)
 #   DEPLOY_SSH         ssh command (default: ssh -o BatchMode=yes)
 #   DEPLOY_SOURCE_DIR  source tree to build (default: this checkout). CI points
 #                      it at an exported older commit to redeploy that commit
@@ -38,7 +41,7 @@ log() { echo "deploy: $*" >&2; }
 # ignored, because CI maps unset repository variables to empty strings.
 declare -A from_env=()
 for v in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_RELEASES DEPLOY_KEEP \
-         DEPLOY_SSH DEPLOY_SOURCE_DIR DEPLOY_BUILD_CMD DEPLOY_SRC DEPLOY_LOCK_WAIT \
+         DEPLOY_SSH DEPLOY_ASSET_GRACE DEPLOY_SOURCE_DIR DEPLOY_BUILD_CMD DEPLOY_SRC DEPLOY_LOCK_WAIT \
          DEPLOY_RSYNC; do
   [[ -n ${!v:-} ]] && from_env[$v]=${!v}
 done
@@ -52,6 +55,7 @@ DEPLOY_HOST=${DEPLOY_HOST:-}
 DEPLOY_USER=${DEPLOY_USER:-}
 DEPLOY_PATH=${DEPLOY_PATH:-}
 DEPLOY_KEEP=${DEPLOY_KEEP:-5}
+DEPLOY_ASSET_GRACE=${DEPLOY_ASSET_GRACE:-3}
 DEPLOY_SSH=${DEPLOY_SSH:-ssh -o BatchMode=yes}
 DEPLOY_BUILD_CMD=${DEPLOY_BUILD_CMD:-npx vite build}
 DEPLOY_SRC=${DEPLOY_SRC:-dist-web}
@@ -91,6 +95,7 @@ check_path DEPLOY_RELEASES "$DEPLOY_RELEASES"
 [[ $DEPLOY_RELEASES != "$DEPLOY_PATH" && $DEPLOY_RELEASES/ != "$DEPLOY_PATH"/* ]] \
   || die "DEPLOY_RELEASES must not be inside DEPLOY_PATH"
 [[ $DEPLOY_KEEP =~ ^[1-9][0-9]*$ ]] || die "DEPLOY_KEEP must be a positive integer: '$DEPLOY_KEEP'"
+[[ $DEPLOY_ASSET_GRACE =~ ^[0-9]+$ ]] || die "DEPLOY_ASSET_GRACE must be a whole number: '$DEPLOY_ASSET_GRACE'"
 DEPLOY_LOCK_WAIT=${DEPLOY_LOCK_WAIT:-60}
 [[ $DEPLOY_LOCK_WAIT =~ ^[0-9]+$ ]] || die "DEPLOY_LOCK_WAIT must be a whole number of seconds: '$DEPLOY_LOCK_WAIT'"
 
@@ -130,7 +135,7 @@ rsync_to() { # SRC DEST [extra rsync args...]
 
 # The target-side half lives in deploy/remote.sh and is piped to bash.
 REMOTE_LIB=$(<"$ROOT/deploy/remote.sh")
-remote() { on_target "$REMOTE_LIB" "$DEPLOY_PATH" "$DEPLOY_RELEASES" "$DEPLOY_KEEP" "$@"; }
+remote() { on_target "$REMOTE_LIB" "$DEPLOY_PATH" "$DEPLOY_RELEASES" "$DEPLOY_KEEP" "$DEPLOY_ASSET_GRACE" "$@"; }
 
 # hold_lock: take $DEPLOY_RELEASES/.lock on the target and keep it until
 # this script exits, so a manual --rollback can't interleave with a CI deploy.
@@ -163,6 +168,7 @@ case $mode in
     if ((dry_run)); then
       log "dry run: switching $target to release $name would change:"
       remote diff "$name"
+      ((DEPLOY_ASSET_GRACE == 0)) || log "(files listed as deleted stay reachable: they are carried over from recent releases)"
       log "dry run: nothing changed"
       exit 0
     fi
@@ -191,6 +197,7 @@ if ((dry_run)); then
     (cd "$DEPLOY_SRC" && find . -type f -printf '>f+++++++++ %P\n' | LC_ALL=C sort)
   else
     rsync_to "$DEPLOY_SRC/" "$target/" --dry-run
+    ((DEPLOY_ASSET_GRACE == 0)) || log "(files listed as deleted stay reachable until $DEPLOY_ASSET_GRACE more releases have gone live; see DEPLOY_ASSET_GRACE)"
   fi
   log "dry run: nothing changed"
   exit 0
