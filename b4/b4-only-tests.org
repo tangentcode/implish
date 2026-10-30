@@ -238,6 +238,32 @@ source on one b4i line.
 =/reset= ordering, the driver's too-long-line error and the Pascal vm
 are checked directly by =b4/test=, since tanco uses =/reset= itself.
 
+* TEST b4.shadow-juxt : a primitive name bound to a noun, then followed by a noun
+#+begin_src
+> rev: 7
+7
+> f: {rev x}
+{rev x}
+> f 1
+Error: not a dyad: x
+> +: 0
+0
+> 1 + 2
+Error: not a dyad: +
+> g: {x + y}
+{x + y}
+> +: g
+{x + y}
+> +
+{x + y}
+#+end_src
+
+In TS a noun followed by a noun is a sequence of expressions, and the
+last one is the value (=f 1= is =1=, =1 + 2= is =2= once =+= is =0=);
+b4 has no sequences yet, so a noun where a dyad goes is an error, as
+in =b4.lambda= (=1 2 f=). TS shows =+= bound to an arity-2 lambda as a
+projection, =g[]=.
+
 Out of memory, a failure changes nothing: every allocation that can fail
 leaves the variables as they were (the leak check runs after each line).
 Each test fills the arena with =p= pads first; the sizes were found by

@@ -63,6 +63,9 @@
 :imp-e-cmt ."unterminated comment"
 :imp-e-open ."unclosed {"
 :imp-e-close ."unexpected }"
+:imp-e-cv1 ."arity-1 verb "
+:imp-e-cv1b ." after comma cannot have additional arguments"
+:imp-e-cvn ."comma-verb sequencing requires verb of arity 1 or 2, got arity "
 :imp-s-sp 01 20                              # " "
 :imp-s-cm 02 ', 20                           # ", "
 :imp-s-x 01 'x
@@ -333,6 +336,8 @@
 :imp-ops `imp-add `imp-sub `imp-mul `imp-pow `imp-iota `imp-rev
 :imp-ndy lb 04 rt
 :imp-op c4 ml li `imp-ops ad ri rt    # (i-a) code for primitive i
+:imp-pname li `imp-names sw           # (i-s) primitive i's name, a counted string
+   du .i .f du rb c1 ad ad .n .e zp .t rt
 
 #-- showing values --------------------------------------------
 
@@ -356,9 +361,7 @@
    .e zp .t zp
    lb '} imp-emit rt
 
-:imp-putp li `imp-names sw            # (i-) print primitive i's name
-   du .i .f du rb c1 ad ad .n .e zp .t
-   imp-puts rt
+:imp-putp imp-pname imp-puts rt       # (i-) print primitive i's name
 
 :imp-showt                            # (c-) print token c as implish source
    du c2 eq .i zp lb ', imp-emit rt .t
@@ -502,10 +505,27 @@
 #-- evaluation ------------------------------------------------
 # the tokens are read in order, from @I. a lambda's body runs with
 # @I saved, as a token list of its own.
+#
+# names are resolved as they are read, as in TS: the lexer makes
+# + - * ^ ! rev primitive tokens, but once the user binds one of those
+# names (rev: 42, rev: {x * 10}), reading it gives the name instead,
+# so it means the variable from then on, in lambdas defined before too.
+
+:imp-res                              # (c-c) token c as it reads now
+   du lb 03 an c1 eq nt .i rt .t      # not a primitive: as it is
+   du c4 dv imp-pname imp-findc       # (ci) is the primitive's name bound?
+   du n1 eq .i zp rt .t
+   sw zp @imp-env sw imp-it ri rt     # yes: that binding's name
+
+:imp-lam?                             # (c-?) is c a name bound to a lambda?
+   du imp-ptr? nt .i zp c0 rt .t
+   du ri lb 02 eq nt .i zp c0 rt .t
+   imp-find du n1 eq .i zp c0 rt .t
+   c1 ad @imp-env sw imp-it ri ri lb 04 eq rt
 
 :imp-done? @I ov imp-n lt nt rt       # (t-t?) are t's tokens used up?
-:imp-next du @I imp-it ri c1 +I zp rt # (t-tc) the next token
-:imp-peek du @I imp-it ri rt          # (t-tc) the next token, staying put
+:imp-next du @I imp-it ri c1 +I zp imp-res rt   # (t-tc) the next token
+:imp-peek du @I imp-it ri imp-res rt  # (t-tc) the next token, staying put
 
 :imp-sep?                             # (t-t?) is a , next? if so, pass it
    imp-done? .i c0 rt .t
@@ -598,6 +618,7 @@
    du c0 eq .i cd zp rt .t
    du imp-dcopy du c0 eq .i zp imp-drop c0 cd zp rt .t   # (txy)
    cd imp-copy du c0 eq .i zp imp-drop rt .t   # (txyw)
+   lb 02 ov wi                        # w is a name: the env's keys all are
    sw imp-set rt
 
 :imp-noun                             # (t-tx) evaluate the noun at @I; x is 0 on failure
@@ -613,13 +634,32 @@
 :imp-clause                           # (t-tx) a noun and its dyads, up to a , or the end
    imp-noun sw imp-dyads sw rt
 
-:imp-then                             # (xt-xt) after a ,: go on from x, or start over
+:imp-thenl                            # (xt-xt) after a ,: the named lambda next is a verb on x
+   imp-next dc                        # (xt|w)
+   cd du dc imp-find c1 ad @imp-env sw imp-it ri imp-dcopy   # (xtl|w) a copy of it
+   du c0 eq .i zp sw imp-drop c0 sw cd zp rt .t
+   du lb 0C ad ri du c1 eq .i zp      # arity 1: x, and nothing more in the clause
+      sw imp-more? .i dc imp-drop imp-drop cd c0 sw
+         li `imp-e-cv1 imp-fail cd imp-putw li `imp-e-cv1b imp-puts rt .t
+      dc sw c0 c0 imp-run cd cd zp rt .t
+   du c2 eq .i zp                     # arity 2: x, and the rest of the clause as y
+      sw imp-clause du c0 eq .i zp dc imp-drop imp-drop cd c0 sw cd zp rt .t
+      sw dc dc sw cd c0 imp-run cd cd zp rt .t
+   dc imp-drop sw imp-drop c0 sw      # arity 0 or 3: (0t|wn)
+   li `imp-e-cvn imp-fail cd imp-putn cd zp rt
+
+:imp-then                             # (xt-xt) after a ,: a verb takes x first; a noun starts over
    imp-done? .i rt .t                 # a trailing , : x stands
-   imp-peek du lb 03 an c1 eq .i      # a primitive:
-      c4 dv imp-ndy lt .i imp-dyads rt .t   # a dyad: x is its left argument
-      imp-next c4 dv imp-op sw dc do sw imp-drop cd   # a monad: applied to x
-      imp-dyads rt .t
-   zp sw imp-drop imp-clause sw rt    # a noun: a new value
+   imp-peek imp-lam? .i imp-thenl rt .t   # a lambda is a verb, as in TS
+   imp-peek du lb 03 an c1 eq nt .i   # a noun: a new value
+      zp sw imp-drop imp-clause sw rt .t
+   imp-next zp c4 dv                  # (xti)
+   du imp-ndy lt .i                   # a dyad: x, and the rest of the clause
+      dc imp-clause du c0 eq .i zp cd zp sw imp-drop c0 sw rt .t
+      sw cd sw dc imp-op do sw imp-drop sw imp-drop cd rt .t
+   sw imp-more? .i                    # a monad: x, and nothing more in the clause
+      dc sw imp-drop li `imp-e-cv1 imp-fail imp-putp li `imp-e-cv1b imp-puts c0 cd rt .t
+   dc imp-op do sw imp-drop cd rt
 
 :imp-expr                             # (t-tx) clauses joined by ,
    imp-clause sw                      # (xt)

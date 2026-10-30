@@ -154,12 +154,20 @@ in vm memory across lines.
   to right: =! 10 + 1= is =(! 10) + 1=.
 - =!10= (no space) is a =!msg2= symbol in the TS lexer, so TS itself
   rejects =1 + !10= (=invalid word class: M=). The tests write =! 10=.
-- =,= : after a =,=, a clause that starts with a dyad or a monad takes
-  the value so far as its (left) argument (=! 10, * 2=, =! 5, rev=);
-  one that starts with a noun replaces it (=1, 2= is =2=). An arity-2
-  lambda takes its =y= after a =,= (=g 3, 5=). This is the smallest
-  rule that matches TS on the demo and the probes in =m3.sep=; TS's
-  own (=imparse='s comma threading) covers more.
+- =,= : after a =,=, a verb takes the value so far as its first
+  argument, as in TS: a primitive or a named lambda of arity 2 takes
+  the rest of the clause as its second (=1, + 2 * 3= is =7=, =2, g 3=),
+  and one of arity 1 must end the clause (=! 5, rev=; =! 5, rev 1= is
+  an error); arity 0 or 3 is an error. A clause that starts with a
+  noun replaces the value (=1, 2= is =2=). A call's own =,= arguments
+  come first (=g 3, 5=). Tested in =m3.sep= and =m3.comma-verbs=.
+- Names are resolved when they are read, as in TS: the lexer makes
+  =+ - * ^ ! rev= primitive tokens, but once one of those names is
+  bound (=rev: 42=, =rev: {x * 10}=), reading it gives the variable,
+  also in lambdas defined before (=m3.shadow-*=). (=!= can't be bound:
+  =!:= isn't a set-word, in TS either.) A noun followed by a noun is a
+  sequence of expressions in TS, whose last is the value; b4 doesn't
+  have sequences yet, so that is an error (=b4.shadow-juxt=).
 - =name:= assigns the rest of its clause (=a: b: 5=, =1 + x: 5=).
 - A lambda applies to the noun after it, like a monad (=f 3 + 1= is
   =10=). A named arity-0 lambda runs when named (=k=). Arity is the

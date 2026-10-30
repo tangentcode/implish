@@ -374,6 +374,128 @@ As in TS (=applyIfn= in =imp-eval.mts=), a call saves =x=, =y= and =z=,
 binds its arguments, and afterwards puts all three back (or unbinds
 them); any other name is one global variable.
 
+* TEST m3.shadow-noun : a primitive name bound to a noun means the noun
+#+begin_src
+> rev: 42
+42
+> rev
+42
+> rev + 1
+43
+> 1 + rev
+43
+> *: 6
+6
+> *
+6
+> * + 1
+7
+> ^: 3 4
+3 4
+> ^ + 1
+4 5
+> -: 0
+0
+> -
+0
+> x: 1 2 3
+1 2 3
+> x + -
+1 2 3
+#+end_src
+
+* TEST m3.shadow-verb : a primitive name bound to a lambda calls it, in lambdas defined before too
+#+begin_src
+> f: {rev x}
+{rev x}
+> f 1 2 3
+3 2 1
+> rev: {x + 100}
+{x + 100}
+> f 1 2 3
+101 102 103
+> rev 5
+105
+> 2 + rev 3
+105
+> ! 3, rev
+100 101 102
+> rev: {7}
+{7}
+> rev
+7
+> rev: {x + y}
+{x + y}
+> rev 1, 2
+3
+> 1, rev 2
+3
+> -: {x * 3}
+{x * 3}
+> - 2
+6
+> 2 + - 3
+11
+#+end_src
+
+* TEST m3.shadow-scope : a lambda that binds a primitive name binds it globally
+#+begin_src
+> f: {rev x}
+{rev x}
+> s: {rev: x}
+{rev: x}
+> s 7
+7
+> rev
+7
+> t: {rev: {x * 2}}
+{rev: {x * 2}}
+> t
+{x * 2}
+> f 4
+8
+> ! 3, rev
+0 2 4
+#+end_src
+
+* TEST m3.comma-verbs : after a , a verb takes the value so far first, as in TS
+#+begin_src
+> 1, + 2 * 3
+7
+> ! 3, * 2 + 1
+0 3 6
+> f: {x * 10}
+{x * 10}
+> ! 3, f
+0 10 20
+> ! 3, f , + 1
+1 11 21
+> g: {x + y}
+{x + y}
+> 2, g 3 * 2
+8
+> 1, g 2 3
+3 4
+> ! 3, f + 1
+Error: arity-1 verb f after comma cannot have additional arguments
+> ! 3, rev 1
+Error: arity-1 verb rev after comma cannot have additional arguments
+> k: {7}
+{7}
+> 1, k
+Error: comma-verb sequencing requires verb of arity 1 or 2, got arity 0
+> h: {x + y + z}
+{x + y + z}
+> 1, h
+Error: comma-verb sequencing requires verb of arity 1 or 2, got arity 3
+#+end_src
+
+Names are resolved when they are read, as in TS: once a primitive's
+name (=+ - * ^ rev=) is bound, it means that variable, also in lambdas
+defined before. After a =,= a verb, a primitive or a named lambda,
+takes the value so far as its first argument: one of arity 2 takes the
+rest of the clause as its second, and one of arity 1 must end the clause.
+
 * TEST m3.show : a lambda shows as its tokens
 #+begin_src
 > { x  *  x }
