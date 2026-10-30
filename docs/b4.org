@@ -169,8 +169,12 @@ in vm memory across lines.
   sequence of expressions in TS, whose last is the value; b4 doesn't
   have sequences yet, so that is an error (=b4.shadow-juxt=).
 - =name:= assigns the rest of its clause (=a: b: 5=, =1 + x: 5=).
-- A lambda applies to the noun after it, like a monad (=f 3 + 1= is
-  =10=). A named arity-0 lambda runs when named (=k=). Arity is the
+- A lambda of arity 1 applies to the noun after it, like a monad (=f 3 + 1=
+  is =10=); one of arity 2 or 3 takes clauses separated by =,= (=g 1 + 1,
+  2= is =g= of 2 and 2). A named lambda of arity 2 is also a dyad, like
+  =+=, whether or not its name is a primitive's: =1 g 2 g 3= is left to
+  right (=m3.infix-*=). A dyad's right argument is the noun after it, or
+  the clause after a =,= that comes right after it (=1 * , 2 + 3= is 5). A named arity-0 lambda runs when named (=k=). Arity is the
   highest of =x= / =y= / =z= read in the body (=z= after a second =,=).
 - Scope, as TS's =applyIfn=: a call saves =x=, =y= and =z=, binds its
   arguments, and afterwards puts all three back (unbinding any that

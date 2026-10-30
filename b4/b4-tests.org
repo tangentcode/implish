@@ -496,6 +496,113 @@ defined before. After a =,= a verb, a primitive or a named lambda,
 takes the value so far as its first argument: one of arity 2 takes the
 rest of the clause as its second, and one of arity 1 must end the clause.
 
+* TEST m3.infix-lambda : a named arity-2 lambda is a dyad: x on its left, y on its right
+#+begin_src
+> g: {x * 10 - y}
+{x * 10 - y}
+> 1 g 2
+8
+> 1 g 2 g 3
+77
+> 1 g 2 + 3
+11
+> 1 + 2 g 3
+27
+> 1 g ! 3
+10 9 8
+> 1 2 g 3
+7 17
+> 1 g rev 1 2
+8 9
+> x: 4
+4
+> 2 g x
+16
+> 2 g x: 3
+17
+> x
+3
+> f: {x + 1}
+{x + 1}
+> f 1 g 2
+18
+> 2 g f 3
+16
+> 1 f 2
+Error: IFN arity mismatch: expected 1, got 2
+> 1 g , 2
+8
+> 1 * , 2 + 3
+5
+> 1 + , 2
+3
+#+end_src
+
+* TEST m3.infix-rebound : a primitive dyad rebound to a lambda, also in lambdas defined before
+#+begin_src
+> p: {x - 1}
+{x - 1}
+> q: {1 g x}
+{1 g x}
+> g: {x * 10 - y}
+{x * 10 - y}
+> q 5
+5
+> p 5
+4
+> -: {x * 100 + y}
+{x * 100 + y}
+> p 5
+501
+> 5 - 1
+501
+> 5 - 1 - 2
+50102
+> 1 2 - 3
+103 203
+> ! 3, - 1
+1 101 201
+> *: {x + 1}
+{x + 1}
+> 2 * 3
+Error: IFN arity mismatch: expected 1, got 2
+#+end_src
+
+* TEST m3.call-args : a call to a lambda of arity 2 or 3 takes clauses, one of arity 1 a noun
+#+begin_src
+> g: {x * 10 - y}
+{x * 10 - y}
+> h: {x + y + z}
+{x + y + z}
+> f: {x + 1}
+{x + 1}
+> g 1, 2 + 3
+5
+> g 1 + 1, 2
+18
+> g 1, 2 g 3
+-7
+> h 1, 2 * 10, 3
+24
+> h 1, 2, 3 * 10
+33
+> 1, g 2 g 3
+-7
+> ! 3, g 1
+-1 9 19
+> f 3 + 1
+5
+> f 3, + 1
+5
+#+end_src
+
+A named lambda of arity 2 is a dyad, like a primitive one, whether its
+name is a primitive's or not: =1 g 2= is =g= with =x= 1 and =y= 2, left
+to right in a chain. A dyad's right argument is the noun after it, or,
+if a =,= comes right after the dyad, the clause after that. A call to a
+lambda of arity 2 or 3 takes each argument as a clause; arity 1 takes a
+noun (=f 3 + 1= is =(f 3) + 1=). All as in TS.
+
 * TEST m3.show : a lambda shows as its tokens
 #+begin_src
 > { x  *  x }

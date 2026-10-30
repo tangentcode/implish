@@ -65,6 +65,8 @@
 :imp-e-close ."unexpected }"
 :imp-e-cv1 ."arity-1 verb "
 :imp-e-cv1b ." after comma cannot have additional arguments"
+:imp-e-ifn ."IFN arity mismatch: expected "
+:imp-e-got2 .", got 2"
 :imp-e-cvn ."comma-verb sequencing requires verb of arity 1 or 2, got arity "
 :imp-s-sp 01 20                              # " "
 :imp-s-cm 02 ', 20                           # ", "
@@ -552,11 +554,25 @@
       imp-fail imp-putw rt .t .t
    zp li `imp-e-nd imp-fail rt
 
+:imp-rhs                              # (t-ty) a dyad's right argument: the noun after it,
+   imp-sep? .i cl >imp-clause rt .t   # or, right after a , the clause after that (as TS)
+   cl >imp-noun rt
+
+:imp-dyadl                            # (xtw-zt) x w y with w a named lambda: w's x and y, as in TS
+   dc cd du dc imp-find c1 ad @imp-env sw imp-it ri imp-dcopy   # (xtl|w) a copy of it
+   du c0 eq .i zp cd zp rt .t
+   du lb 0C ad ri du c2 eq nt .i      # (xtln) only arity 2 takes two arguments
+      sw imp-drop li `imp-e-ifn imp-fail imp-putn li `imp-e-got2 imp-puts cd zp rt .t
+   zp sw imp-rhs                      # (xlty)
+   du c0 eq .i zp sw imp-drop cd zp rt .t
+   sw dc dc sw cd c0 cl >imp-run cd cd zp rt
+
 :imp-dyad                             # (xt-zt) apply the dyad at @I to x and the noun after it
    imp-next
+   du imp-lam? .i imp-dyadl rt .t     # a named lambda: a dyad too
    du lb 03 an c1 eq nt .i imp-notdy rt .t
    c4 dv du imp-ndy lt nt .i li `imp-e-mon imp-fail imp-putp rt .t
-   dc cl >imp-noun                    # (xty|i)
+   dc imp-rhs                         # (xty|i)
    du c0 eq .i zp cd zp rt .t
    sw cd sw dc                        # (xyi|t)
    imp-op do sw imp-drop sw imp-drop cd rt
@@ -568,10 +584,14 @@
    @E .i c0 sw rt .t
    cl >imp-noun sw rt
 
-:imp-arg-sep                             # (t-xt) a , then the next noun, as an argument
+:imp-argc                             # (t-xt) the next clause, as an argument (0 once E is set)
+   @E .i c0 sw rt .t
+   cl >imp-clause sw rt
+
+:imp-arg-sep                          # (t-xt) a , then the next clause, as an argument
    @E .i c0 sw rt .t
    imp-sep? nt .i li `imp-e-arg imp-fail c0 sw rt .t
-   imp-arg rt
+   imp-argc rt
 
 :imp-bindv                            # (vs-) bind counted name s to argument v, if it was passed
    ov .i imp-setc rt .t zp zp rt
@@ -590,7 +610,8 @@
 
 :imp-call                             # (tl-tx) call lambda l on the args after it; frees l
    du lb 0C ad ri dc sw               # (lt|n) n: l's arity
-   cd du dc c1 lt .i c0 sw .e imp-arg .t       # (lxt|n) x, if n > 0
+   cd du dc du c0 eq .i zp c0 sw .e   # (lxt|n) x: for arity 1 the next noun,
+      c1 eq .i imp-arg .e imp-argc .t .t   # for 2 or 3 a clause, as in TS
    cd du dc c2 lt .i c0 sw .e imp-arg-sep .t      # (lxyt|n) y after a , if n > 1
    cd lb 03 lt .i c0 sw .e imp-arg-sep .t         # (lxyzt) z after another , if n > 2
    dc imp-run cd sw rt

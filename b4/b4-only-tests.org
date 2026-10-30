@@ -95,7 +95,7 @@ Error: expected number or vector
 > rev f
 Error: toArray expects list, vector, or string
 > 1 2 f
-Error: not a dyad: f
+Error: IFN arity mismatch: expected 1, got 2
 > , rev
 Error: missing argument
 > h: {x + y + z}
@@ -104,10 +104,21 @@ Error: missing argument
 Error: missing argument
 > h 1
 Error: missing argument
+> k: {7}
+{7}
+> 1 k 2
+Error: IFN arity mismatch: expected 0, got 2
+> 1 h 2
+Error: IFN arity mismatch: expected 3, got 2
+> 1 g
+Error: missing argument
 #+end_src
 
 TS shows =f= as =f[]=, =g 3= as =g[3]= and =h 1, 2= as =h[1; 2]=
-(projections), and rejects a lambda literal after a dyad.
+(projections), and rejects a lambda literal after a dyad. In infix
+position TS runs =k= (arity 0) and then takes =2= as the next expression
+(so =1 k 2= is =2=), and makes projections of =1 h 2= and =1 g=; b4
+reports them as errors. =1 2 f= is TS's arity error in b4 (TS: =1 4=).
 
 * TEST b4.scope-error : a call that fails still puts x y and z back
 #+begin_src
@@ -652,8 +663,6 @@ Error: out of memory
 0
 > g: {x + y}
 {x + y}
-> 1 g
-Error: not a dyad: g
 > g 1, 2
 3
 #+end_src
