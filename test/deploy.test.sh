@@ -353,6 +353,136 @@ t_grace_zero_disables_carry() {
   return 0
 }
 
+# --- failure safety: whatever fails before the switch, the old site keeps serving ---
+
+# old site still fully served: docroot present, same tree, page loads
+still_serving() { [[ -e $DEPLOY_PATH ]] && [[ $(tree "$DEPLOY_PATH") == "$1" ]] && page_ok; }
+no_switch_left() { [[ -z $(ls -A "$(dirname "$DEPLOY_PATH")" | grep '\.switch$') ]]; }
+# build variants: ship $1 as a directory with a file in it, or as a plain file
+build_dir()  { echo "$DEPLOY_BUILD_CMD"' && mkdir -p out/'"$1"' && echo "$v" > out/'"$1"'/old.json'; }
+build_file() { echo "$DEPLOY_BUILD_CMD"' && echo "$v" > out/'"$1"; }
+
+# Codex repro: the old docroot has downloads/old.json; the new release ships a
+# regular file called downloads. Carrying old.json can't work; it must not take the site down.
+t_migration_file_vs_dir_conflict() {
+  mkdir -p "$DEPLOY_PATH/downloads"; echo old > "$DEPLOY_PATH/downloads/old.json"
+  before=$(tree "$DEPLOY_PATH")
+  out=$(DEPLOY_BUILD_CMD=$(build_file downloads) "$DEPLOY" 2>&1) || fail "deploy failed: $out" || return 1
+  grep -q "can't keep /downloads/old.json reachable" <<<"$out" || fail "no conflict warning: $out" || return 1
+  [[ -L $DEPLOY_PATH && $(site) == new && $(cat "$DEPLOY_PATH/downloads") == new ]] && page_ok || fail "new site not live" || return 1
+  [[ $(tree "$R/$(releases | head -n 1)") == "$before" ]] || fail "old site not kept as a release" || return 1
+  [[ -f $DEPLOY_PATH/assets/app-old.js ]] || fail "other old files no longer carried" || return 1
+}
+
+t_deploy_file_vs_dir_conflict() {
+  DEPLOY_BUILD_CMD=$(build_dir downloads) deploy_v v1 || fail "deploy v1" || return 1
+  out=$(echo v2 > "$T/src/version"; DEPLOY_BUILD_CMD=$(build_file downloads) "$DEPLOY" 2>&1) || fail "deploy v2: $out" || return 1
+  grep -q "can't keep /downloads/old.json" <<<"$out" || fail "no warning: $out" || return 1
+  [[ $(site) == v2 && -f $DEPLOY_PATH/downloads ]] && page_ok || fail "v2 not live" || return 1
+}
+
+t_deploy_dir_vs_file_conflict() {
+  DEPLOY_BUILD_CMD=$(build_file downloads) deploy_v v1 || fail "deploy v1" || return 1
+  out=$(echo v2 > "$T/src/version"; DEPLOY_BUILD_CMD=$(build_dir downloads) "$DEPLOY" 2>&1) || fail "deploy v2: $out" || return 1
+  grep -q "can't keep /downloads reachable" <<<"$out" || fail "no warning: $out" || return 1
+  [[ $(site) == v2 && -f $DEPLOY_PATH/downloads/old.json ]] && page_ok || fail "v2 not live" || return 1
+}
+
+t_rollback_file_vs_dir_conflict() {
+  DEPLOY_BUILD_CMD=$(build_file downloads) deploy_v v1 || fail "deploy v1" || return 1
+  echo v2 > "$T/src/version"; DEPLOY_BUILD_CMD=$(build_dir downloads) "$DEPLOY" >/dev/null 2>&1 || fail "deploy v2" || return 1
+  out=$("$DEPLOY" --rollback 2>&1) || fail "rollback failed: $out" || return 1
+  grep -q "can't keep /downloads/old.json" <<<"$out" || fail "no warning: $out" || return 1
+  [[ $(site) == v1 && -f $DEPLOY_PATH/downloads ]] && page_ok || fail "v1 not live" || return 1
+  out=$("$DEPLOY" --rollback "$(releases | tail -n 1)" 2>&1) || fail "roll forward failed: $out" || return 1
+  [[ $(site) == v2 ]] && page_ok || fail "v2 not live again" || return 1
+}
+
+t_carry_never_writes_through_symlinks() {
+  mkdir -p "$T/outside" "$T/secret"; echo secret > "$T/secret/s.txt"
+  DEPLOY_BUILD_CMD=$(build_dir data) deploy_v v1 || fail "deploy v1" || return 1
+  v1=$(basename "$(live)")
+  # the next release ships `data` as a symlink out of the tree: carrying
+  # data/old.json must not follow it
+  echo v2 > "$T/src/version"
+  out=$(DEPLOY_BUILD_CMD="$DEPLOY_BUILD_CMD && ln -s '$T/outside' out/data" "$DEPLOY" 2>&1) || fail "deploy v2: $out" || return 1
+  [[ -z $(ls -A "$T/outside") ]] || fail "carry wrote outside the release: $(ls "$T/outside")" || return 1
+  # and a source path through a symlink is never carried in
+  ln -s "$T/secret" "$R/$v1/lnk"; echo lnk/s.txt >> "$R/$v1.files"
+  echo v3 > "$T/src/version"; "$DEPLOY" >/dev/null 2>&1 || fail "deploy v3" || return 1
+  [[ ! -e $DEPLOY_PATH/lnk ]] || fail "carried a file through a symlinked dir" || return 1
+}
+
+# Inject a failure at every fallible point of every kind of switch.
+t_fault_migration_keeps_old_site() {
+  before=$(tree "$DEPLOY_PATH")
+  for point in stage before-commit migrate-before-move migrate-between-renames; do
+    out=$(DEPLOY_FAULT=$point "$DEPLOY" 2>&1) && fail "$point: exit 0" && return 1
+    grep -q "injected fault at $point" <<<"$out" || fail "$point: fault not reached: $out" || return 1
+    [[ -d $DEPLOY_PATH && ! -L $DEPLOY_PATH ]] || fail "$point: docroot is gone or replaced" || return 1
+    still_serving "$before" || fail "$point: old site not serving" || return 1
+    [[ -z $(releases) ]] && no_switch_left || fail "$point: leftovers: $(ls -A "$R") $(ls -A "$(dirname "$DEPLOY_PATH")")" || return 1
+  done
+  grep -q 'old site was restored' <<<"$out" || fail "no restore message: $out" || return 1
+  "$DEPLOY" >/dev/null 2>&1 || fail "fault-free deploy afterwards failed" || return 1
+  [[ $(site) == new ]] && page_ok && no_switch_left || fail "not recovered" || return 1
+  [[ $(tree "$R/$(releases | head -n 1)") == "$before" ]] || fail "old site not kept as a release" || return 1
+}
+
+t_fault_empty_docroot_migration() {
+  rm -rf "$DEPLOY_PATH"; mkdir "$DEPLOY_PATH"
+  for point in stage before-commit; do
+    DEPLOY_FAULT=$point "$DEPLOY" >/dev/null 2>&1 && fail "$point: exit 0" && return 1
+    [[ -d $DEPLOY_PATH && ! -L $DEPLOY_PATH ]] || fail "$point: docroot gone" || return 1
+  done
+  "$DEPLOY" >/dev/null 2>&1 && [[ $(site) == new ]] || fail "fault-free deploy afterwards" || return 1
+}
+
+t_fault_deploy_keeps_old_site() {
+  deploy_v v1 || fail "deploy v1" || return 1
+  before=$(tree "$DEPLOY_PATH"); was=$(live)
+  for point in stage before-commit; do
+    echo v2 > "$T/src/version"
+    out=$(DEPLOY_FAULT=$point "$DEPLOY" 2>&1) && fail "$point: exit 0" && return 1
+    grep -q "injected fault at $point" <<<"$out" || fail "$point: fault not reached: $out" || return 1
+    [[ $(live) == "$was" ]] && still_serving "$before" || fail "$point: old site not serving" || return 1
+    [[ $(releases | tail -n 1) == "$(basename "$was")" ]] || fail "$point: a never-live release was kept: $(releases)" || return 1
+  done
+  deploy_v v3 && [[ $(site) == v3 ]] && no_switch_left || fail "fault-free deploy afterwards" || return 1
+}
+
+t_fault_rollback_keeps_site() {
+  deploy_v v1 && deploy_v v2 || fail "deploys" || return 1
+  before=$(tree "$DEPLOY_PATH"); was=$(live)
+  for point in stage before-commit; do
+    out=$(DEPLOY_FAULT=$point "$DEPLOY" --rollback 2>&1) && fail "rollback $point: exit 0" && return 1
+    [[ $(live) == "$was" ]] && still_serving "$before" || fail "rollback $point: site changed" || return 1
+  done
+  "$DEPLOY" --rollback >/dev/null 2>&1 && [[ $(site) == v1 ]] || fail "rollback afterwards" || return 1
+  # roll-forward is the same switch
+  before=$(tree "$DEPLOY_PATH"); was=$(live)
+  for point in stage before-commit; do
+    DEPLOY_FAULT=$point "$DEPLOY" --rollback "$(releases | tail -n 1)" >/dev/null 2>&1 && fail "forward $point: exit 0" && return 1
+    [[ $(live) == "$was" ]] && still_serving "$before" || fail "forward $point: site changed" || return 1
+  done
+  no_switch_left || fail "temp symlink left" || return 1
+}
+
+t_after_switch_failures_report_live() {
+  deploy_v v1 || fail "deploy v1" || return 1
+  # history can't be written: the switch already happened, so warn and succeed
+  chmod 444 "$R/.history"
+  out=$(echo v2 > "$T/src/version"; "$DEPLOY" 2>&1); rc=$?
+  chmod 644 "$R/.history"
+  ((rc == 0)) || fail "history failure failed the deploy: $out" || return 1
+  [[ $(site) == v2 ]] || fail "v2 not live" || return 1
+  if [[ $(id -u) != 0 ]]; then grep -q 'recording it in' <<<"$out" || fail "no history warning: $out" || return 1; fi
+  # prune fails after the switch: nonzero, saying the new release is live
+  out=$(echo v3 > "$T/src/version"; DEPLOY_FAULT=prune "$DEPLOY" 2>&1) && fail "prune failure exited 0" && return 1
+  grep -q 'is live, but pruning old releases failed' <<<"$out" || fail "$out" || return 1
+  [[ $(site) == v3 ]] && page_ok || fail "v3 not live" || return 1
+}
+
 # --- guards -----------------------------------------------------------------
 
 t_remote_rejects_bad_names() {

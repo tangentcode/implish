@@ -214,5 +214,6 @@ log "uploading release $name"
 rsync_to "$DEPLOY_SRC/" "$(at_target "$DEPLOY_RELEASES/$name.tmp")/" "${link[@]}" \
   || { remote discard "$name" || true; die "upload failed; live site unchanged"; }
 remote activate "$name"
-remote prune
+# After the switch: a failure here leaves the new release live, so say so.
+remote prune || die "release $name is live, but pruning old releases failed"
 log "deployed $(cat "$DEPLOY_SOURCE_DIR/.deploy-sha" 2>/dev/null || git -C "$DEPLOY_SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo '?') as release $name"

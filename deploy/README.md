@@ -32,6 +32,39 @@ live `index.html`, and an interrupted upload leaves the old site untouched.
 Rollback is the same atomic switch to an older release. Older releases are
 the backups.
 
+### Failure safety: the old site keeps serving
+
+Every switch (deploy, the first-deploy migration, rollback, roll-forward) is
+split into two parts in `deploy/remote.sh`:
+
+- **stage**: everything that can fail, with the live site untouched. This
+  covers the release checks, the file lists, carrying grace-period files,
+  and creating the new symlink next to the docroot.
+- **commit**: one `rename(2)` of that symlink over the docroot.
+
+After the commit, only bookkeeping runs. A failed history write only
+warns. A failed prune exits nonzero with "release X is live, but pruning old
+releases failed".
+
+On any failure, an exit trap removes the staged symlink. If the failure came
+before an activation's commit, the trap also removes that never-live
+release, so it can't collide with a quick retry or become a rollback target.
+
+Carrying never fails a switch. A file that can't be kept reachable gets a
+warning and is skipped. For example, the old site had `downloads/old.json`
+and the new release ships a plain file called `downloads`; or a parent path
+is a symlink, which carrying never follows on either side.
+
+The one-time migration of a plain-directory docroot stages everything first,
+with the old directory still serving. Then it does two renames: the
+directory into the releases dir, and the symlink into its place. If the
+second rename fails, the first is undone and the old site is restored.
+
+`DEPLOY_FAULT=<point>` injects a failure at a named point
+(`stage`, `before-commit`, `migrate-before-move`, `migrate-between-renames`,
+`prune`). The tests use it to show that each switch kind leaves the old site
+serving.
+
 ### Grace period: no 404s for pages loaded just before a switch
 
 A browser can fetch `index.html` from release N, then request the hashed
