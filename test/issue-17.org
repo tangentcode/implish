@@ -113,3 +113,67 @@ Error: failed to read: unclosed delimiters: [
 > type? value show :e
 sym!
 #+end_src
+
+* TEST mls-crlf : CRLF after the opening fence is skipped, CRLF inside becomes \n
+# Codex finding on #19: a CRLF file kept "\r\n" at the start of the string.
+#+begin_src
+> c: value rd %test/fixtures/mls-crlf.imp
+```
+hi
+there
+```
+> m: value rd %test/fixtures/mls.imp
+```
+hi
+there
+```
+> match[:c; :m]
+1
+> show :c
+"```\nhi\nthere\n```"
+#+end_src
+
+* TEST mls-cr : bare CR line endings are read like LF
+#+begin_src
+> r: value rd %test/fixtures/mls-cr.imp
+```
+hi
+there
+```
+> show :r
+"```\nhi\nthere\n```"
+#+end_src
+
+* TEST mls-crlf-blank-first-line : only one line ending after the fence is skipped
+#+begin_src
+> show value rd %test/fixtures/mls-crlf-blank.imp
+"```\n\nx\n```"
+#+end_src
+
+* TEST repl-command-in-string : a /reset line inside an open ``` string is content
+# Codex finding on #19: the REPL took it as a command and reset state.
+#+begin_src
+> m: ```
+> /reset
+>   /reset  
+> ```
+```
+/reset
+  /reset  
+```
+> show :m
+"```\n/reset\n  /reset  \n```"
+#+end_src
+
+* TEST repl-command-in-list : a /reset line inside an open [ is a refinement symbol
+#+begin_src
+> l: [1
+> /reset
+> ]
+[1 /reset]
+> count :l
+2
+#+end_src
+
+# /reset still works once input is closed: the runner sends /reset after
+# every test, and these tests would misalign if it were swallowed.

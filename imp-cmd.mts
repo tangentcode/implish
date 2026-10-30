@@ -126,6 +126,12 @@ function completeWord(token: string): [string[], string] {
   return [matches, token]
 }
 
+// A line is a REPL command only when it starts a new input. While the
+// loader waits for more (an open ``` string or delimiter), it's content.
+function isCommand(line: string, cmd: string): boolean {
+  return !il.waiting && line.trim() === cmd
+}
+
 // Quiet mode REPL: simple line-by-line reading without readline
 async function quietRepl() {
   const rl = readline.createInterface({
@@ -149,8 +155,7 @@ async function quietRepl() {
 
   // Process lines without prompting
   for await (const line of lineIterator) {
-    const trimmed = line.trim()
-    if (trimmed === '/reset') {
+    if (isCommand(line, '/reset')) {
       il = new ImpLoader()
       resetWords()
       console.log('Ready.')
@@ -357,8 +362,7 @@ async function interactiveRepl() {
     const { value: line, done } = await lineIterator.next();
     if (done) break;
 
-    const trimmed = line.trim()
-    if (trimmed === '/reset') {
+    if (isCommand(line, '/reset')) {
       il = new ImpLoader()
       resetWords()
       console.log('Ready.')

@@ -58,9 +58,8 @@ export class ImpLoader {
   symtbl = new SymTable() // global table for symbols
   buffer: string[] = []           // input buffer (list of strings)
   expect: Array<{open: string, close: string}> = []           // expected closing tokens
-  // text of an open ``` multi-line string; skipNl: the opening ``` ended its
-  // chunk, so the newline after it (implied by the next send) isn't content
-  mls: {text: string, skipNl: boolean} | null = null
+  // raw text of an open ``` multi-line string, from just after the fence
+  mls: {text: string} | null = null
 
   get empty() { return this.buffer.length===0 }
   get waiting() { return this.expect.length>0 || this.mls !== null }
@@ -82,17 +81,18 @@ export class ImpLoader {
       if (closeTok !== ':.') this.tree.emit(imp.lst(ex, that))}
     else console.error("expected", ex.close, "got", closeTok)}
 
-  // ``` starts and ends a multi-line string, as in markdown. The newline
-  // right after the opening ``` is not part of the string.
+  // ``` starts and ends a multi-line string, as in markdown. Line endings
+  // inside it (CRLF, CR, or a line break between sends) all become \n, and
+  // the one right after the opening ``` is not part of the string.
   mlsOpen(src: string): void {
-    let rest = src.slice(3)
-    this.mls = {text: '', skipNl: rest === ''}
-    this.mlsText(rest.startsWith('\n') ? rest.slice(1) : rest)
+    this.mls = {text: ''}
+    this.mlsText(src.slice(3))
   }
   mlsText(src: string): void {
     let end = src.indexOf('```')
     if (end < 0) { this.mls!.text += src; return }
-    this.emit(ImpC.mls(this.mls!.text + src.slice(0, end)))
+    let text = (this.mls!.text + src.slice(0, end)).replace(/\r\n?/g, '\n')
+    this.emit(ImpC.mls(text.startsWith('\n') ? text.slice(1) : text))
     this.mls = null
     let rest = src.slice(end + 3)
     if (rest) this.buffer.unshift(rest)
@@ -101,11 +101,7 @@ export class ImpLoader {
   dump(): void { console.log(this.tree.root) }
   send(s: string): ImpLoader {
     // Inside an open ``` string, each later send is a new line of it.
-    if (this.mls) {
-      s = (this.mls.skipNl ? '' : '\n') + s
-      this.mls.skipNl = false
-      this.mlsText(s)
-    }
+    if (this.mls) this.mlsText('\n' + s)
     else this.buffer.push(s);
     while (!this.empty) this.scan();
     return this }
