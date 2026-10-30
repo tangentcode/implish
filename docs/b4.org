@@ -136,7 +136,7 @@ prompt waits for each result, so the interactive repl needs a =b4i= that
 flushes (Rust). Memory, on the Rust and Pascal vms (stacks sit at the top of the 64k):
 code from =$0100= (it ends near =$0D60=; =b4/test= checks it stays
 below =$8000=), the source line at =$8000= (at most 4095 bytes), and
-mm's arena at =$9000=..=$F7FF=. One =b4i=
+mm's arena at =$9000=..=$F7F7=, just below the data stack (=$F7F8=). One =b4i=
 process serves the whole session, so later milestones can keep variables
 in vm memory across lines.
 
@@ -170,6 +170,10 @@ in vm memory across lines.
   in a body is the one global variable (=m3.scope*=). One difference:
   TS restores only when the body returns, so after a failed call TS
   leaves the arguments bound; b4 restores either way (=b4.scope-error=).
+- Out of memory changes nothing: a call that can't copy =x= =y= =z=
+  to save them fails before binding anything, putting them back never
+  allocates (so a bind that fails halfway is undone), and a failed
+  assignment or verb leaves every variable as it was (=b4.oom-*=).
 - Where TS makes a projection (=f=, =g 3=, =+ 1=), b4 shows the lambda
   or reports an error; those are in the b4-only suite.
 - The null int =0N= is the 32-bit minimum, as =NULL_INT= in the TS
@@ -314,5 +318,10 @@ here and in the PR, for a separate b4 decision:
   =b4/imp-b4-js.mts= subclasses the vm to wrap (vendored file unchanged)
 - the js vm's ram is 4k (Rust's is 64k); the page gives it 64k
 - a documented "free ram" region for guests like implish (now assumed
-  =$8000=..=$F7FF=)
+  =$8000=..=$F7F7=). Both b4i's data stacks start at =$F7F8=
+  (=MINDATA*4=), not at =$F800=: mm's arena used to end at =$F800=, so
+  the top cells of its last block were the data stack's bottom two, and
+  a binding kept there was overwritten (=b4.mem-top=). Pascal's disk
+  block buffer (=minbuff=..=maxbuff=, about =$F3F4=..=$F7F7=) is in this
+  region too; implish doesn't use =load= / =save=.
 - =io= input so the vm can read stdin itself (Rust has it; not portable yet)

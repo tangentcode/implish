@@ -19,11 +19,12 @@
 # the address just past the header. free blocks merge with the free
 # blocks after them as mm-alloc walks past.
 #
-# the arena is $9000..$F7FF: the driver puts each source line at $8000,
-# and the vm's stacks start at $F800.
+# the arena is $9000..$F7F7: the driver puts each source line at $8000,
+# and b4i's data stack starts at $F7F8 (MINDATA*4 in imp/rs/src/vm.rs,
+# mindata in imp/pas/ub4.pas), with the control stack above it.
 
 :mm-lo li 00 90 00 00 rt              # (-a) the first block
-:mm-hi li 00 F8 00 00 rt              # (-a) end of the arena
+:mm-hi li F8 F7 00 00 rt              # (-a) end of the arena: the data stack
 :mm-hdr lb 0C rt                      # (-n) header size in bytes
 :mm-sz c4 ad rt                       # (p-a) block p's size field
 :mm-us lb 08 ad rt                    # (p-a) block p's used field

@@ -180,7 +180,7 @@ Error: out of memory
 1 2 3
 #+end_src
 
-The arena is =$9000=..=$F7FF= (26k): =! 5000= (20k) fits, but not
+The arena is =$9000=..=$F7F7= (26k): =! 5000= (20k) fits, but not
 with a second array of that size for the product. Running out is an
 error, and the next line has the whole arena again. =! 1073741824=
 checks the size before multiplying: 4n bytes would wrap to 0. The 40-int strand
@@ -237,3 +237,403 @@ source on one b4i line.
 
 =/reset= ordering, the driver's too-long-line error and the Pascal vm
 are checked directly by =b4/test=, since tanco uses =/reset= itself.
+
+Out of memory, a failure changes nothing: every allocation that can fail
+leaves the variables as they were (the leak check runs after each line).
+Each test fills the arena with =p= pads first; the sizes were found by
+search, and each failing line's error comes from the step the test is
+named for (traced on the js engine).
+
+* TEST b4.oom-repro : a call that can't save x leaves x bound (Codex's repro)
+#+begin_src
+> x: ! 3000 , 0
+0
+> f: {1}
+{1}
+> f
+Error: out of memory
+> 1 x
+Error: not a dyad: x
+#+end_src
+
+=f= has to copy =x= (12k) to save it, and the arena can't fit a second
+copy. The call fails before binding anything, so =x= is still bound:
+=1 x= finds it ("not a dyad") without copying it.
+
+* TEST b4.oom-save-x : a failed save of x: x keeps its value
+#+begin_src
+> x: ! 200 , 0
+0
+> f: {1}
+{1}
+> p1: ! 3072 , 0
+0
+> p2: ! 1538 , 0
+0
+> p3: ! 765 , 0
+0
+> p4: ! 378 , 0
+0
+> p5: ! 185 , 0
+0
+> p6: ! 92 , 0
+0
+> f
+Error: out of memory
+> p1: 0
+0
+> x
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199
+#+end_src
+
+The =p= pads fill the arena; =x= is too big to copy for =f='s call.
+Freeing =p1= makes room to show it again.
+
+* TEST b4.oom-save-xy : a failed save in an arity-2 call: nothing is bound
+#+begin_src
+> x: ! 200 , 0
+0
+> y: 5
+5
+> g: {x + y}
+{x + y}
+> p1: ! 3078 , 0
+0
+> p2: ! 1535 , 0
+0
+> p3: ! 763 , 0
+0
+> p4: ! 377 , 0
+0
+> p5: ! 184 , 0
+0
+> p6: ! 88 , 0
+0
+> g 1, 2
+Error: out of memory
+> p1: 0
+0
+> y
+5
+> x
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199
+#+end_src
+
+* TEST b4.oom-save-z : the z save fails after x's and y's succeeded
+#+begin_src
+> x: 1
+1
+> y: 2
+2
+> z: ! 200 , 0
+0
+> h: {x + y + z}
+{x + y + z}
+> p1: ! 3042 , 0
+0
+> p2: ! 1517 , 0
+0
+> p3: ! 754 , 0
+0
+> p4: ! 373 , 0
+0
+> p5: ! 194 , 0
+0
+> p6: ! 93 , 0
+0
+> h 10, 20, 30
+Error: out of memory
+> p1: 0
+0
+> x
+1
+> y
+2
+> z
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159 160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175 176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191 192 193 194 195 196 197 198 199
+#+end_src
+
+The copies of =x= and =y= are freed (the leak check would see them).
+
+* TEST b4.oom-bind : a failed bind puts back what was already bound
+#+begin_src
+> y: 5
+5
+> g: {x + y}
+{x + y}
+> a0: 0
+0
+> a1: 1
+1
+> a2: 2
+2
+> a3: 3
+3
+> a4: 4
+4
+> a5: 5
+5
+> a6: 6
+6
+> a7: 7
+7
+> a8: 8
+8
+> p1: ! 3142 , 0
+0
+> p2: ! 1562 , 0
+0
+> p3: ! 772 , 0
+0
+> p4: ! 377 , 0
+0
+> p5: ! 179 , 0
+0
+> p6: ! 80 , 0
+0
+> g 1, 2
+Error: out of memory
+> y
+5
+> 1 x
+Error: undefined word: x
+#+end_src
+
+The variables are full, so binding the new name =x= has to grow them,
+and that fails after =y= was bound to 2. =y= is put back to 5, and =x=
+stays unbound.
+
+* TEST b4.oom-arg : an argument that runs out of memory: no call
+#+begin_src
+> x: 7
+7
+> f: {x}
+{x}
+> y: 4 5
+4 5
+> p1: ! 3236 , 0
+0
+> p2: ! 1614 , 0
+0
+> p3: ! 793 , 0
+0
+> p4: ! 387 , 0
+0
+> p5: ! 163 , 0
+0
+> p6: ! 84 , 0
+0
+> f ! 300
+Error: out of memory
+> p1: 0
+0
+> x
+7
+> y
+4 5
+#+end_src
+
+* TEST b4.oom-assign : a failed assignment copy leaves the old value
+#+begin_src
+> x: 1 2 3
+1 2 3
+> p1: ! 3261 , 0
+0
+> p2: ! 1610 , 0
+0
+> p3: ! 802 , 0
+0
+> p4: ! 392 , 0
+0
+> p5: ! 187 , 0
+0
+> p6: ! 84 , 0
+0
+> p7: ! 11 , 0
+0
+> p8: ! 5 , 0
+0
+> x: ! 10
+Error: out of memory
+> p1: 0
+0
+> x
+1 2 3
+#+end_src
+
+* TEST b4.oom-assign-name : a failed copy of the name leaves the old value
+#+begin_src
+> x: 1 2 3
+1 2 3
+> p1: ! 3261 , 0
+0
+> p2: ! 1610 , 0
+0
+> p3: ! 802 , 0
+0
+> p4: ! 392 , 0
+0
+> p5: ! 187 , 0
+0
+> p6: ! 84 , 0
+0
+> p7: ! 11 , 0
+0
+> p8: ! 5 , 0
+0
+> p9: ! 1 , 0
+0
+> x: ! 1
+Error: out of memory
+> x
+1 2 3
+#+end_src
+
+* TEST b4.oom-assign-new : a new name that can't be bound stays unbound
+#+begin_src
+> x: 1 2 3
+1 2 3
+> a0: 0
+0
+> a1: 1
+1
+> a2: 2
+2
+> a3: 3
+3
+> a4: 4
+4
+> a5: 5
+5
+> a6: 6
+6
+> a7: 7
+7
+> p1: ! 3166 , 0
+0
+> p2: ! 1574 , 0
+0
+> p3: ! 778 , 0
+0
+> p4: ! 380 , 0
+0
+> p5: ! 181 , 0
+0
+> p6: ! 81 , 0
+0
+> p7: ! 31 , 0
+0
+> p8: ! 6 , 0
+0
+> new: 1
+Error: out of memory
+> p1: 0
+0
+> x
+1 2 3
+> 1 new
+Error: undefined word: new
+#+end_src
+
+* TEST b4.oom-verbs : dyads and monads whose result doesn't fit change nothing
+#+begin_src
+> x: 1 2 3
+1 2 3
+> v: ! 40 , 0
+0
+> p1: ! 3218 , 0
+0
+> p2: ! 1605 , 0
+0
+> p3: ! 798 , 0
+0
+> p4: ! 385 , 0
+0
+> p5: ! 183 , 0
+0
+> p6: ! 61 , 0
+0
+> v + 1
+Error: out of memory
+> 2 ^ v
+Error: out of memory
+> rev v
+Error: out of memory
+> p1: 0
+0
+> x
+1 2 3
+> rev v , 0
+0
+#+end_src
+
+* TEST b4.mem-top : the variables can end at the top of the arena
+#+begin_src
+> x: 7
+7
+> f: {x}
+{x}
+> p1: ! 3240 , 0
+0
+> p2: ! 1610 , 0
+0
+> p3: ! 790 , 0
+0
+> p4: ! 380 , 0
+0
+> p5: ! 180 , 0
+0
+> p6: ! 85 , 0
+0
+> p7: ! 40 , 0
+Error: out of memory
+> p8: ! 15 , 0
+0
+> p8
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+> x
+7
+> f 3
+3
+> 1 p7
+Error: undefined word: p7
+> p8: 0
+0
+> p8
+0
+#+end_src
+
+These pads leave the variables in mm's last block, which ends where
+b4i's data stack starts (=$F7F8=); its last cell holds =p8='s value.
+
+* TEST b4.mem-stack : a binding at the arena's top isn't overwritten by the data stack
+#+begin_src
+> x: 7
+7
+> f: {x}
+{x}
+> p1: ! 3242 , 0
+Error: out of memory
+> p2: ! 1617 , 0
+0
+> p3: ! 795 , 0
+0
+> p4: ! 388 , 0
+0
+> p5: ! 185 , 0
+0
+> p1: 0
+0
+> g: {x + y}
+{x + y}
+> 1 g
+Error: not a dyad: g
+> g 1, 2
+3
+#+end_src
+
+mm's arena used to end at =$F800=, but b4i's data stack starts at
+=$F7F8=, so the last two cells of the arena's last block were the
+stack's bottom two. Here the variables were that block: binding =g=
+wrote its value there, the stack overwrote it, and =g= was lost (with
+7 blocks leaked). =b4/test='s =mm-top= vm check tests the boundary itself.

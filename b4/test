@@ -237,11 +237,19 @@ for vm in "$B4I_RS" "$B4I_PAS"; do
     "$(imp "$vm" -a b4/mm.b4a <<'MM_EOF'
 mm-init 10 mm-alloc 0 mm-alloc 100 mm-alloc mm-count ?d
 zp mm-free mm-free mm-free mm-count ?d
-zp 67F4 mm-alloc ?d
-mm-free 67F5 mm-alloc ?d
+zp 67EC mm-alloc ?d
+mm-free 67ED mm-alloc ?d
 zp 20 mm-alloc 20 mm-alloc 20 mm-alloc ?d
 zp sw mm-free mm-free 40 mm-alloc ?d
-mm-free mm-init FFFFFFFF mm-alloc 6801 mm-alloc 7FFFFFFF mm-alloc 67F5 mm-alloc mm-count ?d
+mm-free mm-init FFFFFFFF mm-alloc 67F9 mm-alloc 7FFFFFFF mm-alloc 67ED mm-alloc mm-count ?d
+/q
+MM_EOF
+)"
+  # the arena's last cell must survive data stack pushes: b4i's data
+  # stack starts at $F7F8, so an arena that reached $F800 lost it
+  check "mm-top-$name" "ds: [12345678]" "$(imp "$vm" -a b4/mm.b4a <<'MM_EOF'
+mm-init mm-hi mm-lo sb mm-hdr sb mm-alloc du mm-size ad c4 sb
+du 12345678 sw wi 1 2 3 zp zp zp ri ?d
 /q
 MM_EOF
 )"

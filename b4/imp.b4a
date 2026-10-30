@@ -198,18 +198,34 @@
       eq nt .i zp zp cd zp c0 rt .t .n
    zp zp n1 rt
 
+:imp-eqc                              # (as-?) does name a spell counted string s?
+   ov imp-n ov rb eq nt .i zp zp c0 rt .t
+   du rb .f
+      ov cd du dc c1 sb imp-it ri ov cd du dc ad rb
+      eq nt .i zp zp cd zp c0 rt .t .n
+   zp zp n1 rt
+
 #-- variables -------------------------------------------------
 # imp-env is a node of name/value pairs, one per name: the variables
 # are global. as in TS (applyIfn), a lambda call saves x y and z,
 # binds its arguments to them, and puts all three back afterwards
 # (unbinding the ones that weren't bound), so only they are local:
 # any other name a lambda assigns stays assigned after the call.
+# a call that can't save them (out of memory) changes nothing, and
+# putting them back never allocates, so it can't fail halfway.
 
 :imp-find                             # (w-i) the env slot holding name w, latest first; -1 if none
    @imp-env imp-n
    .w du .d
       c2 sb du @imp-env sw imp-it ri  # (wkn)
       dc ov cd imp-eqw .i sw zp rt .t .o
+   zp zp n1 rt
+
+:imp-findc                            # (s-i) imp-find for counted string s; doesn't allocate
+   @imp-env imp-n
+   .w du .d
+      c2 sb du @imp-env sw imp-it ri
+      dc ov cd sw imp-eqc .i sw zp rt .t .o
    zp zp n1 rt
 
 :imp-bind                             # (wv-) a new binding of name w to v; takes both
@@ -223,9 +239,11 @@
    c1 ad @imp-env sw imp-it           # (wvp) p: the value's slot
    du ri imp-drop wi imp-drop rt
 
-:imp-setc                             # (vs-) counted string s's name is v from now on; takes v
-   imp-name du c0 eq .i zp imp-drop rt .t
-   sw imp-set rt
+:imp-setc                             # (vs-) counted name s is v from now on; takes v
+   du imp-findc du n1 eq .i           # (vsi) a new binding: the only case that allocates
+      zp imp-name du c0 eq .i zp imp-drop rt .t sw imp-bind rt .t
+   sw zp c1 ad @imp-env sw imp-it     # (vp) p: the value's slot
+   du ri imp-drop wi rt
 
 :imp-unbind                           # (i-) remove the binding at env slot i (-1: none)
    du n1 eq .i zp rt .t
@@ -236,16 +254,13 @@
       ov @imp-env sw imp-it wi c1 ad .o
    zp @imp-env imp-d0 du ri c2 sb sw wi rt
 
-:imp-save                             # (s-v) a copy of counted name s's value; 0 if unbound
-   imp-name du c0 eq .i rt .t
-   du imp-find sw imp-drop            # (i)
-   du n1 eq .i zp c0 rt .t
+:imp-save                             # (s-v) a copy of counted name s's value; 0 if unbound,
+   imp-findc du n1 eq .i zp c0 rt .t  # or 0 with E set if it can't be copied
    c1 ad @imp-env sw imp-it ri imp-dcopy rt
 
 :imp-restore                          # (vs-) counted name s is v again, or unbound if v is 0
-   ov .i imp-setc rt .t
-   sw zp imp-name du c0 eq .i zp rt .t
-   du imp-find sw imp-drop imp-unbind rt
+   ov .i imp-setc rt .t               # s is still bound, so this doesn't allocate
+   imp-findc imp-unbind zp rt
 
 :imp-leaks                            # (-n) mm blocks in use that the variables don't own
    mm-count @imp-env imp-owned sb rt
@@ -544,9 +559,13 @@
 :imp-run                              # (lxyz-x) run lambda l with its arguments (0: not passed)
    @E .i imp-drop imp-drop imp-drop imp-drop c0 rt .t
    li `imp-s-x imp-save dc li `imp-s-y imp-save dc li `imp-s-z imp-save dc
+   @E .i                              # a copy failed: give up before binding anything
+      cd imp-drop cd imp-drop cd imp-drop
+      imp-drop imp-drop imp-drop imp-drop c0 rt .t
    li `imp-s-z imp-bindv li `imp-s-y imp-bindv li `imp-s-x imp-bindv   # (l)
    @E .i c0 .e @I dc c0 !I cl >imp-expr cd !I .t   # (lx)
-   sw imp-drop                        # put x y z back, even after an error
+   sw imp-drop                        # put x y z back, even after an error (a bind
+                                      # that failed included): this can't fail
    cd li `imp-s-z imp-restore cd li `imp-s-y imp-restore cd li `imp-s-x imp-restore rt
 
 :imp-call                             # (tl-tx) call lambda l on the args after it; frees l
