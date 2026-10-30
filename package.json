@@ -10,7 +10,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
     "preview": "vite preview",
-    "repl": "node dist/imp-cmd.mjs"
+    "repl": "node dist/imp-cmd.mjs",
+    "test:deploy": "bash test/deploy.test.sh",
+    "deploy": "bin/deploy"
   },
   "repository": {
     "type": "git",
