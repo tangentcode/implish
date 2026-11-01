@@ -1,0 +1,94 @@
+name: deploy implish.org
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag or branch to (re)deploy. It must already be merged into main. Empty = main's head.
+        required: false
+        default: ''
+
+# One deploy at a time; a newer push waits rather than cancelling a deploy
+# that is halfway through its rsync.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-{0}', github.ref) || 'deploy-implish-org' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Tooling vs. source: both jobs run bin/deploy, deploy/* and the tests from
+# the workflow's own commit (github.sha). Only the application source that
+# gets built comes from the `ref` input, exported separately by
+# deploy/select-ref.sh. So redeploying an old commit (even one from before
+# bin/deploy existed) still uses the current deploy tooling.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0   # the tests export a pre-tooling commit from history
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - run: npm run test:deploy
+
+  # The deploy key lives only in the `production` environment, whose
+  # deployment branches are limited to main (see deploy/README.md). So a PR
+  # branch that edits this file still can't read the secret. The `if:` and
+  # the ancestor check below are defense in depth on top of that.
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://implish.org/
+    env:
+      DEPLOY_USER: ${{ vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Export source to build (only commits already merged into main)
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          src=$RUNNER_TEMP/source
+          sha=$(deploy/select-ref.sh "$REF" "$GITHUB_SHA" "$src")
+          echo "DEPLOY_SOURCE_DIR=$src" >> "$GITHUB_ENV"
+          echo "building ${REF:-main} = $sha with tooling from $GITHUB_SHA"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install the source's dependencies
+        run: npm install --no-audit --no-fund
+        working-directory: ${{ runner.temp }}/source
+      - name: Install deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ]; then
+            echo "::error::secret DEPLOY_SSH_KEY is not set; see deploy/README.md"
+            exit 1
+          fi
+          install -m 700 -d "$RUNNER_TEMP/ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/ssh/id"
+          chmod 600 "$RUNNER_TEMP/ssh/id"
+          echo "DEPLOY_SSH=ssh -i $RUNNER_TEMP/ssh/id -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$GITHUB_WORKSPACE/deploy/known_hosts" >> "$GITHUB_ENV"
+      - run: bin/deploy
+      - name: Check the live site
+        run: curl -fsS --retry 3 https://implish.org/ -o /dev/null
+      - name: Remove deploy key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ssh"

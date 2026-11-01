@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# bin/deploy: build web/ and publish dist-web/ to the implish.org docroot.
+#
+#   bin/deploy [--dry-run] [--skip-build]    build, upload a new release, switch to it
+#   bin/deploy --rollback [NAME] [--dry-run] switch back to the previous (or NAME) release
+#   bin/deploy --list-releases               list releases, oldest first
+#
+# Every deploy uploads a complete tree to DEPLOY_RELEASES/<UTC timestamp>,
+# then atomically repoints the DEPLOY_PATH symlink at it (see deploy/remote.sh).
+# The live site is never edited in place, so an interrupted deploy leaves
+# the old site fully intact.
+#
+# Configuration comes from deploy/deploy.conf, overridden by environment:
+#   DEPLOY_HOST        ssh host, or "local" to treat DEPLOY_PATH as a local path
+#   DEPLOY_USER        ssh user (optional; empty = ssh default / ~/.ssh/config)
+#   DEPLOY_PATH        absolute path of the live docroot (nginx root); becomes a symlink
+#   DEPLOY_RELEASES    where releases live (default: DEPLOY_PATH.releases)
+#   DEPLOY_KEEP        how many releases to keep, live one included (default 5)
+#   DEPLOY_ASSET_GRACE files of the last N live releases stay reachable after a
+#                      switch, so pages loaded before it can still fetch their
+#                      hashed assets (default 3; 0 disables)
+#   DEPLOY_SSH         ssh command (default: ssh -o BatchMode=yes)
+#   DEPLOY_SOURCE_DIR  source tree to build (default: this checkout). CI points
+#                      it at an exported older commit to redeploy that commit
+#                      with the current tooling.
+#   DEPLOY_BUILD_CMD   build command, run in DEPLOY_SOURCE_DIR (default: npx vite build)
+#   DEPLOY_SRC         build output to publish, relative to DEPLOY_SOURCE_DIR (default: dist-web)
+#   DEPLOY_LOCK_WAIT   seconds to wait for another deploy's lock (default 60)
+#
+# Exits nonzero on any failure. Nothing on the target is touched until the
+# build has succeeded and produced an index.html.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CONF=${DEPLOY_CONF:-$ROOT/deploy/deploy.conf}
+
+die() { echo "deploy: $*" >&2; exit 1; }
+log() { echo "deploy: $*" >&2; }
+
+# Non-empty environment values win over the config file. Empty ones are
+# ignored, because CI maps unset repository variables to empty strings.
+declare -A from_env=()
+for v in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_RELEASES DEPLOY_KEEP \
+         DEPLOY_SSH DEPLOY_ASSET_GRACE DEPLOY_SOURCE_DIR DEPLOY_BUILD_CMD DEPLOY_SRC DEPLOY_LOCK_WAIT \
+         DEPLOY_RSYNC; do
+  [[ -n ${!v:-} ]] && from_env[$v]=${!v}
+done
+if [[ -f $CONF ]]; then
+  # shellcheck source=/dev/null
+  source "$CONF"
+fi
+for v in "${!from_env[@]}"; do printf -v "$v" '%s' "${from_env[$v]}"; done
+
+DEPLOY_HOST=${DEPLOY_HOST:-}
+DEPLOY_USER=${DEPLOY_USER:-}
+DEPLOY_PATH=${DEPLOY_PATH:-}
+DEPLOY_KEEP=${DEPLOY_KEEP:-5}
+DEPLOY_ASSET_GRACE=${DEPLOY_ASSET_GRACE:-3}
+DEPLOY_SSH=${DEPLOY_SSH:-ssh -o BatchMode=yes}
+DEPLOY_BUILD_CMD=${DEPLOY_BUILD_CMD:-npx vite build}
+DEPLOY_SRC=${DEPLOY_SRC:-dist-web}
+DEPLOY_SOURCE_DIR=${DEPLOY_SOURCE_DIR:-$ROOT}
+DEPLOY_RSYNC=${DEPLOY_RSYNC:-rsync}   # test hook
+
+mode=deploy dry_run=0 skip_build=0 rollback_name=
+while (($#)); do
+  case $1 in
+    --dry-run|-n) dry_run=1 ;;
+    --skip-build) skip_build=1 ;;
+    --rollback)
+      mode=rollback
+      if [[ ${2:-} && ${2:0:1} != - ]]; then rollback_name=$2; shift; fi ;;
+    --list-releases|--list-backups) mode=list ;;
+    -h|--help) sed -n '2,/^set -e/{/^set -e/d;s/^# \{0,1\}//;p}' "$0"; exit 0 ;;
+    *) die "unknown argument: $1" ;;
+  esac
+  shift
+done
+
+# --- validate config before doing anything -------------------------------
+[[ -n $DEPLOY_HOST ]] || die "DEPLOY_HOST is not set (see deploy/deploy.conf)"
+[[ -n $DEPLOY_PATH ]] || die "DEPLOY_PATH is not set (see deploy/deploy.conf)"
+DEPLOY_PATH=${DEPLOY_PATH%/}
+DEPLOY_RELEASES=${DEPLOY_RELEASES:-$DEPLOY_PATH.releases}
+DEPLOY_RELEASES=${DEPLOY_RELEASES%/}
+check_path() { # name value: refuse paths that rsync --delete or rm -rf could wreck
+  local name=$1 p=$2
+  [[ $p == /* ]] || die "$name must be absolute: '$p'"
+  [[ $p =~ ^/+[^/]+/+[^/]+ ]] || die "$name is too shallow to be safe: '$p'"
+  [[ /$p/ != */../* && /$p/ != */./* ]] || die "$name must not contain . or .. : '$p'"
+  [[ $p != *[[:space:]\'\"\\]* ]] || die "$name must not contain spaces or quotes: '$p'"
+}
+check_path DEPLOY_PATH "$DEPLOY_PATH"
+check_path DEPLOY_RELEASES "$DEPLOY_RELEASES"
+[[ $DEPLOY_RELEASES != "$DEPLOY_PATH" && $DEPLOY_RELEASES/ != "$DEPLOY_PATH"/* ]] \
+  || die "DEPLOY_RELEASES must not be inside DEPLOY_PATH"
+[[ $DEPLOY_KEEP =~ ^[1-9][0-9]*$ ]] || die "DEPLOY_KEEP must be a positive integer: '$DEPLOY_KEEP'"
+[[ $DEPLOY_ASSET_GRACE =~ ^[0-9]+$ ]] || die "DEPLOY_ASSET_GRACE must be a whole number: '$DEPLOY_ASSET_GRACE'"
+DEPLOY_LOCK_WAIT=${DEPLOY_LOCK_WAIT:-60}
+[[ $DEPLOY_LOCK_WAIT =~ ^[0-9]+$ ]] || die "DEPLOY_LOCK_WAIT must be a whole number of seconds: '$DEPLOY_LOCK_WAIT'"
+
+[[ -d $DEPLOY_SOURCE_DIR ]] || die "DEPLOY_SOURCE_DIR is not a directory: '$DEPLOY_SOURCE_DIR'"
+
+at_target() { # PATH: rsync address of PATH on the target
+  if [[ $DEPLOY_HOST == local ]]; then echo "$1"
+  else echo "${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST:$1"; fi
+}
+target=$(at_target "$DEPLOY_PATH")
+
+# on_target SCRIPT ARGS...: run a bash snippet where the docroot lives.
+on_target() {
+  local script=$1; shift
+  if [[ $DEPLOY_HOST == local ]]; then
+    bash -c "$script" on_target "$@"
+  else
+    local q; q=$(printf ' %q' "$@")
+    # shellcheck disable=SC2086
+    $DEPLOY_SSH "${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST" "bash -s --$q" <<<"$script"
+  fi
+}
+
+# rsync options for uploads and the dry-run listing. --checksum so CI
+# checkouts (fresh mtimes) only list files whose content changed.
+# /.well-known/ (certbot) is protected from --delete.
+RSYNC_OPTS=(-rlp --checksum --delete --itemize-changes
+            --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r --filter='P /.well-known/')
+rsync_to() { # SRC DEST [extra rsync args...]
+  local src=$1 dest=$2; shift 2
+  if [[ $DEPLOY_HOST == local ]]; then
+    $DEPLOY_RSYNC "${RSYNC_OPTS[@]}" "$@" "$src" "$dest"
+  else
+    $DEPLOY_RSYNC "${RSYNC_OPTS[@]}" -e "$DEPLOY_SSH" "$@" "$src" "$dest"
+  fi
+}
+
+# The target-side half lives in deploy/remote.sh and is piped to bash.
+REMOTE_LIB=$(<"$ROOT/deploy/remote.sh")
+remote() { on_target "$REMOTE_LIB" "$DEPLOY_PATH" "$DEPLOY_RELEASES" "$DEPLOY_KEEP" "$DEPLOY_ASSET_GRACE" "$@"; }
+
+# hold_lock: take $DEPLOY_RELEASES/.lock on the target and keep it until
+# this script exits, so a manual --rollback can't interleave with a CI deploy.
+# A coprocess keeps an ssh session (or a local bash) open, which runs flock
+# and then waits on stdin. When we exit, or the connection drops, its stdin
+# closes and the lock is released. The script is passed as a bash -c string
+# because stdin is the keepalive pipe. It must not contain single quotes.
+# shellcheck disable=SC2016
+LOCK_SCRIPT='umask 022 && mkdir -p "$1" && exec 9>>"$1/.lock" && flock -w "$2" 9 && echo locked && exec cat >/dev/null'
+hold_lock() {
+  local q; q=$(printf ' %q' "$DEPLOY_RELEASES" "$DEPLOY_LOCK_WAIT")
+  if [[ $DEPLOY_HOST == local ]]; then
+    coproc LOCK { bash -c "$LOCK_SCRIPT" hold_lock "$DEPLOY_RELEASES" "$DEPLOY_LOCK_WAIT"; }
+  else
+    # shellcheck disable=SC2086
+    coproc LOCK { $DEPLOY_SSH "${DEPLOY_USER:+$DEPLOY_USER@}$DEPLOY_HOST" "bash -c '$LOCK_SCRIPT' hold_lock$q"; }
+  fi
+  local line=
+  read -r line <&"${LOCK[0]}" || true
+  [[ $line == locked ]] || die "could not take $DEPLOY_RELEASES/.lock (another deploy or rollback running?); nothing changed"
+  log "holding $DEPLOY_RELEASES/.lock"
+}
+
+case $mode in
+  list) remote list; exit 0 ;;
+
+  rollback)
+    ((dry_run)) || hold_lock
+    name=$(remote pick "$rollback_name")
+    if ((dry_run)); then
+      log "dry run: switching $target to release $name would change:"
+      remote diff "$name"
+      ((DEPLOY_ASSET_GRACE == 0)) || log "(files listed as deleted stay reachable: they are carried over from recent releases)"
+      log "dry run: nothing changed"
+      exit 0
+    fi
+    # One atomic symlink swap. The release we leave stays on disk, so
+    # `--rollback NAME` can roll forward again, and a second --rollback
+    # steps one more release back.
+    remote switch "$name"
+    log "rolled back $target to release $name"
+    exit 0 ;;
+esac
+
+# --- deploy ---------------------------------------------------------------
+cd "$DEPLOY_SOURCE_DIR"
+if ((skip_build)); then
+  log "skipping build (--skip-build)"
+else
+  log "building in $DEPLOY_SOURCE_DIR: $DEPLOY_BUILD_CMD"
+  bash -c "$DEPLOY_BUILD_CMD" || die "build failed; nothing was deployed"
+fi
+[[ -f $DEPLOY_SRC/index.html ]] || die "$DEPLOY_SRC/index.html missing after build; nothing was deployed"
+
+if ((dry_run)); then
+  log "dry run: changes that would be made to $target"
+  if [[ $(remote exists) == no ]]; then
+    log "(docroot does not exist yet; every file would be new)"
+    (cd "$DEPLOY_SRC" && find . -type f -printf '>f+++++++++ %P\n' | LC_ALL=C sort)
+  else
+    rsync_to "$DEPLOY_SRC/" "$target/" --dry-run
+    ((DEPLOY_ASSET_GRACE == 0)) || log "(files listed as deleted stay reachable until $DEPLOY_ASSET_GRACE more releases have gone live; see DEPLOY_ASSET_GRACE)"
+  fi
+  log "dry run: nothing changed"
+  exit 0
+fi
+
+hold_lock
+link=()
+if [[ $(remote exists) == yes ]]; then link=(--link-dest="$DEPLOY_PATH/"); fi
+name=$(remote prepare)
+log "uploading release $name"
+# Upload into RELEASES/<name>.tmp. Unchanged files are hard-linked from the
+# live tree (--link-dest), so they aren't re-sent. The live tree is only
+# read here; nothing in it changes until `activate`.
+rsync_to "$DEPLOY_SRC/" "$(at_target "$DEPLOY_RELEASES/$name.tmp")/" "${link[@]}" \
+  || { remote discard "$name" || true; die "upload failed; live site unchanged"; }
+remote activate "$name"
+# After the switch: a failure here leaves the new release live, so say so.
+remote prune || die "release $name is live, but pruning old releases failed"
+log "deployed $(cat "$DEPLOY_SOURCE_DIR/.deploy-sha" 2>/dev/null || git -C "$DEPLOY_SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo '?') as release $name"
