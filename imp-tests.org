@@ -580,6 +580,8 @@ nil!
 [c b a]
 > rev `x `y `z
 `z `y `x
+> rev 1 2 3 + 10 20 30
+13 22 31
 #+end_src
 
 * TEST len : len (length)
