@@ -1,0 +1,6 @@
+#!/bin/sh
+# imp-b4-js : implish on b4's javascript vm (the engine of web/b4.html).
+#   b4/imp-b4-js -e '1 + ! 10'     same interface as b4/imp-b4
+# needs npm run build (dist/) and web/b4-image.json (b4/mkimage.mjs).
+ROOT=$(CDPATH= cd "$(dirname "$0")/.." && pwd)
+exec node "$ROOT/dist/b4/imp-b4-js-cli.mjs" "$@"

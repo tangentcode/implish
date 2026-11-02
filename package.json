@@ -10,7 +10,9 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
     "preview": "vite preview",
-    "repl": "node dist/imp-cmd.mjs"
+    "repl": "node dist/imp-cmd.mjs",
+    "test:b4": "b4/test",
+    "b4": "b4/imp-b4"
   },
   "repository": {
     "type": "git",

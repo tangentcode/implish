@@ -13,6 +13,6 @@
     "types": ["node"],
     "sourceMap": true
   },
-  "include": ["*.mts"],
+  "include": ["*.mts", "vendor/b4/*.mts", "b4/*.mts"],
   "exclude": ["node_modules", "dist"]
 }

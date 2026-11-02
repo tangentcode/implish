@@ -146,4 +146,14 @@ npm install && npm run build
 node dist/imp-cmd.mjs  # REPL
 ```
 
+### on the b4 virtual machine
+
+Implish also runs on [b4](https://github.com/tangentstorm/b4), a tiny forth-like vm, through an interpreter written in b4 assembly ([b4/imp.b4a](b4/imp.b4a)). Its lexer is built from b4's [pre](https://github.com/tangentstorm/b4/blob/main/b4a/pre.b4a) parsing matchers, and its values are int arrays in a small memory manager ([b4/mm.b4a](b4/mm.b4a)). So far it runs the whole demo from the home page: ints and strands, `! + - * ^ rev`, variables, `,` and lambdas. It also runs in the browser on b4's js vm (`web/b4.html`, built to `dist-web/b4.html`). See [docs/b4.org](docs/b4.org) for the plan.
+
+```bash
+b4/imp-b4 -e '1 + ! 10'    # prints 1 2 3 4 5 6 7 8 9 10 (b4 checkout at ~/ver/b4, or set B4=...)
+b4/imp-b4                  # line repl
+b4/test                    # tests, on both the TS and b4 implementations
+```
+
 If you'd like to talk to me about this, you can join the #implish discord channel from the  [TangentCode community page](https://tangentcode.com/community) or [find me on your favorite platform](http://tangentstorm.com/).

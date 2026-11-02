@@ -27,7 +27,14 @@ export default defineConfig({
   root: './web',
   publicDir: false,
   build: {
-    outDir: '../dist-web'
+    outDir: '../dist-web',
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'web/index.html'),
+        // implish on the b4 vm (docs/b4.org); not linked from the home page
+        b4: resolve(__dirname, 'web/b4.html')
+      }
+    }
   },
   plugins: [
     ensureCoreBuild()
