@@ -1,0 +1,200 @@
+#+title: implish regression tests: issue #8
+#+tanco-format: 0.2
+#+name: implish-issue-8
+#+todo: TODO | DONE TEST
+
+Regression tests for tangentcode/implish#8. Run with =npm test=.
+Fixtures for multi-line programs live in =test/fixtures/=.
+
+* Issue #8: function application stops at expression separators
+
+** TEST sep-semicolon : f: {x + 1}; f[2]
+#+begin_src
+> f: {x + 1}; f[2]
+3
+#+end_src
+
+** TEST sep-semicolon-parens : function defined and called inside parens
+#+begin_src
+> (h: {x - 1}; h[5])
+4
+#+end_src
+
+** TEST sep-newline : newline-separated program defining functions
+#+begin_src
+> value rd %test/fixtures/newline-fn.imp
+8
+#+end_src
+
+** TEST sep-newline-verb : newline after a verb-valued assignment
+#+begin_src
+> value rd %test/fixtures/newline-verb.imp
+5
+#+end_src
+
+** TEST sep-pipe : | also separates expressions
+#+begin_src
+> m: {x + y}| m[2; 3]
+5
+#+end_src
+
+** TEST sep-value-string : separators inside an evaluated string
+#+begin_src
+> value "f: {x + 1}; f[2]"
+3
+#+end_src
+
+** TEST sep-anon-fn : a function literal followed by another expression
+#+begin_src
+> {x + 1}; 7
+7
+> {x + 1}
+{x + 1}
+> {x * 2} 5
+10
+> count [{x}; 1]
+2
+#+end_src
+
+** TEST sep-jsf-assign : verb-valued assignment followed by a separator
+#+begin_src
+> a: + ; a[2; 3]
+5
+> v: ! ; v 4
+0 1 2 3
+#+end_src
+
+** TEST sep-ifn-call : named function applied after a separator
+#+begin_src
+> q: {x * 10}; q 4
+40
+#+end_src
+
+** TEST sep-infix-missing-arg : infix verb with no right argument before ;
+#+begin_src
+> (1 + ; 2)
+2
+#+end_src
+
+* Issue #8 follow-up: ',' separates arguments; only ; | newline end an expression
+
+A comma after a function value passes it arguments (as on main), or
+threads a value into a verb. It never ends an expression, and comma
+threading and infix/postfix verbs never cross ; | or newline.
+
+** TEST comma-lambda : comma after a lambda passes arguments
+#+begin_src
+> {x + 1}, 2
+3
+> {x + y}, 2, 3
+5
+#+end_src
+
+** TEST comma-assign-lambda : comma after an assigned lambda
+#+begin_src
+> f: {x + 1}, f 2
+4
+> f 5
+6
+#+end_src
+
+** TEST comma-named-ifn : comma threads a value into a named function
+#+begin_src
+> f: {x + 1}
+{x + 1}
+> 2, f
+3
+#+end_src
+
+** TEST comma-verb-assign : comma after a verb-valued assignment
+#+begin_src
+> a: + , 1
++[1]
+> a[2; 3]
+5
+#+end_src
+
+** TEST comma-jsf-partial : comma threads a value into a JSF partial
+#+begin_src
+> v: + 2
++[2]
+> 3, v
+5
+#+end_src
+
+** TEST comma-in-brackets : comma inside [] and ()
+#+begin_src
+> [{x + 1}, 2]
+[3]
+> ({x + 1}, 2)
+3
+> [{x + 1}, 2; 7]
+[3, 7]
+#+end_src
+
+** TEST comma-before-sep : comma before ; | or newline
+#+begin_src
+> {x + 1},; 7
+7
+> {x + 1}, 2; 7
+7
+> {x + 1}, 2| 9
+9
+> value rd %test/fixtures/comma-newline.imp
+6
+> value rd %test/fixtures/comma-trailing-newline.imp
+20
+#+end_src
+
+** TEST comma-thread-per-statement : comma threading stops at ; and newline
+#+begin_src
+> 5, + 1; 10, + 2
+12
+> [5, + 1; 10, + 2]
+[6, 12]
+> value rd %test/fixtures/comma-thread-newline.imp
+12
+#+end_src
+
+** TEST verb-after-sep : a verb right after ; is not given the separator as an argument
+#+begin_src
+> 1 2 3; rev 4 5 6
+6 5 4
+> f: {x + 1}
+{x + 1}
+> f: {x + 1}, 2; f 5
+6
+> 1 2 3; rev
+rev[]
+> 2; f
+{x + 1}[]
+#+end_src
+
+=rev[]= and ={x + 1}[]= are how a bare verb shows (same as typing =rev=
+alone); before the fix these were parsed as =rev[;]= and =f[;]=.
+
+** TEST comma-only-statement : a statement of only commas is empty, like `;;`
+# Codex finding on #12: these threw a TypeError in transformCommas.
+#+begin_src
+> [1; ,; 2]
+[1, 2]
+> [1; ; 2]
+[1, 2]
+> value "1; ,; 2"
+2
+> 1; , ,; 2
+2
+> [1; ,]
+[1]
+> [,; 2]
+[2]
+> [,]
+[]
+> [, ,]
+[]
+> (1; ,; 2)
+2
+> ,
+> 3
+3
+#+end_src

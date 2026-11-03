@@ -521,6 +521,9 @@ function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
     segments.push(currentSegment)
   }
 
+  // Only commas: nothing to thread or pass, so the statement is empty.
+  if (segments.length === 0) return []
+
   if (segments.length === 1) {
     // No commas, just transform normally
     return transformNoComma(segments[0], dict)
@@ -658,6 +661,24 @@ function transformNoComma(items: ImpVal[], dict: WordDict): ImpVal[] {
 // Phase 2: Transform to M-expressions
 // Coordinates the two-pass transformation
 function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
+  // ';', '|' and newline end a statement: transform each statement on its
+  // own, so comma threading and infix/postfix verbs never take operands
+  // from a neighboring statement (`2; f` must not become `2 f[;]`).
+  if (!items.some(ImpQ.endsExpr)) return transformStatement(items, dict)
+  const result: ImpVal[] = []
+  let stmt: ImpVal[] = []
+  for (const item of items) {
+    if (ImpQ.endsExpr(item)) {
+      if (stmt.length > 0) result.push(...transformStatement(stmt, dict))
+      result.push(item)
+      stmt = []
+    } else stmt.push(item)
+  }
+  if (stmt.length > 0) result.push(...transformStatement(stmt, dict))
+  return result
+}
+
+function transformStatement(items: ImpVal[], dict: WordDict): ImpVal[] {
   // Check if there are any commas in the sequence
   const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
 
