@@ -53,6 +53,16 @@ export const lexerTable: Array<[string, RegExp, TrimSpec]> = [
   [TokT.RAW,  /^[^\s\[\](){}`;]+/,                    [0, 0]], // catchall (keep last, exclude backtick)
 ]
 
+// Backslash escapes in string literals. These cover every escape that
+// JSON.stringify (used by impShow) emits, so shown strings read back
+// unchanged. Any other escaped character stands for itself: \q -> q.
+const ESCAPES: Record<string, string> = {
+  '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' }
+
+export function unescapeStr(s: string): string {
+  return s.replace(/\\(u[0-9a-fA-F]{4}|[\s\S])/g, (_, e: string) =>
+    e.length > 1 ? String.fromCharCode(parseInt(e.slice(1), 16)) : (ESCAPES[e] ?? e)) }
+
 export class ImpLoader {
   tree: TreeBuilder<any> = new TreeBuilder()
   symtbl = new SymTable() // global table for symbols
@@ -119,7 +129,7 @@ export class ImpLoader {
     [TokT.SEP]:  (tok) => this.emit(ImpC.sep(tok)),
     [TokT.NUM]:  (tok) => this.emit(ImpC.num(parseFloat(tok))),
     [TokT.INT]:  (tok) => this.emit(ImpC.int(tok === '0N' ? NULL_INT : parseInt(tok))),
-    [TokT.STR]:  (tok, trim) => this.emit(ImpC.str(trim ? tok.slice(trim[0], -trim[1]) : tok)),
+    [TokT.STR]:  (tok, trim) => this.emit(ImpC.str(unescapeStr(trim ? tok.slice(trim[0], -trim[1]) : tok))),
     [TokT.NODE]: (tok) => this.node(tok),
     [TokT.DONE]: (tok) => this.done(tok),
     // Symbol types

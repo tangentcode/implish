@@ -1,0 +1,93 @@
+#+title: implish regression tests: issue #10
+#+tanco-format: 0.2
+#+name: implish-issue-10
+#+todo: TODO | DONE TEST
+
+Regression tests for tangentcode/implish#10. Run with =npm test=.
+
+* Issue #10: string literal escapes are decoded
+
+** TEST esc-newline : \n is a newline
+#+begin_src
+> s: "a\nb"
+"a\nb"
+> count s
+3
+> echo s
+a
+b
+#+end_src
+
+** TEST esc-quote : \" is a quote, without the backslash
+#+begin_src
+> q: "say \"hi\""
+"say \"hi\""
+> count q
+8
+> echo q
+say "hi"
+#+end_src
+
+** TEST esc-backslash : \\ is one backslash
+#+begin_src
+> count "\\"
+1
+> echo "c:\\dir"
+c:\dir
+#+end_src
+
+** TEST esc-json-set : every escape JSON.stringify can emit
+#+begin_src
+> count "\t\r\b\f\/"
+5
+> ord "\t\r\b\f\/"
+9 13 8 12 47
+> "\u0041\u00e9\u263A"
+"Aé☺"
+> ord "\u0001"
+1
+#+end_src
+
+** TEST esc-other : any other escaped character stands for itself
+#+begin_src
+> "\q\-"
+"q-"
+> count "\u12"
+3
+#+end_src
+
+** TEST esc-roundtrip : shown strings read back unchanged
+#+begin_src
+> s: "tab\there \"q\" back\\slash"
+"tab\there \"q\" back\\slash"
+> match[s; value show s]
+1
+> match[s; value show value show s]
+1
+> c: chr 1
+"\u0001"
+> match[c; value show c]
+1
+#+end_src
+
+** TEST esc-roundtrip-list : strings inside lists round-trip too
+#+begin_src
+> ["a\"b" "c\\d"]
+["a\"b" "c\\d"]
+> value show ["a\"b" "c\\d"]
+["a\"b" "c\\d"]
+#+end_src
+
+** TEST esc-load : load and value decode escapes in loaded code
+#+begin_src
+> load "\"x\\ny\""
+"x\ny"
+> count value "\"x\\ny\""
+3
+#+end_src
+
+** TEST esc-xmls : xmls escapes attribute values
+#+begin_src
+> echo xmls "a\"<b>&"
+<imp:str v="a&quot;&lt;b&gt;&amp;"/>
+#+end_src

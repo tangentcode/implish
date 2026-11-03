@@ -358,8 +358,12 @@ function toXml(x: ImpVal): string {
   // For other types (SEP, INT, STR, MLS, JSF, JDY, END), treat as simple values
   return xmlTag('imp:' + x[0].toLowerCase(), {v: (x[2]??'').toString()})}
 
+function xmlEscape(s:string) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 function xmlTag(tag:string, attrs:Record<string, string>, content?:string) {
-  let attrStr = Object.entries(attrs).map(([k,v])=>`${k}="${v}"`).join(' ')
+  let attrStr = Object.entries(attrs).map(([k,v])=>`${k}="${xmlEscape(String(v))}"`).join(' ')
   if (content) return `<${tag} ${attrStr}>${content}</${tag}>`
   else return `<${tag} ${attrStr}/>`
 }

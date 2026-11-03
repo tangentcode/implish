@@ -60,7 +60,8 @@ cheq[1 + ! 5; f[x]]   .: projection can be total application too :.
 
 The rules for the base syntax are simple:
 
-- strings are double quoted and fit on one line (using `\` for escapes)
+- strings are double quoted and fit on one line (using `\` for escapes:
+  `\" \\ \/ \b \f \n \r \t \uXXXX` as in JSON; any other escaped character stands for itself)
 - triple-backticks start and end multi-line strings (as in markdown)
 - numbers look like numbers
 - parentheses, square brackets, and curly braces form nested structures
