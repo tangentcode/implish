@@ -61,7 +61,7 @@ export class ImpWriter {
       case ImpT.NUM: return x[2].toString()
       case ImpT.STR: return JSON.stringify(x[2])
       case ImpT.NIL: return 'nil'
-      case ImpT.MLS: return '```\n' + x[2] + '```\n'
+      case ImpT.MLS: return '```\n' + x[2] + '```'
       case ImpT.INTs: return (x[2] as number[]).map(n => n === NULL_INT ? '0N' : n.toString()).join(' ')
       case ImpT.NUMs: return (x[2] as number[]).join(' ')
       case ImpT.SYMs: return (x[2] as symbol[]).map(s => '`' + (s.description ?? '?')).join(' ')
