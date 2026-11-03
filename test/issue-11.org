@@ -1,0 +1,150 @@
+#+title: implish regression tests: issue #11
+#+tanco-format: 0.2
+#+name: implish-issue-11
+#+todo: TODO | DONE TEST
+
+Regression tests for tangentcode/implish#11. Run with =npm test=.
+
+* Issue #11: shown dicts and lists read back the same
+
+The loader reads =`c,= as the symbol =c,=, so the writer must never put
+a comma straight after a symbol. These tests check that =value show x=
+gives back =x= (=match= is 1) for every value type inside dicts and lists.
+Lists are passed by get-word (=:l=) so the stored value is shown as is.
+
+** TEST dict-sym-value : symbol value keeps its key
+#+begin_src
+> d: :[`c `d]
+:[`c `d]
+> keys value show d
+`c
+> match[d; value show d]
+1
+#+end_src
+
+** TEST dict-syms-value : symbol-vector value keeps its key
+#+begin_src
+> d: :[`e `f `g; `h 1]
+:[`e `f `g; `h 1]
+> keys value show d
+`e `h
+> (value show d)`e
+`f `g
+#+end_src
+
+** TEST dict-null-sym-value : null-symbol value keeps its key
+#+begin_src
+> d: :[`k `]
+:[`k `]
+> match[d; value show d]
+1
+#+end_src
+
+** TEST dict-nested : symbol value in a nested dict
+#+begin_src
+> d: :[`k :[`m `x]]
+:[`k :[`m `x]]
+> match[d; value show d]
+1
+> match[d; value show value show d]
+1
+#+end_src
+
+** TEST dict-all-types : every value type round-trips inside a dict
+#+begin_src
+> e: :[`i 1 2; `n 1.5; `s "a b"; `z nil; `l [1 "a"]; `y `p `q; `d :[`k `v]; `f {x * 2}]
+:[`i 1 2; `n 1.5; `s "a b"; `z nil; `l [1 "a"]; `y `p `q; `d :[`k `v]; `f {x * 2}]
+> match[e; value show e]
+1
+#+end_src
+
+** TEST list-of-syms : separate symbols in a list stay separate
+#+begin_src
+> m: [`a; `b]
+[`a; `b]
+> type? value show :m
+lst!
+> match[:m; value show :m]
+1
+#+end_src
+
+** TEST list-of-nums : separate numbers in a list stay separate
+#+begin_src
+> n: [1; 7]
+[1, 7]
+> match[:n; value show :n]
+1
+#+end_src
+
+** TEST list-dict-then-sym : a dict followed by a symbol is not read as indexing
+#+begin_src
+> l: [:[`k `v]; `z]
+[:[`k `v], `z]
+> count value show :l
+2
+> match[:l; value show :l]
+1
+#+end_src
+
+** TEST code-shown-as-written : function bodies and loaded code get no inserted commas
+#+begin_src
+> f: {x + 1 2}
+{x + 1 2}
+> h: value "{x + 1 2}"
+{x + 1 2}
+> h 1
+2 3
+> g: {`a `b}
+{`a `b}
+> show load "1 2"
+"1 2"
+#+end_src
+
+** TEST list-verb-then-noun : a function followed by a noun is set apart with ';'
+# Written as [{x * 2} 3] it would reload as an application ([6]).
+# rev builds the list without needing #8; the reload itself needs #8.
+#+begin_src
+> l: rev [3; {x * 2}]
+[{x * 2}; 3]
+> value "[{x * 2} 3]"
+[6]
+#+end_src
+
+** TEST list-noun-then-verb : a noun followed by a function round-trips
+#+begin_src
+> l: [3; {x * 2}]
+[3; {x * 2}]
+> match[:l; value show :l]
+1
+#+end_src
+
+** TEST list-verb-then-verb : adjacent functions are not composed or applied
+#+begin_src
+> b: [4; {x * 2}]
+[4; {x * 2}]
+> l: concat[[3; {x}]; rev :b]
+[3; {x}; {x * 2}; 4]
+#+end_src
+
+** TEST list-bare-verb : a projection with no args is shown as its verb
+# Written as +[] it would reload as +[nil].
+#+begin_src
+> l: [+; 3]
+[+; 3]
+> match[:l; value show :l]
+1
+#+end_src
+
+** TEST list-projection : a projection with args is set apart with ';'
+#+begin_src
+> l: rev [3; +[2]]
+[+[2]; 3]
+#+end_src
+
+** TEST list-verb-last : a verb at the end of a list round-trips
+#+begin_src
+> l: [3; +]
+[3; +]
+> match[:l; value show :l]
+1
+#+end_src

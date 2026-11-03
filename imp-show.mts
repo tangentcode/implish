@@ -26,35 +26,46 @@ export class ImpWriter {
     }
   }
 
+  private isVerb(x: ImpVal): boolean {
+    return x[0] === ImpT.IFN || x[0] === ImpT.JSF
+  }
+
+  // Separator to write between adjacent items of a list value so that
+  // loading the output gives back the same items: same-kind nouns would
+  // otherwise form a strand (1 2 -> one vector), and a dict followed by
+  // a backtick symbol would be read as indexing (d`k). After a symbol the
+  // separator is '; ' because the loader reads `a, as the symbol "a,".
+  private itemSep(prev: ImpVal, curr: ImpVal): string {
+    // A verb-valued item (function or projection) next to anything else
+    // would be applied to it ({f} 3, {f}, 3) or composed with it ({f} {g}),
+    // so verbs are always set apart with ';'.
+    if (this.isVerb(prev) || this.isVerb(curr)) return '; '
+    const prevKind = this.nounKind(prev)
+    const currKind = this.nounKind(curr)
+    if (prevKind !== null && prevKind === currKind) {
+      return prevKind === 'bqt-symbol' ? '; ' : ', '
+    }
+    if (prev[0] === ImpT.DCT && currKind === 'bqt-symbol') return ', '
+    return ' '
+  }
+
   // return a string representation
   show: (x: ImpVal) => string = (x) => {
-    let showList: (xs: ImpVal[]) => string = (xs) => {
-      // Check if this list has any SEP tokens
-      const hasSeps = xs.some(item => item[0] === ImpT.SEP)
+    // asCode: items are source tokens (a function body or loaded program),
+    // so juxtaposition is meaningful and they are shown as written.
+    let showList: (xs: ImpVal[], asCode?: boolean) => string = (xs, asCode = false) => {
+      // If the list has SEPs, they'll be shown naturally; don't insert any
+      const hasSeps = asCode || xs.some(item => item[0] === ImpT.SEP)
 
       let result = ''
       for (let i = 0; i < xs.length; i++) {
-        if (i > 0) {
-          // If the list has SEPs, they'll be shown naturally; don't insert commas
-          // If no SEPs but adjacent same-kind nouns, insert comma
-          if (!hasSeps) {
-            const prevKind = this.nounKind(xs[i-1])
-            const currKind = this.nounKind(xs[i])
-            if (prevKind !== null && currKind !== null && prevKind === currKind) {
-              result += ', '
-            } else {
-              result += ' '
-            }
-          } else {
-            result += ' '
-          }
-        }
+        if (i > 0) result += hasSeps ? ' ' : this.itemSep(xs[i-1], xs[i])
         result += this.show(xs[i])
       }
       return result
     }
     switch (x[0]) {
-      case ImpT.TOP: return showList(x[2])
+      case ImpT.TOP: return showList(x[2], true)
       case ImpT.ERR: return `?${q(x[2])}`
       case ImpT.SEP: return x[2]
       case ImpT.INT: return x[2] === NULL_INT ? '0N' : x[2].toString()
@@ -95,20 +106,14 @@ export class ImpWriter {
         if (dct.size === 0) return ':[]'
         const pairs: string[] = []
         for (const [key, val] of dct.entries()) {
-          const valStr = this.show(val)
-          // Add comma before backtick symbol values to distinguish from key
-          if (ImpQ.isSym(val) && val[1] && val[1].kind === SymT.BQT) {
-            pairs.push(`\`${key}, ${valStr}`)
-          } else if (val[0] === ImpT.SYMs) {
-            // For symbol vectors, also add comma
-            pairs.push(`\`${key}, ${valStr}`)
-          } else {
-            pairs.push(`\`${key} ${valStr}`)
-          }
+          // The dict reader takes the first item as the key and the rest
+          // (up to ';') as the value, so no separator is needed between
+          // them. A ',' here would become part of the key: `k, -> "k,".
+          pairs.push(`\`${key} ${this.show(val)}`)
         }
         return ':[' + pairs.join('; ') + ']'
       }
-      case ImpT.IFN: return '{' + showList(x[2]) + '}'
+      case ImpT.IFN: return '{' + showList(x[2], true) + '}'
       case ImpT.JSF: {
         // If it's a partial application, show as {source}[args]
         if (x[1].capturedArgs) {
@@ -121,6 +126,9 @@ export class ImpWriter {
           } else {
             source = '<fn>'
           }
+          // No captured args: the projection is just its source verb
+          // (written as source[] it would reload as source[nil]).
+          if (x[1].capturedArgs.length === 0) return source
           let args = x[1].capturedArgs.map(a => this.show(a)).join('; ')
           return `${source}[${args}]`
         }
