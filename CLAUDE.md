@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Workflow rules (root-cause rule, branches and PRs, who merges) are in [AGENTS.md](AGENTS.md). Follow them.
+
 ## Project Overview
 
 Implish is a tiny, ultraportable programming language designed to be embedded across different tech stacks. It combines an imperative core (inspired by Eric Hehner's "A Practical Theory of Programming") with functional, array-centric features borrowed from APL/K/J/Nial.
