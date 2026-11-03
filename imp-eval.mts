@@ -191,11 +191,16 @@ export class ImpEvaluator {
   peek = (): {item: ImpVal, wc: ImpP}|null => {
     if (this.atEnd()) return null
     let [item, wc, pos] = [this.item, this.wc, this.pos]
-    this.nextItem()
-    let [peekItem, peekWC] = [this.item, this.wc]
-    // !! why does this give "TypeError: Cannot create property '2' on number '1'" ?!?
-    // [this.item, this.wc, this.pos] = [item, wc, pos]
-    this.item = item; this.wc = wc; this.pos = pos
+    let peekItem: ImpVal | undefined, peekWC: ImpP | undefined
+    // restore position even if lookup throws (e.g. undefined word)
+    try {
+      this.nextItem()
+      ;[peekItem, peekWC] = [this.item, this.wc]
+    } finally {
+      // !! why does this give "TypeError: Cannot create property '2' on number '1'" ?!?
+      // [this.item, this.wc, this.pos] = [item, wc, pos]
+      this.item = item; this.wc = wc; this.pos = pos
+    }
     if (!peekItem || !peekWC) return null
     return {item: peekItem, wc: peekWC}}
 
@@ -487,19 +492,18 @@ export class ImpEvaluator {
     if (args.length >= 2) this.words['y'] = args[1]
     if (args.length >= 3) this.words['z'] = args[2]
 
-    // Execute body
+    // Execute body, restoring word bindings even if it throws
     let body: ImpLst = imp.lst({open: '{', close: '}'}, fn[2])
-    let result = await this.lastEval(body)
-
-    // Restore word bindings
-    if (savedX !== undefined) this.words['x'] = savedX
-    else delete this.words['x']
-    if (savedY !== undefined) this.words['y'] = savedY
-    else delete this.words['y']
-    if (savedZ !== undefined) this.words['z'] = savedZ
-    else delete this.words['z']
-
-    return result
+    try {
+      return await this.lastEval(body)
+    } finally {
+      if (savedX !== undefined) this.words['x'] = savedX
+      else delete this.words['x']
+      if (savedY !== undefined) this.words['y'] = savedY
+      else delete this.words['y']
+      if (savedZ !== undefined) this.words['z'] = savedZ
+      else delete this.words['z']
+    }
   }
 
   wordClass = (x: ImpVal): ImpP => wordClass(x)
@@ -743,9 +747,15 @@ export class ImpEvaluator {
   evalList = async (xs:ImpLst|ImpTop): Promise<ImpVal[]> => {
     // First, parse/normalize the tree (strands + M-expressions)
     xs = imparse(xs, this.words) as ImpLst|ImpTop
-    // walk from left to right, building up values to emit
-    let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     this.enter(xs)
+    // leave even if evaluation throws, so a caught error (e.g. in 'try')
+    // doesn't leave the evaluator positioned inside the failed list
+    try { return await this.evalHere() }
+    finally { this.leave() }}
+
+  // walk the current list from left to right, building up values to emit
+  private evalHere = async (): Promise<ImpVal[]> => {
+    let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
     while (!done) {
       // Handle separators - check for comma-verb sequencing
       this.nextItem()
@@ -909,7 +919,6 @@ export class ImpEvaluator {
           break
         default: throw "evalList: invalid word class: " + this.wc
       }}
-    this.leave()
     return tb.root as ImpVal[]}
 
   // evaluate a list but return last expression

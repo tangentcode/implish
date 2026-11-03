@@ -1,0 +1,98 @@
+#+title: implish regression tests: issue #9
+#+tanco-format: 0.2
+#+name: implish-issue-9
+#+todo: TODO | DONE TEST
+
+Regression tests for tangentcode/implish#9. Run with =npm test=.
+
+* Issue #9: evaluator state is restored when a function body throws
+
+** TEST throw-restores-x : x is restored after a failing call
+#+begin_src
+> x: 10
+10
+> f: {x + bad}
+{x + bad}
+> f[99]
+Error: undefined word: bad
+> x
+10
+#+end_src
+
+** TEST throw-restores-xyz : x, y and z are all restored
+#+begin_src
+> x: 10  y: 20  z: 30
+30
+> g: {x + y + z + bad}
+{x + y + z + bad}
+> g[1; 2; 3]
+Error: undefined word: bad
+> x
+10
+> y
+20
+> z
+30
+#+end_src
+
+** TEST throw-unbinds-x : x stays undefined if it was undefined before the call
+#+begin_src
+> h: {x + bad}
+{x + bad}
+> h[5]
+Error: undefined word: bad
+> x
+Error: undefined word: x
+#+end_src
+
+** TEST throw-nested : nested calls unwind every binding
+#+begin_src
+> x: 10
+10
+> o: {x + 1}
+{x + 1}
+> k: {o[x] + bad}
+{o[x] + bad}
+> k[5]
+Error: undefined word: bad
+> x
+10
+#+end_src
+
+** TEST throw-in-try : bindings are restored when 'try' catches the error
+#+begin_src
+> x: 10
+10
+> t: {x + bad}
+{x + bad}
+> a: concat[enlist :t; enlist 1 2]
+[{x + bad} 1 2]
+> try[each; :a]
+[1 "undefined word: bad"]
+> x
+10
+#+end_src
+
+** TEST throw-in-try-continues : evaluation resumes in the right place after 'try' catches
+#+begin_src
+> t: {x + bad}
+{x + bad}
+> a: concat[enlist :t; enlist 1 2]
+[{x + bad} 1 2]
+> [try[each; :a] 42]
+[[1 "undefined word: bad"] 42]
+> v: try[each; :a]  w: 42
+42
+> w
+42
+#+end_src
+
+** TEST success-restores-x : bindings are still restored after a successful call
+#+begin_src
+> x: 10
+10
+> {x * 2} 7
+14
+> x
+10
+#+end_src
