@@ -120,6 +120,9 @@ becomes the first item of the clause on its right.
   application), the clause on the right gives those arguments.
 - A set-word gives the value it stores. So if it stores a verb, the
   clause on the right gives the arguments: `f: {x + 1}, 5` is 6.
+- A get-word gives the value of its word. If that value is a verb,
+  `:f , 5` is `f 5`, and so is `(:f) 5`. A get-word alone does not
+  call the function: `:f` gives `{x + 1}`.
 
 ```
 2, + 3 * 5, + 7              .: (2 + (3 * 5)) + 7 = 24 :.

@@ -283,7 +283,7 @@ export class Parser {
 
   kind(x: Item): Kind {
     if (isHold(x)) {
-      const a = staticVerbArity(x.src)
+      const a = staticVerbArity(x.src, this.dict)
       return a === null ? {pos: 'noun', node: x} : {pos: 'verb', node: x, arity: a}
     }
     if (ImpQ.isSym(x)) {
@@ -452,7 +452,7 @@ function groupVerbArity(items: ImpVal[], dict: WordDict, groups: GroupCache): nu
   try {
     let last: Node | null = null
     for (const stmt of statements(items, () => dict, groups)) last = stmt
-    return last ? staticVerbArity(last) : null
+    return last ? staticVerbArity(last, dict) : null
   } catch {
     return null
   }
@@ -463,12 +463,22 @@ function isBareVerb(n: Node): boolean {
 }
 
 /** If a node gives a verb, return its arity, else null.
- *  Used to classify the value that a comma carries. */
-export function staticVerbArity(n: Node): number | null {
+ *  Used to classify the value that a comma carries and the last
+ *  statement of a ( ) group. Words are looked up in dict (the
+ *  dictionary at parse time), because a word can hold a verb. */
+export function staticVerbArity(n: Node, dict: WordDict): number | null {
+  const sva = (m: Node) => staticVerbArity(m, dict)
   switch (n.k) {
     case 'verb': return n.arity
+    // A word gives the value it holds:  (:f) 5  and  :f, 5  are  f 5.
+    // (A get-word alone is still a noun: :f does not call f.)
+    case 'get':
+    case 'ref': {
+      const w = dict[n.name]
+      return isVerbVal(w) ? getArity(w) : null
+    }
     // A set-word gives the value it stores:  f: {x + 1}, 5  is  f 5
-    case 'set': return staticVerbArity(n.rhs)
+    case 'set': return sva(n.rhs)
     // A function literal (stored by a set-word) is a verb if it uses x, y or z
     case 'val': {
       const v = n.v
@@ -478,11 +488,11 @@ export function staticVerbArity(n: Node): number | null {
       }
       return null
     }
-    case 'compose': return staticVerbArity(n.g)
-    case 'hold': return staticVerbArity(n.src)
-    case 'thread': return staticVerbArity(n.body)
+    case 'compose': return sva(n.g)
+    case 'hold': return sva(n.src)
+    case 'thread': return sva(n.body)
     case 'call': {
-      const fa = staticVerbArity(n.fn)
+      const fa = sva(n.fn)
       if (fa === null || fa === -1) return null
       if (n.args.length > 0 && n.args.length < fa) return fa - n.args.length
       return null

@@ -179,3 +179,27 @@ The value of a set-word is the value it stores. If that value is a verb, the cla
 #+end_src
 
 The parser parses each ( ) group at most once per statement. Before this fix, each level doubled the work: 20 levels took about 2.6 seconds, and 25 levels took about 30 times as long.
+
+* TEST comma-get-verb : a get-word of a verb is a verb in a group or a comma carry
+#+begin_src
+> f: {x + 1}
+{x + 1}
+> (:f) 5
+6
+> :f , 5
+6
+> :f
+{x + 1}
+> type? :f
+ifn!
+> add: {x + y}
+{x + y}
+> :add , 2 , 3
+5
+> n: 7
+7
+> (:n) , + 1
+8
+#+end_src
+
+The parser looks up the word of a get-word to find the arity of its value. A get-word alone, or as an argument, does not call the function.
