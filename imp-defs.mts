@@ -512,14 +512,6 @@ export function createImpWords(): Record<string, ImpVal> {
       // Also handles parallel assignment with symbol vectors
       if (ImpQ.isSym(x)) {
         const varName = x[2].description!
-        // Unwrap single-element lists created by imparse (e.g., [2 +])
-        if (ImpQ.isLst(y)) {
-          const yList = y as ImpLst
-          const attrs = yList[1] as ImpLstA
-          if (yList[2].length === 1 && attrs.open === '[' && attrs.close === ']') {
-            y = yList[2][0]
-          }
-        }
         this.words[varName] = y
         return y
       } else if (x[0] === ImpT.SYMs) {
@@ -845,14 +837,13 @@ export function createImpWords(): Record<string, ImpVal> {
       // Return all defined word names as a SYMs vector
       return ImpC.syms(Object.keys(words).map(w => Symbol(w)))
     }, 0),
-    '?': imp.jsf(function(this: ImpEvaluator) {
+    '?': imp.jsf(function(this: ImpEvaluator, x?: ImpVal) {
       // If no argument follows, print general help
-      if (this.atEnd()) {
+      if (x === undefined) {
         printHelp(globalOutputProvider)
         return NIL
       }
-      // Otherwise consume next item as the word to look up
-      let x = this.nextItem()
+      // Otherwise x is the next token, unevaluated (see rawArg below)
       let name: string
       if (ImpQ.isSym(x)) {
         name = x[2].description!
@@ -2999,6 +2990,13 @@ export function createImpWords(): Record<string, ImpVal> {
       }
     }, -1),  // -1 indicates variadic
   }
+
+  // Lazy forms: a projection such as ite[c; a; b] passes the code of each
+  // argument unevaluated, so the word decides what to run.
+  for (const name of ['ite', 'while', 'cond']) (words[name] as ImpJsf)[1].lazy = true
+  // ? takes the next token as it is:  ? rev
+  ;(words['?'] as ImpJsf)[1].arity = -1
+  ;(words['?'] as ImpJsf)[1].rawArg = true
 
   // Add sourceName to all JSF entries for better display in partial applications
   for (const [name, value] of Object.entries(words)) {

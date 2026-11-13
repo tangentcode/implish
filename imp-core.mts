@@ -49,7 +49,9 @@ export enum SymT {
 export type ImpSymA = { kind: SymT }
 export type ImpLstA = { open:string, close:string }
 export type ImpDctA = { /* metadata for dictionaries */ }
-export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string, doc?:string}
+export type ImpJsfA = {arity:number, sourceIfn?:ImpVal, capturedArgs?:ImpVal[], sourceName?:string, doc?:string,
+  lazy?:boolean,    // projection passes the argument code unevaluated (ite, while, cond)
+  rawArg?:boolean}  // prefix use passes the next token as it is (the ? help word)
 export type ImpIfnA = {arity:number, body:ImpVal[], doc?:string}
 
 // Individual types for each ImpVal variant
