@@ -155,3 +155,27 @@ Inside a block, numbers side by side form one strand, and =;= and =,= separate i
   <imp:int v="3"/>
 </imp:lst>
 #+end_src
+
+* TEST comma-set-verb : a set-word that stores a verb keeps it a verb
+#+begin_src
+> f: {x + 1}, 5
+6
+> f 10
+11
+> p: + 1, 2
+3
+> p 10
+11
+> (g: {x * 2}) 4
+8
+#+end_src
+
+The value of a set-word is the value it stores. If that value is a verb, the clause after the comma gives its arguments.
+
+* TEST nested-groups : deep nested ( ) groups parse in linear time
+#+begin_src
+> rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (1 2 3)))))))))))))))))))))))))
+3 2 1
+#+end_src
+
+The parser parses each ( ) group at most once per statement. Before this fix, each level doubled the work: 20 levels took about 2.6 seconds, and 25 levels took about 30 times as long.

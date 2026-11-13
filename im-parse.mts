@@ -209,7 +209,13 @@ function splitCommas(items: ImpVal[]): ImpVal[][] {
  *  The generator yields each finished statement. The caller runs it
  *  (or not) before it asks for the next one, so words that a statement
  *  defines are known when the next statement is parsed. */
-export function* statements(items: ImpVal[], dict: () => WordDict): Generator<Node, void, void> {
+export function* statements(items: ImpVal[], dict: () => WordDict,
+                            groups?: GroupCache): Generator<Node, void, void> {
+  // A caller that passes a cache keeps the dictionary fixed (see
+  // groupVerbArity). Otherwise the dictionary can change after each
+  // statement, so each statement gets a new cache.
+  const shared = groups !== undefined
+  let cache: GroupCache = groups ?? new Map()
   for (const seg of splitStatements(formStrands(items))) {
     const clauses = splitCommas(seg)
     let carry: Node | null = null
@@ -219,13 +225,14 @@ export function* statements(items: ImpVal[], dict: () => WordDict): Generator<No
       if (clause.length === 0) {
         throw ci === 0 ? "comma with nothing on its left" : "comma followed by nothing"
       }
-      const p: Parser = new Parser(clause, dict(), carry)
+      const p: Parser = new Parser(clause, dict(), carry, cache)
       carry = null
       while (!p.done()) {
         const stmt: Node = p.statement()
         if (!isLast && p.done()) { carry = stmt; break }
         yield stmt
         p.dict = dict()  // pick up words the last statement defined
+        if (!shared) p.groups = cache = new Map()
       }
     }
   }
@@ -234,15 +241,25 @@ export function* statements(items: ImpVal[], dict: () => WordDict): Generator<No
 // ---------------------------------------------------------------------------
 // The parser for one clause
 
+/** Verb arity (or null) of each ( ) group that was classified while one
+ *  statement was parsed. The dictionary does not change while a statement
+ *  is parsed, so a group is parsed at most once. Without this, the parser
+ *  parses nested groups again each time it looks at them, and the cost
+ *  grows exponentially with the depth. */
+export type GroupCache = Map<ImpVal, number | null>
+
 export class Parser {
   items: Item[]
   pos = 0
   dict: WordDict
   carry: Node | null
   hold: Hold | null = null
+  groups: GroupCache
 
-  constructor(clause: ImpVal[], dict: WordDict, carry: Node | null = null) {
+  constructor(clause: ImpVal[], dict: WordDict, carry: Node | null = null,
+              groups: GroupCache = new Map()) {
     this.dict = dict
+    this.groups = groups
     this.carry = carry
     if (carry) {
       this.hold = {k: 'hold', src: carry}
@@ -298,7 +315,11 @@ export class Parser {
       }
       if (open === '(') {
         // A group whose last statement is a verb is a verb:  (rev !) 5
-        const a = groupVerbArity(x[2], this.dict)
+        let a = this.groups.get(x)
+        if (a === undefined) {
+          a = groupVerbArity(x[2], this.dict, this.groups)
+          this.groups.set(x, a)
+        }
         if (a !== null) return {pos: 'verb', node: {k: 'verb', src: x, arity: a}, arity: a}
         return {pos: 'noun', node: {k: 'val', v: x}}
       }
@@ -427,10 +448,10 @@ export class Parser {
 
 /** Parse the code of a ( ) group without running it, and return the
  *  arity of its last statement if that statement gives a verb. */
-function groupVerbArity(items: ImpVal[], dict: WordDict): number | null {
+function groupVerbArity(items: ImpVal[], dict: WordDict, groups: GroupCache): number | null {
   try {
     let last: Node | null = null
-    for (const stmt of statements(items, () => dict)) last = stmt
+    for (const stmt of statements(items, () => dict, groups)) last = stmt
     return last ? staticVerbArity(last) : null
   } catch {
     return null
@@ -446,6 +467,17 @@ function isBareVerb(n: Node): boolean {
 export function staticVerbArity(n: Node): number | null {
   switch (n.k) {
     case 'verb': return n.arity
+    // A set-word gives the value it stores:  f: {x + 1}, 5  is  f 5
+    case 'set': return staticVerbArity(n.rhs)
+    // A function literal (stored by a set-word) is a verb if it uses x, y or z
+    case 'val': {
+      const v = n.v
+      if (ImpQ.isLst(v) && v[1].open === '{') {
+        const a = scanArity(v[2])
+        return a > 0 ? a : null
+      }
+      return null
+    }
     case 'compose': return staticVerbArity(n.g)
     case 'hold': return staticVerbArity(n.src)
     case 'thread': return staticVerbArity(n.body)

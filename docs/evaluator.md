@@ -118,6 +118,8 @@ becomes the first item of the clause on its right.
   takes everything to its right, as usual. A monad applies to the value.
 - If the value is a verb that still needs arguments (a partial
   application), the clause on the right gives those arguments.
+- A set-word gives the value it stores. So if it stores a verb, the
+  clause on the right gives the arguments: `f: {x + 1}, 5` is 6.
 
 ```
 2, + 3 * 5, + 7              .: (2 + (3 * 5)) + 7 = 24 :.
