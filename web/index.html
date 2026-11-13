@@ -724,18 +724,20 @@
       '.: Monadic functions :.',
       'rev 1 2 3  .: reverse a vector :.',
       '2 + rev 1 2 3  .: infix after monadic :.',
-      'rev 1 2 3 + 10 20 30  .: eager evaluation order :.',
+      'rev 1 2 3 + 10 20 30  .: rev takes one term, + takes the rest :.',
+      'rev (1 2 3 + 10 20 30)  .: group to reverse the sum :.',
       '.: Dyadic operators :.',
-      '2 + 3 * 5  .: left-to-right precedence :.',
+      '2 + 3 * 5  .: right to left, as in K: 2 + (3 * 5) :.',
       '2 ^ ! 5  .: exponentiate a range :.',
       '.: Sequencing :.',
+      '2 + 3, * 5  .: comma: the left clause runs first :.',
       '! 5, rev  .: pipe a range through rev :.',
       '! 10, * 2, + 1  .: compose transformations :.',
       '.: Functions :.',
       'f: {x * x}  .: implicit arity-1 :.',
       'f 7  .: call a unary function :.',
       'g: {x + y * 2}  .: implicit arity-2 :.',
-      'g 3, 5  .: call a dyadic function :.'
+      'g 3, 5  .: call a dyadic function: 3 + (5 * 2) :.'
     ]
 
     async function runExamples() {

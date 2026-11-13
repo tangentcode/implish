@@ -1,6 +1,9 @@
 #+TITLE: imparse[] Implementation Notes
 #+DATE: 2025-11-12
 
+NOTE (2026-11, issue #21): this file describes the old two-pass, left-to-right design. The parser was rewritten to run right to left, as in K. See docs/evaluator.md for the current rules.
+
+
 * What We Learned
 
 ** The Evaluator Already Has M-Expression Support!

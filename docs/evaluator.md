@@ -1,283 +1,268 @@
 # Implish Evaluator
 
-This document describes the evaluation algorithm used by the Implish interpreter.
+This document describes how implish reads and runs code.
 
 ## Overview
 
-The Implish evaluator is a **stack-based, left-to-right evaluator** that uses a **parts-of-speech** approach rather than traditional operator precedence. It evaluates token trees produced by the loader and produces ImpVal results.
+You read implish code left to right, but it runs right to left, as in K.
 
-## Parts of Speech (ImpP)
+Two files do the work:
 
-The evaluator classifies values into grammatical categories:
+- **im-parse.mts** (the parser) turns the token tree from `imp-load.mts`
+  into a small syntax tree, one statement at a time.
+- **imp-eval.mts** (the evaluator) runs that syntax tree.
 
-- **V** (Verb): Functions (JSF, IFN) - applied to arguments
-- **N** (Noun): Data values (INT, NUM, STR, LST, vectors, etc.)
-- **S** (Setter): Set-words like `foo:` - triggers assignment
-- **G** (Getter): Get-words like `:foo` - retrieves value without evaluation
-- **Q** (Quote): Quoted symbols like `` `foo `` - literal values
-- **E** (End): End of input or separator
-- **M** (Method): Message symbols like `.foo` - for method calls
-- **A** (Adverb): Verb modifiers (future)
-- **P** (Preposition): Takes noun arguments (future)
-- **C** (Conjunction): Combines verbs (future)
-
-**Note:** The **O** (Operator) part of speech was removed during unification. All binary operators are now verbs (ImpP.V) with arity 2.
-
-## Main Evaluation Loop (evalList)
-
-The core algorithm walks left-to-right through a token list, building up results:
+The evaluator asks the parser for one statement, runs it, and then asks
+for the next one. The parser looks up each word in the dictionary when it
+parses the statement, to learn if the word is a verb and how many
+arguments it takes. Because a statement runs before the next one is
+parsed, a word that one statement defines is known to the next one:
 
 ```
-while not at end:
-  skip separators
-  get next item
-  switch on word class:
-    case V (verb):
-      collect arity arguments
-      apply verb to arguments
-      emit result
-
-    case N (noun):
-      evaluate noun
-      extend into strand if next items match type
-      check for infix verbs (modifyNoun)
-      emit result
-
-    case S (setter):
-      perform assignment (doAssign)
-      emit assigned value
-
-    case G (getter):
-      look up variable value
-      emit value
-
-    case Q (quote):
-      collect strand of quoted symbols
-      emit as literal
+f: {x + 1}  f 5        .: 6 :.
 ```
 
-### Key Components
+## The rules
 
-#### 1. **Strand Collection** (`extendStrand`)
+### 1. A dyad takes everything to its right
 
-Consecutive values of the same type automatically form strands (vectors):
-
-- `1 2 3` → `[1, 2, 3]` (INTs vector)
-- `` `a `b `c`` → `[a, b, c]` (SYMs vector)
-- `foo bar baz` → three separate values (words don't form strands)
-
-Strand formation is **mechanical** - it doesn't look at function arity.
-
-#### 2. **Infix Application** (`modifyNoun`)
-
-After evaluating a noun, the evaluator checks if the next token is an **arity-2 verb**:
+A dyad (a verb with two arguments) in infix position takes the whole
+expression to its right as its right argument. There is no precedence
+between verbs.
 
 ```
-modifyNoun(result):
-  while next is arity-2 verb:
-    consume verb
-    collect right operand (may be verb application or strand)
-    apply: result = verb(result, right_operand)
-  return result
+2 + 3 * 5              .: 2 + (3 * 5) = 17 :.
+10 - 5 - 2             .: 10 - (5 - 2) = 7 :.
+2 * 3 + 4              .: 2 * (3 + 4) = 14 :.
+(2 * 3) + 4            .: 10 :.
 ```
 
-This implements **left-associative chaining**:
-- `1 + 2 * 3` → `(1 + 2) * 3` → `3 * 3` → `9`
+Any verb with arity 2 can be used infix: `+`, `min`, `tk`, or a user
+function such as `{x + y}`.
 
-**Important:** Any JSF or IFN with arity 2 can be used infix, not just operators.
+### 2. A prefix verb takes one term per argument
 
-#### 3. **Partial Application**
+A verb with nothing on its left is prefix. It takes the next term as its
+argument (or the next terms, one per argument). A term is:
 
-When a verb is called with fewer arguments than its arity, it returns a partial application:
+- a noun: a number, a strand such as `1 2 3`, a string, a word that
+  holds data, a get-word, a quoted symbol, a `[ ]` block, a `( )` group,
+  or a projection such as `f[a; b]`;
+- a set-word and the expression to its right (rule 4);
+- a verb and its own terms.
 
-```
-if args.length < arity:
-  return JSF with:
-    arity = original_arity - args.length
-    capturedArgs = args collected so far
-    function = closure that applies original function with captured + remaining args
-```
-
-Examples:
-- `+ 1 2` → `<fn[_; _]>[1 2]` (partial, waiting for more args)
-- `+ 1, 2` → `3` (full application with comma separator)
-- `(f: + 1 2) 3` → `4 5` (applying partial to strand)
-
-#### 4. **Assignment** (`doAssign`)
-
-Set-words trigger assignment:
+So a prefix verb binds tighter than a dyad:
 
 ```
-x: 123        # assign 123 to x
-a: b: 456     # right-associative: both a and b get 456
+rev a + 10 * a         .: (rev a) + (10 * a) :.
+rev 1 2 3 + 10 20 30   .: (rev 1 2 3) + 10 20 30 = 13 22 31 :.
+rev (1 2 3 + 10 20 30) .: 33 22 11 :.
+echo show type? 3      .: echo (show (type? 3)) :.
++ a b                  .: +[a; b] :.
 ```
 
-The RHS is evaluated according to its word class:
-- Noun: evaluate, extend strand, apply infix operators
-- Verb: collect arguments and apply (with partial application support)
-- Get-word: retrieve value without evaluation
-- Another set-word: recurse (enables chaining)
-
-#### 5. **Verb Composition** (`modifyVerb`)
-
-When two verbs appear in sequence, they compose (for arity-1 verbs):
+To give a monad a whole expression, use `( )`, a projection `f[...]`, or
+a comma (rule 5). For example, a recursive call needs brackets:
 
 ```
-rev !        # compose: reverse ∘ iota
-rev ! 5      # apply composition: rev(!(5)) → rev([0,1,2,3,4]) → [4,3,2,1,0]
+fact: {ite[x < 2; 1; x * fact[x - 1]]}
 ```
 
-## Symbol Resolution
+`fact x - 1` would be `(fact x) - 1`.
 
-Symbols are resolved during evaluation, not parsing (late binding):
+If a prefix verb gets fewer terms than it needs, the result is a partial
+application: `+ 1` gives `+[1]`. A verb with no terms at all is just the
+verb as a value: `each[rev; ...]`.
 
-1. `nextItem()` checks if current item is a RAW symbol
-2. If yes, looks it up in the word dictionary
-3. Replaces symbol with its value (JSF, IFN, or data)
-4. Determines word class based on the value type
+A dyad can start a term only right after a prefix verb, before any
+argument. After a term, a dyad is always infix.
 
-Special symbol variants are handled differently:
-- `foo:` (SET) → triggers assignment
-- `:foo` (GET) → retrieves value
-- `'foo` (LIT) → literal symbol
-- `` `foo`` (BQT) → quoted symbol
+A monad whose term is a bare verb gives a composition: `rev !` is a
+monad that runs `!` and then `rev`. So `(rev !) 5` is `4 3 2 1 0`.
 
-## Function Application
+### 3. A monad after a term is postfix
 
-### JSF (JavaScript Functions)
-
-```javascript
-imp.jsf((x, y) => elemWise((a,b) => a+b, x, y), 2)
-```
-
-- Uses rest parameters: `(...args: ImpVal[]) => ImpVal | Promise<ImpVal>`
-- Arity stored in metadata: `{arity: 2}`
-- Supports async (returns Promise)
-- Supports partial application
-- Can be used as both prefix and infix (if arity 2)
-
-### IFN (Implish Functions)
+A monad right after a term applies to that term. It binds as tight as a
+prefix monad:
 
 ```
-{x * 2}           # arity inferred by scanning for x, y, z
-{x + y}           # arity 2
-{x + y + z}       # arity 3
+2 !                    .: ![2] :.
+"hello" ord - 32 chr   .: (ord "hello") - (chr 32) :.
 ```
 
-- Defined with curly braces
-- Arity determined by scanning for implicit parameters (x, y, z)
-- Parameters bound during application
-- Supports partial application (fewer args than arity)
+Nouns after a postfix monad are extra arguments, and the evaluator
+reports a valence error: `2 ! 10`.
 
-## Special Syntactic Forms
+A dyad with nothing on its right is a partial application: `2 +` gives
+`+[2]`.
 
-### Projection (Bracket Application)
-
-```
-f[1; 2; 3]        # explicit application with semicolon separators
-+[1; 2]           # same as + 1, 2
-```
-
-Semicolons separate arguments, avoiding strand formation.
-
-### Quasiquotation
+### 4. A set-word takes everything to its right
 
 ```
-x: 42
-`[1 + ,x]         # backtick quotes, comma unquotes → [1 + 42]
+x: 2 + 3 * 4           .: x is 14 :.
+1 + y: 2 * 3           .: y is 6, the result is 7 :.
+rev x: 1 + ! 3         .: x is 1 2 3, the result is 3 2 1 :.
+a: b: 5                .: both are 5 :.
 ```
 
-- Backtick (`` ` ``) quotes expressions
-- Comma (`,`) unquotes within quoted context
-- Used for code-as-data manipulation
+A function literal right after a set-word is a value, not a call:
+`f: {x + 1}` stores the function.
 
-### Fold and Scan Operators
+### 5. The comma
 
-Created dynamically when `name/` or `name\` is not found:
+A comma ends a clause. The clause on its left runs first. Its value then
+becomes the first item of the clause on its right.
 
-```
-+/                # fold (reduce) with +
-+\ # scan (running total) with +
-```
-
-- `/` suffix creates fold operator
-- `\` suffix creates scan operator
-- Base operator must be arity-2 JSF
-- Cached in word dictionary after creation
-
-## Evaluation Order Summary
-
-1. **Left-to-right**: Tokens processed sequentially
-2. **Eager**: Arguments evaluated before function application
-3. **Strands first**: Consecutive same-type values collected before anything else
-4. **Infix after**: Arity-2 verbs applied in left-associative chains
-5. **Late binding**: Symbols resolved during evaluation, not parsing
-
-## Key Differences from Traditional Evaluators
-
-- **No operator precedence**: All infix application is left-associative
-- **No special operators**: `+` and user functions with arity 2 work identically
-- **Mechanical strands**: Type-based collection, not context-dependent
-- **Parts of speech**: Grammatical categories instead of precedence levels
-- **Partial application**: First-class feature, automatic for insufficient args
-
-## Example Evaluation Traces
-
-### Simple Infix
+- If the value is a noun, the clause on the right usually starts with a
+  verb, and that verb takes the value as its left argument. A dyad then
+  takes everything to its right, as usual. A monad applies to the value.
+- If the value is a verb that still needs arguments (a partial
+  application), the clause on the right gives those arguments.
 
 ```
-1 + 2
-→ evalList: nextItem() → 1 (N)
-→ eval(1) → 1
-→ extendStrand(1) → no matching types, return 1
-→ modifyNoun(1):
-    peek() → + (V, arity 2)
-    nextItem() → +
-    collectStrand() → 2
-    apply +(1, 2) → 3
-→ emit(3)
+2, + 3 * 5, + 7              .: (2 + (3 * 5)) + 7 = 24 :.
+! 10, * 2, + 1               .: ((! 10) * 2) + 1 :.
+! 5, rev                     .: rev (! 5) :.
+rev x: 1 + ! 3 , + 10 * x    .: (rev x) + (10 * x) = 13 22 31 :.
+ord "hello" - 32, chr        .: chr ((ord "hello") - 32) = "HELLO" :.
++ 1 2 3, 4 5 6               .: +[1 2 3; 4 5 6] = 5 7 9 :.
+g 3, 5                       .: g[3; 5] :.
 ```
 
-### Chaining
+A comma carries only the last statement of the clause on its left, and it
+never reaches across a `;` or a newline:
 
 ```
-1 + 2 * 3
-→ evalList: 1 (N) → 1
-→ modifyNoun(1):
-    + (V, arity 2), collectStrand() → 2, apply +(1,2) → 3
-    * (V, arity 2), collectStrand() → 3, apply *(3,3) → 9
-→ emit(9)
+a: 1 + ! 3 ; rev a , + 10 * a    .: a is 1 2 3, the result is 13 22 31 :.
+y: 9  z: ! 3, + 1                .: y is 9, z is 0 1 2, the result is 1 2 3 :.
 ```
 
-### Partial Application
+A comma with nothing on one side is an error.
+
+Inside a projection `f[...]`, only `;` (or a newline) separates
+arguments. A comma inside an argument is the comma operator.
+
+Inside a `[ ]` data block, a comma only separates items (rule 8).
+
+### 6. `;` and newlines end a statement
+
+`;`, `|` and newlines end a statement. Statements run left to right, and
+the value of a sequence is the value of its last statement.
+
+Two terms side by side with no verb between them are also two
+statements (Logo-like sequence sugar):
 
 ```
-+ 1 2
-→ evalList: + (V, arity 2)
-→ collect args:
-    nextNoun() → 1, extendStrand → [1, 2] (strand)
-    nextNoun() → END (stop)
-→ args.length (1) < arity (2)
-→ create partial: JSF {arity: 1, capturedArgs: [[1,2]]}
-→ emit(<fn[_; _]>[1 2])
+x: 12  y: 34  z: 56    .: three statements; the value is 56 :.
+1 `x                   .: two statements; the value is `x :.
 ```
 
-### Prefix with Separator
+The token `.|` is not used. It is kept free for a possible future
+pipeline operator.
+
+### 7. Arguments run right to left
+
+When a call has more than one argument, the evaluator runs the last
+argument first, as in K. This also holds for projections `f[a; b]`.
 
 ```
-+ 1, 2
-→ evalList: + (V, arity 2)
-→ collect args:
-    nextNoun() → collectStrand() → 1
-    (comma separator breaks strand)
-    nextNoun() → collectStrand() → 2
-→ apply +(1, 2) → 3
-→ emit(3)
+x + x: 5               .: the right side runs first, so this is 10 :.
 ```
 
-## Implementation Files
+The clause left of a comma always runs before the clause on its right.
 
-- **imp-eval.mts**: Main evaluator implementation
-- **imp-core.mts**: Type definitions and constructors
-- **imp-show.mts**: Value serialization for display
-- **imp-load.mts**: Parser/lexer (produces token trees for evaluator)
+### 8. Blocks: `[ ]` is data
+
+A `[ ]` block is data. It is not run. Inside a block:
+
+- numbers side by side form one strand, and backtick symbols side by
+  side form one symbol strand;
+- `;` and `,` separate items (they are not kept);
+- nested `[ ]` blocks are read the same way;
+- all other tokens (words, set-words, `( )`, `{ }`) stay as they are.
+
+```
+[1 + 2]                .: [1 + 2], three items :.
+[1 2; 3 4]             .: two items: 1 2 and 3 4 :.
+count [a b c]          .: 3 :.
+```
+
+The other kinds of list:
+
+| Form        | Meaning                                                    |
+|-------------|------------------------------------------------------------|
+| `( ... )`   | code: run it and give the last value                       |
+| `{ ... }`   | function literal; arity comes from the names x, y, z used  |
+| `f[ ... ]`  | projection: call `f` with arguments separated by `;`       |
+| `:[ ... ]`  | dictionary literal; each value is run as code              |
+| `'[ ... ]`  | the raw token list, with one quote removed                 |
+| `` `[ ... ]`` | quasiquote: like data, but `,x` puts in the value of x  |
+
+The words `ite`, `while` and `cond` are lazy: in a projection they get
+the code of each argument unevaluated, and they decide what to run.
+
+### 9. Strands
+
+Numbers side by side form one vector: `1 2 3`. Backtick symbols side by
+side form one symbol vector: `` `a `b `c``. This is purely lexical and
+happens before parsing.
+
+## Words and late binding
+
+- A plain word whose value is a function (JSF or IFN) is a verb. Its
+  arity comes from the function. Arity -1 means variadic.
+- Any other plain word is a noun. Its value is looked up when the
+  statement runs. A stored value is not run again: if `l` holds a list,
+  `l` gives that list.
+- `name/` and `name\` are fold and scan verbs when `name` is a dyad.
+- A `( )` group whose last statement gives a verb is a verb.
+- A projection `f[a]` of a verb that needs more arguments is a verb:
+  `add[3] 5` is `add[3; 5]`.
+- A dictionary word followed by a backtick symbol is an index:
+  `` d`a ``.
+- The help word `?` takes the next token as it is: `? rev`.
+
+## Syntax tree
+
+The parser makes these nodes (see `Node` in im-parse.mts):
+
+| Node      | Meaning                                                 |
+|-----------|---------------------------------------------------------|
+| `val`     | a literal, or a list that `eval()` handles by its opener |
+| `ref`     | a word used as a noun                                   |
+| `get`     | `:foo`                                                  |
+| `set`     | `foo: expr`                                             |
+| `verb`    | a verb that is not applied                              |
+| `call`    | a verb applied to arguments (maybe a partial)           |
+| `compose` | `f g` with no argument                                  |
+| `index`   | `` d`key ``                                             |
+| `thread`  | `left , body`: run `left`, then `body`                  |
+| `hold`    | the place in `body` where the value of `left` goes      |
+
+The `imparse` word shows the syntax tree as M-expressions:
+
+```
+imparse '[2 + 3 * 5]          .: +[2 ; *[3 ; 5]] :.
+imparse '[! 10 * 2 + 1]       .: *[![10] ; +[2 ; 1]] :.
+imparse '[2, + 3 * 5]         .: +[2 ; *[3 ; 5]] :.
+imparse load "x: 2 + 3"       .: set[`x ; +[2 ; 3]] :.
+```
+
+`imparse` does not run anything, so it does not know words that the
+code itself defines.
+
+## Function application
+
+- **JSF** (JavaScript function): `imp.jsf(fn, arity)`. Fewer arguments
+  than the arity give a partial application. More give a valence error.
+- **IFN** (implish function): `{x + y}`. The evaluator binds `x`, `y`,
+  `z`, runs the body, and then restores the old bindings. The body is
+  parsed each time the function runs.
+
+## Implementation files
+
+- **im-parse.mts**: parser, data block reader, strands, `imparse`
+- **imp-eval.mts**: evaluator (`ImpEvaluator`, `impEval`)
+- **imp-core.mts**: type definitions and constructors
+- **imp-show.mts**: value serialization for display
+- **imp-load.mts**: lexer (produces token trees for the parser)

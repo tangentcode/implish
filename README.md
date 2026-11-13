@@ -40,6 +40,14 @@ Of course, functional programming *does* have a lot to offer, so implish tries t
 
 The implish expression syntax borrows heavily from the APL family of languages (including K, J, and Nial), offering a rich assortment of  functional operations.
 
+As in K, you read an expression left to right, but it runs right to left. A dyad such as `+` or `*` takes the whole expression to its right as its right argument, and there is no precedence between verbs. A prefix verb such as `rev` takes only the term next to it. A comma runs the clause on its left first and passes its value on. Square brackets hold data: a `[ ]` block is not run. See [docs/evaluator.md](docs/evaluator.md).
+
+```implish
+2 + 3 * 5              .: 2 + (3 * 5) = 17 :.
+rev 1 2 3 + 10 20 30   .: (rev 1 2 3) + 10 20 30 = 13 22 31 :.
+1 2 3 + 10 20 30, rev  .: rev (1 2 3 + 10 20 30) = 33 22 11 :.
+```
+
 ```implish
 x: 0 1 2 3 4        .: "strand notation" for numeric arrays :.
 x: ! 5              .: same: "!" is "iota" or "range" :.
