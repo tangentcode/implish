@@ -299,6 +299,12 @@ export class Parser {
         if (a > 0) return {pos: 'verb', node: {k: 'verb', src: x, arity: a}, arity: a}
         return {pos: 'noun', node: {k: 'val', v: x}}
       }
+      if (open === '(') {
+        // A group whose last statement is a verb is a verb:  (rev !) 5
+        const a = groupVerbArity(x[2], this.dict)
+        if (a !== null) return {pos: 'verb', node: {k: 'verb', src: x, arity: a}, arity: a}
+        return {pos: 'noun', node: {k: 'val', v: x}}
+      }
       const m = open.match(/^(.+)\[$/)
       if (m && !open.startsWith("'") && !open.startsWith('`') && open !== ':[') {
         // projection: name[args]. If the word is a verb and some
@@ -419,6 +425,18 @@ export class Parser {
       node = {k: 'call', fn: p.node, args}
     }
     return node
+  }
+}
+
+/** Parse the code of a ( ) group without running it, and return the
+ *  arity of its last statement if that statement gives a verb. */
+function groupVerbArity(items: ImpVal[], dict: WordDict): number | null {
+  try {
+    let last: Node | null = null
+    for (const stmt of statements(items, () => dict)) last = stmt
+    return last ? staticVerbArity(last) : null
+  } catch {
+    return null
   }
 }
 
