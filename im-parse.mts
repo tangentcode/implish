@@ -205,14 +205,11 @@ function splitCommas(items: ImpVal[]): ImpVal[][] {
   return out
 }
 
-/** A step in running code: either a statement to run now, or an error. */
-export type Step = Node
-
 /** Walk code one statement at a time.
  *  The generator yields each finished statement. The caller runs it
  *  (or not) before it asks for the next one, so words that a statement
  *  defines are known when the next statement is parsed. */
-export function* statements(items: ImpVal[], dict: () => WordDict): Generator<Step, void, void> {
+export function* statements(items: ImpVal[], dict: () => WordDict): Generator<Node, void, void> {
   for (const seg of splitStatements(formStrands(items))) {
     const clauses = splitCommas(seg)
     let carry: Node | null = null

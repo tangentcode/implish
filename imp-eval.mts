@@ -429,10 +429,7 @@ export class ImpEvaluator {
       case ImpT.TOP: return await this.lastEval(x)
       case ImpT.SEP: return NIL
       case ImpT.LST: break
-      case ImpT.SYM:
-        // A bare unquote outside a quasiquote is just a symbol.
-        return x
-      default: return x
+      default: return x  // every other token is a value
     }
     const [_, a, v] = x as ImpLst
     const opener = a.open || '['
