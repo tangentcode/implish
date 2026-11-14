@@ -37,7 +37,17 @@ npm run preview
 ```
 
 ### Testing
-No formal test suite yet. Use `imp-tests.org` for manual testing examples.
+```bash
+# Build, then run every TEST block in imp-tests.org, prim-tests.org and test/*.org
+npm test
+
+# Run one file
+node test/run-org-tests.mjs test/issue-21.org
+```
+
+`test/api-tests.mjs` tests the embedding API (token trees made in JavaScript, for example with a function value in them); `npm test` runs it after the org tests.
+
+`test/run-org-tests.mjs` feeds each test's `> ` lines to the quiet REPL and compares the output. Each test starts from a fresh state (`/reset`). Headings marked TODO are not run. Put regression tests for issue N in `test/issue-N.org`.
 
 The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it easier to pipe test cases and compare outputs.
 
@@ -62,16 +72,22 @@ The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it
 - Handles nested structures with `[`, `(`, `{`, and `.:`...`:.` comments
 - Symbol prefixes: `%file`, `:get`, `foo:` set, `'lit`, `` `quote``, `.msg`, `!msg2`, `@ann`, `#ish`, `/refn`, `?err`, `,unq`
 
-**imp-eval.mts**: Evaluator/interpreter
-- `ImpEvaluator`: Stack-based evaluator using "parts of speech" for parsing
+**im-parse.mts**: Parser (token tree to syntax tree)
+- `statements()`: Yields one statement (a `Node`) at a time, so each statement is parsed after the one before it runs
+- `Parser`: The grammar for one clause (see "Evaluation order" below)
+- `formStrands()`: Joins `1 2 3` into an INTs vector and `` `a `b`` into SYMs
+- `readData()`: Reads a `[ ]` block as data
+- `imparse()`: Shows the syntax tree as M-expressions (the `imparse` word)
+
+**imp-eval.mts**: Evaluator
+- `ImpEvaluator`: Runs syntax tree nodes (`evalNode`) and token values (`eval`)
 - `impWords`: Global dictionary of built-in functions
-- Handles assignment (`x: 123`), function calls, infix operators, strands (juxtaposed values)
-- Async evaluation (supports Promise-returning functions)
-- `nextItem()`: Advances through token stream, resolving symbols
-- `collectStrand()`: Handles numeric/symbol vectors (e.g., `1 2 3` → INTs vector)
-- `modifyNoun()`: Applies infix operators (dyads) to nouns
-- `modifyVerb()`: Handles verb composition and adverbs
+- `runCode()` / `evalList()` / `lastEval()`: Run a list of tokens as code
+- `apply()`: Applies a function value (partial application, valence errors)
+- `applyIfn()`: Runs a user function with x, y, z bound
+- `project()`: Runs `name[a; b]`
 - `quasiquote()`: Evaluates backtick-quoted expressions with unquote (`,x`)
+- Async evaluation (supports Promise-returning functions)
 
 **imp-show.mts**: Serializer
 - `ImpWriter.show()`: Converts ImpVal back to implish source code
@@ -158,6 +174,20 @@ Example:
 }, 1),
 ```
 
+### Evaluation order
+
+Code is read left to right but runs right to left, as in K. Full rules: `docs/evaluator.md`.
+
+- A dyad in infix position takes the whole expression to its right: `2 + 3 * 5` is `2 + (3 * 5)` = 17. There is no precedence.
+- A prefix verb takes one term per argument, so it binds tighter than a dyad: `rev a + 10 * a` is `(rev a) + (10 * a)`. Use `f[x - 1]` or `f (x - 1)` to pass a whole expression.
+- A monad after a term is postfix and binds to that term: `2 !` is `![2]`.
+- A set-word takes everything to its right: `x: 1 + 2`.
+- A comma ends a clause. The left clause runs first, and its value becomes the first item of the right clause: `! 10, * 2, + 1`. It carries only the last statement on its left and never crosses `;`.
+- `;`, `|` and newlines end a statement. Two terms side by side with no verb between them are two statements.
+- Arguments of a call run right to left.
+- The parser asks the evaluator for a value when the parse depends on it: the clause left of a comma runs before the next clause is parsed, and a `( )` group or full projection that a term follows runs when the parser reaches it (so `(:f) 5` and ``get[`f] 5`` apply f).
+- `[ ]` blocks are data and are not run. `( )` runs code. `.|` is kept free.
+
 ### Important Patterns
 
 **Strands**: Juxtaposed values form vectors
@@ -178,7 +208,7 @@ f[a; b]         .: calls f with args a and b (semicolon separates) :.
 ```
 
 **Symbol variants affect evaluation**:
-- `foo` → look up word, evaluate
+- `foo` → look up word (a stored value is not run again)
 - `foo:` → assignment target (set-word)
 - `:foo` → get value of word without further evaluation (get-word)
 - `'foo` → literal symbol (lit-word)
@@ -227,7 +257,7 @@ The Vite build automatically runs `npm run build` (TypeScript compilation) first
 ### Known TODOs (from source comments)
 
 - imp-load.mts: Nested `.: :. comments, unterminated strings, floats
-- imp-eval.mts: Adverbs, prepositions, conjunctions (modifyVerb)
+- imp-eval.mts: Adverbs, prepositions, conjunctions
 - docs/parse.md: PEG-style parse library not yet implemented
 
 ## Project Planning
@@ -240,8 +270,8 @@ The Vite build automatically runs `npm run build` (TypeScript compilation) first
 
 ## Development Notes
 
-- The evaluator uses a "parts of speech" approach (verbs, nouns, operators, etc.) rather than traditional precedence climbing
-- Symbol resolution happens during evaluation, not parsing (late binding)
+- The parser uses a "parts of speech" approach (verbs, nouns, set-words) rather than precedence climbing: there is no precedence, only the right-to-left rule
+- Arity is looked up when a statement is parsed, and values when it runs. Statements are parsed one at a time (late binding)
 - The loader is deliberately simple: it only recognizes basic token types, leaving semantic interpretation to evaluators
 - File paths use a unified syntax (`%/d/path` for Windows, `%/path` for Unix) to avoid platform-specific quoting issues
 - always use the mcp server to execute implish code.

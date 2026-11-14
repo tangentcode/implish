@@ -1,6 +1,29 @@
-/** Implish parser/normalizer
- * Transforms token trees from imp-load into normalized M-expression AST
- * This is the second phase: load[] → imparse[] → eval[]
+/** Implish parser
+ *
+ * Turns a token tree from imp-load into a small syntax tree (Node) that
+ * the evaluator in imp-eval runs. The rules, in short:
+ *
+ *  - Code is read left to right, but it runs right to left (as in K).
+ *  - A dyad (arity-2 verb) in infix position takes the whole expression
+ *    to its right as its right argument:  2 + 3 * 5  is  2 + (3 * 5).
+ *  - A prefix verb takes the next term(s) as its argument(s), one term
+ *    per argument. A term is a noun, a set-word with its expression, or
+ *    a verb that applies to its own terms. So  rev a + 10 * a  is
+ *    (rev a) + (10 * a).
+ *  - A monad right after a term is postfix and binds to that term:
+ *    2 ! is ![2].
+ *  - A set-word takes the whole expression to its right:  x: 1 + 2.
+ *  - ; and newlines end a statement. Two terms side by side with no verb
+ *    between them are two statements (Logo-like sequence sugar).
+ *  - A comma ends a clause. The clause on its left runs first, and its
+ *    value becomes the first item of the clause on its right:
+ *    ! 10, * 2, + 1  is  ((! 10) * 2) + 1.
+ *  - [ ] blocks are data, not code. They are read by readData().
+ *
+ * Arity is looked up in the word dictionary when a statement is parsed,
+ * so the evaluator parses and runs one statement at a time.
+ *
+ * See docs/evaluator.md for the full description.
  */
 
 import * as imp from './imp-core.mjs'
@@ -10,662 +33,666 @@ import {
   ImpQ,
   SymT,
   ImpC,
-  ImpJsf,
   ImpJsfA,
-  ImpIfn,
-  ImpIfnA
+  ImpIfnA,
+  ImpLst,
 } from './imp-core.mjs'
+import {impShow} from './imp-show.mjs'
 
 // Word dictionary type (maps symbol names to ImpVals)
-type WordDict = Record<string, ImpVal>
+export type WordDict = Record<string, ImpVal>
 
-// Helper: Get arity of a value (returns 0 for non-functions)
-function getArity(x: ImpVal): number {
-  if (x[0] === ImpT.JSF) {
-    return (x[1] as ImpJsfA).arity
-  } else if (x[0] === ImpT.IFN) {
-    return (x[1] as ImpIfnA).arity
-  }
+// ---------------------------------------------------------------------------
+// Syntax tree
+
+/** A hold is the value of the clause to the left of a comma. */
+export type Hold = {k: 'hold', src: Node, value?: ImpVal}
+
+export type Node =
+  | {k: 'val', v: ImpVal}                     // literal, or source list that eval() handles
+  | {k: 'quote', v: ImpVal}                   // a token passed as it is, never run (? arg)
+  | {k: 'ref', name: string}                  // a word used as a noun
+  | {k: 'get', name: string}                  // :foo
+  | {k: 'set', name: string, rhs: Node}       // foo: expr
+  | {k: 'verb', name?: string, src?: ImpVal, arity: number}  // a verb, not applied
+  | {k: 'call', fn: Node, args: Node[]}       // apply fn to args (maybe partial)
+  | {k: 'compose', f: Node, g: Node}          // f g with no argument: f after g
+  | {k: 'index', target: Node, key: ImpVal}   // dict`key
+  | {k: 'thread', left: Node, hold: Hold, body: Node}  // left , body
+  | Hold
+
+// Part of speech of an item, found at parse time
+type Kind =
+  | {pos: 'noun', node: Node}
+  | {pos: 'verb', node: Node, arity: number, raw?: boolean}
+  | {pos: 'set', name: string}
+
+// An item in a clause: a token from the loader, or a held clause value
+type Item = ImpVal | Hold
+function isHold(x: Item): x is Hold { return (x as any).k === 'hold' }
+
+// ---------------------------------------------------------------------------
+// Helpers
+
+export function getArity(x: ImpVal): number {
+  if (x[0] === ImpT.JSF) return (x[1] as ImpJsfA).arity
+  if (x[0] === ImpT.IFN) return (x[1] as ImpIfnA).arity
   return 0
 }
 
-// Helper: Check if a value is a verb (function)
-function isVerb(x: ImpVal): boolean {
-  return x[0] === ImpT.JSF || x[0] === ImpT.IFN
+function isVerbVal(x: ImpVal | undefined): boolean {
+  return !!x && (x[0] === ImpT.JSF || x[0] === ImpT.IFN)
 }
 
-// Helper: Check if a value is a RAW symbol (not SET, GET, LIT, etc.)
-function isRawSymbol(x: ImpVal): boolean {
-  return ImpQ.isSym(x) && x[1].kind === SymT.RAW
+/** Find the arity of a fold (+/) or scan (+\) word, or null if it is not one. */
+function foldArity(name: string, dict: WordDict): number | null {
+  if (!(name.endsWith('/') || name.endsWith('\\'))) return null
+  const base = dict[name.slice(0, -1)]
+  if (base && base[0] === ImpT.JSF && (base[1] as ImpJsfA).arity === 2) return 1
+  return null
 }
 
-// Helper: Resolve a RAW symbol to its value in the dictionary
-function resolveSymbol(sym: ImpVal, dict?: WordDict): ImpVal | null {
-  if (!dict || !isRawSymbol(sym)) {
-    return null
+/** Scan a function body for the implicit parameters x, y, z.
+ *  Nested { } functions are not scanned. */
+export function scanArity(body: ImpVal[]): number {
+  let hasZ = false, hasY = false, hasX = false
+  function scan(x: ImpVal): void {
+    if (ImpQ.isSym(x) && (x[1].kind === SymT.RAW || x[1].kind === SymT.GET)) {
+      const name = x[2].description!
+      if (name === 'z') hasZ = true
+      else if (name === 'y') hasY = true
+      else if (name === 'x') hasX = true
+    } else if (ImpQ.isLst(x)) {
+      if (x[1].open === '{') return
+      for (const item of x[2]) scan(item)
+    } else if (ImpQ.isTop(x)) {
+      for (const item of x[2]) scan(item)
+    }
   }
-  const name = (sym[2] as symbol).description
-  return name ? (dict[name] || null) : null
+  for (const item of body) scan(item)
+  return hasZ ? 3 : hasY ? 2 : hasX ? 1 : 0
 }
 
-// Parse/normalize a token tree into M-expression form
-// When dict is provided, performs full M-expression transformation
-// Otherwise just combines literal strands (backward compatibility)
-export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
-  // Only process TOP and LST nodes
-  if (tree[0] !== ImpT.TOP && tree[0] !== ImpT.LST) {
-    return tree
+/** Split a projection's items into argument chunks.
+ *  Only ; and newlines split arguments. A comma inside an argument
+ *  is the comma operator. Returns [] for empty brackets. */
+export function splitArgs(items: ImpVal[]): ImpVal[][] {
+  if (items.length === 0) return []
+  const args: ImpVal[][] = [[]]
+  for (const x of items) {
+    if (x[0] === ImpT.SEP && x[2] !== ',') args.push([])
+    else args[args.length - 1].push(x)
   }
-
-  const items = tree[2] as ImpVal[]
-
-  // Phase 1: Form strands (numeric and symbol literals)
-  const phase1: ImpVal[] = formStrands(items)
-
-  // Phase 1.5: Transform GET/SET symbols to M-expressions (always, even without dict)
-  // :wd → get[`wd]
-  // x: expr → set[`x; expr]
-  const phase15: ImpVal[] = transformGetSet(phase1, dict)
-
-  // Phase 2: Transform to M-expressions (if dictionary provided)
-  // Transform TOP-level sequences AND regular bracket lists (source code)
-  // Do NOT transform projection syntax (verb in opener like "+[")
-  //
-  // STATUS: PHASE 1 - Conservative transformation enabled
-  // Transforms postfix/infix ONLY when no prefix verbs present
-  // Cases WITH prefix verbs (! 10 * 2) are left for evaluator
-  // This fixes: 2 !, 2 + 3, 2 + 3 * 5 (postfix and infix chains)
-  // Skips: ! 10, ! 10 * 2, 1 + 2 * ! 10 (prefix cases)
-
-  // Check if this is a regular list (not projection syntax, curly braces, parens, or backtick)
-  // Projection syntax has verb in opener: "+[", "![", etc.
-  // Regular lists: "[", "'[" (single quote is OK - we transform contents)
-  // Curly braces "{...}" are function definitions - don't transform
-  // Parentheses "(...)" are grouping - don't transform (let evaluator handle)
-  // Backtick "`[...]" is quasiquotation - don't transform (evaluator handles it)
-  const isRegularList = tree[0] === ImpT.LST &&
-                        tree[1].open?.match(/^'*\[/)  // Plain or single-quoted bracket, no verb
-
-  const isCurlyBraces = tree[0] === ImpT.LST && tree[1].open === '{'
-  const isParens = tree[0] === ImpT.LST && tree[1].open === '('
-  const isBacktick = tree[0] === ImpT.LST && tree[1].open?.startsWith("`")
-
-  const shouldTransform = dict && (tree[0] === ImpT.TOP || isRegularList) &&
-                          !isCurlyBraces && !isParens && !isBacktick
-  const phase2 = (shouldTransform && dict) ? transformToMExpr(phase15, dict) : phase15
-
-  // Check if transformation actually occurred (phase2 !== phase1)
-  const wasTransformed = phase2 !== phase1
-
-  // Return with appropriate structure
-  if (tree[0] === ImpT.TOP) {
-    return [ImpT.TOP, tree[1], phase2]
-  } else if (isRegularList && wasTransformed) {
-    // Regular lists that got transformed become TOP nodes (unwrapped)
-    return [ImpT.TOP, null, phase2]
-  } else {
-    // Projection syntax and untransformed lists stay as lists
-    return imp.lst(tree[1], phase2)
-  }
+  return args
 }
 
-// Phase 1: Form strands from adjacent literals
-function formStrands(items: ImpVal[]): ImpVal[] {
-  const refined: ImpVal[] = []
+// ---------------------------------------------------------------------------
+// Strands and data blocks
+
+/** Join adjacent number tokens into INTs/NUMs, and adjacent backtick
+ *  symbols into SYMs. This is purely lexical: 1 2 3 is one strand. */
+export function formStrands(items: ImpVal[]): ImpVal[] {
+  const out: ImpVal[] = []
   let i = 0
-
   while (i < items.length) {
     const item = items[i]
-
-    // Check if this is the start of a numeric strand
     if (item[0] === ImpT.INT || item[0] === ImpT.NUM) {
       const nums: number[] = [item[2] as number]
       let hasNum = item[0] === ImpT.NUM
       let j = i + 1
-
-      // Collect adjacent INT/NUM tokens
-      while (j < items.length) {
-        const next = items[j]
-        if (next[0] !== ImpT.INT && next[0] !== ImpT.NUM) break
-        nums.push(next[2] as number)
-        if (next[0] === ImpT.NUM) hasNum = true
+      while (j < items.length && (items[j][0] === ImpT.INT || items[j][0] === ImpT.NUM)) {
+        if (items[j][0] === ImpT.NUM) hasNum = true
+        nums.push(items[j][2] as number)
         j++
       }
-
-      // If we collected more than one, create a strand
       if (nums.length > 1) {
-        refined.push(hasNum ? ImpC.nums(nums) : ImpC.ints(nums))
+        out.push(hasNum ? ImpC.nums(nums) : ImpC.ints(nums))
         i = j
         continue
       }
     }
-
-    // Check if this is the start of a backtick symbol strand
     if (ImpQ.isSym(item) && item[1].kind === SymT.BQT) {
       const syms: symbol[] = [item[2] as symbol]
       let j = i + 1
-
-      // Collect adjacent backtick symbols
-      while (j < items.length) {
-        const nextItem = items[j]
-        if (!ImpQ.isSym(nextItem)) break
-        const attrs = nextItem[1]
-        if (!attrs || attrs.kind !== SymT.BQT) break
-        syms.push(nextItem[2] as symbol)
-        j++
-      }
-
-      // If we collected more than one, create a strand
-      if (syms.length > 1) {
-        refined.push(ImpC.syms(syms))
-        i = j
-        continue
-      }
-    }
-
-    // Not part of a strand, keep as-is
-    refined.push(item)
-    i++
-  }
-
-  return refined
-}
-
-// Phase 1.5: Transform GET/SET symbols to M-expressions
-// :wd → get[`wd]
-// x: expr → set[`x; expr]
-function transformGetSet(items: ImpVal[], dict?: WordDict): ImpVal[] {
-  const result: ImpVal[] = []
-  let i = 0
-
-  while (i < items.length) {
-    const item = items[i]
-
-    // Handle GET symbols: :foo → get[`foo]
-    if (ImpQ.isSym(item) && item[1].kind === SymT.GET) {
-      const symName = item[2] as symbol
-      const bqtSym = ImpC.sym(symName, SymT.BQT)
-      const mexpr = imp.lst({open: 'get[', close: ']'}, [bqtSym])
-      result.push(mexpr)
-      i++
-      continue
-    }
-
-    // Handle SET symbols: foo: expr → set[`foo; expr]
-    if (ImpQ.isSym(item) && item[1].kind === SymT.SET) {
-      const symName = item[2] as symbol
-      const bqtSym = ImpC.sym(symName, SymT.BQT)
-
-      // Collect the RHS (everything until separator or end)
-      // Handle chained assignments: a: b: 123 → set[`a; set[`b; 123]]
-      const rhs: ImpVal[] = []
-      let j = i + 1
-
-      // Collect RHS until we hit a separator or another SET/GET (with special handling)
-      // Chained assignment: a: b: 123 → collect "b: 123" (only SET/GET symbols until value)
-      // Separate assignments: x: 12 y: 34 → collect "12", stop at "y:"
       while (j < items.length) {
         const next = items[j]
-        if (next[0] === ImpT.SEP) {
-          break  // Stop at any separator (;, ,, \n)
-        }
-        // Check if this is a SET or GET symbol
-        const isSetOrGet = ImpQ.isSym(next) && (next[1].kind === SymT.SET || next[1].kind === SymT.GET)
-
-        // Only stop at SET/GET if we've collected actual values (not just SET/GET symbols)
-        // This allows chained assignments (a: b: 123) while stopping separate ones (x: 12 y: 34)
-        const hasActualValues = rhs.some(item =>
-          !(ImpQ.isSym(item) && (item[1].kind === SymT.SET || item[1].kind === SymT.GET))
-        )
-        if (isSetOrGet && hasActualValues) {
-          break
-        }
-        // Otherwise include it (handles chained assignment: a: b: 123)
-        rhs.push(next)
+        if (!ImpQ.isSym(next) || next[1].kind !== SymT.BQT) break
+        syms.push(next[2] as symbol)
         j++
       }
-
-      if (rhs.length === 0) {
-        throw `SET symbol ${symName.description} has no right-hand side`
-      }
-
-      // Transform the RHS through full pipeline (handles GET/SET, infix, postfix, commas)
-      // First recursively handle GET/SET in the RHS
-      const rhsPhase1 = transformGetSet(rhs, dict)
-      // Then apply full M-expression transformation if dict available
-      const transformedRhs = dict ? transformToMExpr(rhsPhase1, dict) : rhsPhase1
-
-      // Build the M-expression: set[`foo; rhs]
-      const args: ImpVal[] = [bqtSym, ImpC.sep(';')]
-
-      // If RHS is a single item, add it directly; otherwise wrap in a list
-      if (transformedRhs.length === 1) {
-        args.push(transformedRhs[0])
-      } else {
-        // Multiple items on RHS - wrap in TOP node for further processing
-        args.push(imp.lst(undefined, transformedRhs))
-      }
-
-      const mexpr = imp.lst({open: 'set[', close: ']'}, args)
-      result.push(mexpr)
-      i = j
-      continue
-    }
-
-    // Not GET or SET, keep as-is
-    result.push(item)
-    i++
-  }
-
-  return result
-}
-
-// Pass 1: Transform prefix verbs (F a → F[a])
-// Prefix verbs bind tighter than infix - they consume arguments eagerly
-// Process RIGHT-TO-LEFT so nested prefix verbs work: echo show type? 3 → echo[show[type?[3]]]
-function transformPrefix(items: ImpVal[], dict: WordDict): ImpVal[] {
-  const result: ImpVal[] = []
-  let i = items.length - 1
-
-  while (i >= 0) {
-    const item = items[i]
-
-    // Skip separators
-    if (item[0] === ImpT.SEP) {
-      result.unshift(item)
-      i--
-      continue
-    }
-
-    // Check if this is a RAW symbol verb
-    if (!isRawSymbol(item)) {
-      result.unshift(item)
-      i--
-      continue
-    }
-
-    const val = resolveSymbol(item, dict)
-    const resolved = val || item
-
-    if (isVerb(resolved)) {
-      const arity = getArity(resolved)
-
-      // Check if this is PREFIX (no noun left argument available)
-      // Look left (until a separator) for ANY noun (verbs don't block)
-      let hasLeftArg = false
-      for (let j = i - 1; j >= 0; j--) {
-        const leftItem = items[j]
-        if (leftItem[0] === ImpT.SEP) break
-
-        const leftVal = resolveSymbol(leftItem, dict)
-        const leftResolved = leftVal || leftItem
-        if (!isVerb(leftResolved)) {
-          hasLeftArg = true
-          break
-        }
-        // If it's a verb, keep scanning farther left for a noun
-        continue
-      }
-
-      if (!hasLeftArg && arity >= 1) {
-        // This is PREFIX - collect arguments from result (which has items to the right)
-        const args: ImpVal[] = []
-
-        for (let j = 0; j < arity && j < result.length; j++) {
-          const nextItem = result[j]
-          if (nextItem[0] === ImpT.SEP) break // Stop at separator
-          args.push(nextItem)
-        }
-
-        // If we collected exactly the right number of args, create M-expression
-        if (args.length === arity) {
-          const verbName = (item[2] as symbol).description || '?'
-          const argList: ImpVal[] = []
-          for (let k = 0; k < args.length; k++) {
-            if (k > 0) argList.push(ImpC.sep(';'))
-            argList.push(args[k])
-          }
-          const mexpr = imp.lst({open: verbName + '[', close: ']'}, argList)
-
-          // Remove consumed args from result and prepend mexpr
-          result.splice(0, args.length)
-          result.unshift(mexpr)
-          i--
-          continue
-        }
-      }
-    }
-
-    // Default: keep as-is
-    result.unshift(item)
-    i--
-  }
-
-  return result
-}
-
-// Pass 2: Transform infix and postfix (left-to-right)
-function transformInfixPostfix(items: ImpVal[], dict: WordDict): ImpVal[] {
-  const result: ImpVal[] = []
-  let i = 0
-
-  while (i < items.length) {
-    const item = items[i]
-
-    // Skip separators
-    if (item[0] === ImpT.SEP) {
-      result.push(item)
-      i++
-      continue
-    }
-
-    // Check if this is a RAW symbol verb
-    if (!isRawSymbol(item)) {
-      result.push(item)
-      i++
-      continue
-    }
-
-    const val = resolveSymbol(item, dict)
-    const resolved = val || item
-
-    if (isVerb(resolved)) {
-      const arity = getArity(resolved)
-      const availableArgs = result.length
-      const hasAhead = i + 1 < items.length
-
-      // Arity-2 verbs are INFIX operators: a op b → op[a; b]
-      if (arity === 2 && availableArgs > 0 && hasAhead) {
-        const leftArg = result.pop()!
-        let rightArg = items[i + 1]
-        let consume = 2
-
-        // If right token is a monadic verb, eagerly apply it prefix-style to following nouns
-        // so expressions like "1 + 2 * ! 10" become "*[+[1; 2]; ![10]]"
-        const rightVal = resolveSymbol(rightArg, dict)
-        const rightResolved = rightVal || rightArg
-        if (isVerb(rightResolved) && getArity(rightResolved) === 1 && i + 2 < items.length) {
-          const args: ImpVal[] = []
-          let j = i + 2
-          while (j < items.length) {
-            const next = items[j]
-            if (next[0] === ImpT.SEP) break
-
-            const nextVal = resolveSymbol(next, dict)
-            const nextResolved = nextVal || next
-            if (isVerb(nextResolved)) break
-
-            // For monadic functions on the right of infix, keep strands intact
-            const rightArity = getArity(rightResolved)
-            if (rightArity === 1) {
-              // Keep strands as single units for monadic functions
-              args.push(next)
-            } else {
-              // Unwrap strands for arguments (match postfix collection behavior)
-              if (next[0] === ImpT.INTs || next[0] === ImpT.NUMs) {
-                const nums = next[2] as number[]
-                for (const num of nums) {
-                  args.push(next[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
-                }
-              } else if (next[0] === ImpT.SYMs) {
-                const syms = next[2] as symbol[]
-                for (const sym of syms) {
-                  args.push(ImpC.sym(sym, SymT.BQT))
-                }
-              } else {
-                args.push(next)
-              }
-            }
-            j++
-          }
-
-          if (args.length > 0) {
-            const verbName = (rightArg[2] as symbol).description || '?'
-            const argList: ImpVal[] = []
-            for (let k = 0; k < args.length; k++) {
-              if (k > 0) argList.push(ImpC.sep(';'))
-              argList.push(args[k])
-            }
-            rightArg = imp.lst({open: verbName + '[', close: ']'}, argList)
-            consume = 2 + args.length
-          }
-        }
-
-        const verbName = (item[2] as symbol).description || '?'
-        const mexpr = imp.lst({open: verbName + '[', close: ']'}, [leftArg, ImpC.sep(';'), rightArg])
-        result.push(mexpr)
-        i += consume
-        continue
-      }
-
-      // Arity-1 verbs can be POSTFIX: a F → F[a]
-      // Also collect trailing nouns: a F b c → F[a; b; c] (let evaluator check arity)
-      if (arity === 1 && availableArgs > 0) {
-        const args: ImpVal[] = [result.pop()!]
-
-        // Collect all trailing NOUNS (stop at verbs or separators)
-        let j = i + 1
-        while (j < items.length) {
-          const nextItem = items[j]
-          if (nextItem[0] === ImpT.SEP) break
-
-          // Check if next item is a verb - if so, stop
-          const nextVal = resolveSymbol(nextItem, dict)
-          const nextResolved = nextVal || nextItem
-          if (isVerb(nextResolved)) break
-
-          // For arity-1 functions, keep strands as single units
-          // For variadic or higher-arity functions, unwrap strands into separate args
-          if (arity === 1 || arity === -1) {
-            // Keep strands intact for monadic functions
-            args.push(nextItem)
-          } else {
-            // Unwrap strands when collecting as function arguments
-            // This allows: 5 ! 20 30 → ![5; 20; 30] instead of ![5; 20 30]
-            if (nextItem[0] === ImpT.INTs || nextItem[0] === ImpT.NUMs) {
-              const nums = nextItem[2] as number[]
-              for (const num of nums) {
-                args.push(nextItem[0] === ImpT.INTs ? ImpC.int(num) : ImpC.num(num))
-              }
-            } else if (nextItem[0] === ImpT.SYMs) {
-              const syms = nextItem[2] as symbol[]
-              for (const sym of syms) {
-                args.push(ImpC.sym(sym, SymT.BQT))  // Unwrapped syms from strand are backtick
-              }
-            } else {
-              args.push(nextItem)
-            }
-          }
-          j++
-        }
-
-        const verbName = (item[2] as symbol).description || '?'
-        const argList: ImpVal[] = []
-        for (let k = 0; k < args.length; k++) {
-          if (k > 0) argList.push(ImpC.sep(';'))
-          argList.push(args[k])
-        }
-        const mexpr = imp.lst({open: verbName + '[', close: ']'}, argList)
-        result.push(mexpr)
+      if (syms.length > 1) {
+        out.push(ImpC.syms(syms))
         i = j
         continue
       }
     }
-
-    // Default: keep as-is
-    result.push(item)
+    out.push(item)
     i++
   }
-
-  return result
+  return out
 }
 
-// Transform comma-separated segments into chained M-expressions
-// e.g., `2, + 3` → `+[2; 3]`, `2, + 3 * 5, + 7` → `+[+[2; *[3; 5]]; 7]`
-function transformCommas(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Split items by comma separators
-  const segments: ImpVal[][] = []
-  let currentSegment: ImpVal[] = []
+/** Read a [ ] block as data. Nothing is looked up or run.
+ *  Strands are formed, ; and , separate items (and are dropped),
+ *  and nested [ ] blocks are read the same way. Other nested lists
+ *  ( ), { }, '[ ], name[ ] stay as they are. */
+export function readData(x: ImpLst): ImpLst {
+  const items = formStrands(x[2])
+    .filter(item => item[0] !== ImpT.SEP)
+    .map(item => (ImpQ.isLst(item) && item[1].open === '[') ? readData(item) : item)
+  return imp.lst(x[1], items)
+}
 
-  for (const item of items) {
-    if (item[0] === ImpT.SEP && item[2] === ',') {
-      if (currentSegment.length > 0) {
-        segments.push(currentSegment)
-        currentSegment = []
+// ---------------------------------------------------------------------------
+// Statement splitting
+
+/** Split items into statements on ; | and newline (not on comma). */
+function splitStatements(items: ImpVal[]): ImpVal[][] {
+  const segs: ImpVal[][] = [[]]
+  for (const x of items) {
+    if (x[0] === ImpT.SEP && x[2] !== ',') segs.push([])
+    else segs[segs.length - 1].push(x)
+  }
+  return segs.filter(s => s.length > 0)
+}
+
+/** Split one statement into clauses on commas. */
+function splitCommas(items: ImpVal[]): ImpVal[][] {
+  const out: ImpVal[][] = [[]]
+  for (const x of items) {
+    if (x[0] === ImpT.SEP && x[2] === ',') out.push([])
+    else out[out.length - 1].push(x)
+  }
+  return out
+}
+
+/** A request from the parser to the caller: run hold.src now and put
+ *  the result in hold.value. The parser asks for this when the parse of
+ *  the rest of the statement depends on a value (is it a verb or not?).
+ *  A caller that does not run code (imparse) ignores the request, and
+ *  the parser then guesses from the syntax (staticVerbArity). */
+export type Need = {k: 'need', hold: Hold}
+export type Step = Node | Need
+
+/** Thrown inside the parser when it needs the value of an item. */
+class NeedValue {
+  constructor(public item: ImpVal, public node: Node) {}
+}
+
+/** Walk code one statement at a time.
+ *  The generator yields each finished statement. The caller runs it
+ *  (or not) before it asks for the next one, so words that a statement
+ *  defines are known when the next statement is parsed.
+ *  It also yields Need requests (see Need). After each request, the
+ *  dictionary is read again, so the parse uses the new state. */
+export function* statements(items: ImpVal[], dict: () => WordDict,
+                            groups?: GroupCache): Generator<Step, void, void> {
+  // A caller that passes a cache keeps the dictionary fixed and runs
+  // nothing (see groupVerbArity). Otherwise the dictionary can change
+  // after each step, so the cache is cleared after each step.
+  const shared = groups !== undefined
+  let cache: GroupCache = groups ?? new Map()
+  const fresh = (): GroupCache => shared ? cache : (cache = new Map())
+  for (const seg of splitStatements(formStrands(items))) {
+    const clauses = splitCommas(seg)
+    clauses.forEach((clause, ci) => {
+      if (clause.length === 0) {
+        throw ci === 0 ? "comma with nothing on its left" : "comma followed by nothing"
       }
-    } else {
-      currentSegment.push(item)
+    })
+    let carry: Hold | null = null
+    for (let ci = 0; ci < clauses.length; ci++) {
+      const isLast = ci === clauses.length - 1
+      const p: Parser = new Parser(clauses[ci], dict(), carry, cache)
+      carry = null
+      while (!p.done()) {
+        const start = p.pos
+        let stmt: Node
+        try {
+          stmt = p.statement()
+        } catch (e) {
+          if (!(e instanceof NeedValue)) throw e
+          // Run the item, then parse the statement again with its value.
+          const hold: Hold = {k: 'hold', src: e.node}
+          yield {k: 'need', hold}
+          p.values.set(e.item, hold)
+          p.dict = dict()
+          p.groups = fresh()
+          p.pos = start
+          continue
+        }
+        if (!isLast && p.done()) {
+          // The clause left of a comma runs before the next clause is
+          // parsed, so the next clause sees its value and its effects.
+          carry = {k: 'hold', src: stmt}
+          yield {k: 'need', hold: carry}
+          fresh()
+          break
+        }
+        yield stmt
+        p.dict = dict()  // pick up words the last statement defined
+        p.groups = fresh()
+      }
     }
   }
-  if (currentSegment.length > 0) {
-    segments.push(currentSegment)
+}
+
+// ---------------------------------------------------------------------------
+// The parser for one clause
+
+/** Verb arity (or null) of each ( ) group that was classified while one
+ *  statement was parsed. The dictionary does not change while a statement
+ *  is parsed, so a group is parsed at most once. Without this, the parser
+ *  parses nested groups again each time it looks at them, and the cost
+ *  grows exponentially with the depth. */
+export type GroupCache = Map<ImpVal, number | null>
+
+export class Parser {
+  items: Item[]
+  pos = 0
+  dict: WordDict
+  hold: Hold | null = null
+  groups: GroupCache
+  /** Values of items that the caller ran during the parse (see Need). */
+  values = new Map<ImpVal, Hold>()
+  /** Positions of function literals that a set-word stores as values. */
+  valueAt = new Set<number>()
+
+  constructor(clause: ImpVal[], dict: WordDict, carry: Hold | null = null,
+              groups: GroupCache = new Map()) {
+    this.dict = dict
+    this.groups = groups
+    if (carry) {
+      this.hold = carry
+      this.items = [carry, ...clause]
+    } else {
+      this.items = clause
+    }
   }
 
-  if (segments.length === 1) {
-    // No commas, just transform normally
-    return transformNoComma(segments[0], dict)
+  done(): boolean { return this.pos >= this.items.length }
+
+  /** Parse one statement (one expression). */
+  statement(): Node {
+    const startedWithHold = this.pos === 0 && this.hold !== null
+    const node = this.expr()
+    if (startedWithHold) return {k: 'thread', left: this.hold!.src, hold: this.hold!, body: node}
+    return node
   }
 
-  // Check if first segment starts with a prefix verb (+ args, more-args)
-  // In this case, commas are argument separators, not threading
-  // BUT: only if subsequent segments don't start with verbs (which indicates threading)
-  if (segments[0].length > 0) {
-    const firstItem = segments[0][0]
-    const firstIsVerb = isRawSymbol(firstItem) &&
-                        isVerb(resolveSymbol(firstItem, dict) || firstItem)
+  // -- classification -------------------------------------------------------
 
-    if (firstIsVerb && segments.length > 1) {
-      // Check if any subsequent segment starts with a verb (indicates threading, not args)
-      let hasVerbAfterComma = false
-      for (let i = 1; i < segments.length; i++) {
-        if (segments[i].length > 0) {
-          const segFirstItem = segments[i][0]
-          const segFirstIsVerb = isRawSymbol(segFirstItem) &&
-                                 isVerb(resolveSymbol(segFirstItem, dict) || segFirstItem)
-          if (segFirstIsVerb) {
-            hasVerbAfterComma = true
-            break
+  /** Classify an item: is it a verb (and with which arity), a noun, or a
+   *  set-word? i is the position of the item in this.items. If run is
+   *  true, the parser may ask the caller to run a group or projection to
+   *  learn its value (see evaluated). */
+  kind(x: Item, i: number, run: boolean): Kind {
+    if (this.valueAt.has(i)) return {pos: 'noun', node: {k: 'val', v: x as ImpVal}}
+    if (isHold(x)) return holdKind(x, this.dict)
+    if (ImpQ.isSym(x)) {
+      const name = x[2].description!
+      switch (x[1].kind) {
+        case SymT.RAW: {
+          const w = this.dict[name]
+          if (isVerbVal(w)) {
+            return {pos: 'verb', node: {k: 'verb', name, arity: getArity(w)},
+                    arity: getArity(w), raw: !!(w[1] as ImpJsfA).rawArg}
           }
+          if (w === undefined) {
+            const fa = foldArity(name, this.dict)
+            if (fa !== null) return {pos: 'verb', node: {k: 'verb', name, arity: fa}, arity: fa}
+          }
+          return {pos: 'noun', node: {k: 'ref', name}}
         }
+        case SymT.SET: return {pos: 'set', name}
+        case SymT.GET: return {pos: 'noun', node: {k: 'get', name}}
+        default: return {pos: 'noun', node: {k: 'val', v: x}}
       }
-
-      // Only treat as comma-separated args if no verbs after commas
-      if (!hasVerbAfterComma) {
-        const verbItem = firstItem
-        const verbName = (verbItem[2] as symbol).description || '?'
-
-        // Collect all arguments from all segments (comma-separated args)
-        const allArgs: ImpVal[] = []
-        for (let i = 0; i < segments.length; i++) {
-          const segment = i === 0 ? segments[i].slice(1) : segments[i]  // Skip verb in first segment
-          const transformed = transformNoComma(segment, dict)
-          if (i > 0) allArgs.push(ImpC.sep(';'))
-          allArgs.push(...transformed)
+    }
+    if (ImpQ.isLst(x)) {
+      const open = x[1].open
+      if (open === '{') {
+        const a = scanArity(x[2])
+        if (a > 0) return {pos: 'verb', node: {k: 'verb', src: x, arity: a}, arity: a}
+        return {pos: 'noun', node: {k: 'val', v: x}}
+      }
+      if (open === '(') {
+        // A group whose value is a verb is a verb:  (rev !) 5
+        const e = this.evaluated(x, i, run)
+        if (e) return e
+        // Not run (see needsValue): guess from the code in the group.
+        let a = this.groups.get(x)
+        if (a === undefined) {
+          a = groupVerbArity(x[2], this.dict, this.groups)
+          this.groups.set(x, a)
         }
-
-        // Build M-expression: verb[arg1; arg2; ...]
-        const mexpr = imp.lst({open: verbName + '[', close: ']'}, allArgs)
-        return [mexpr]
+        if (a !== null) return {pos: 'verb', node: {k: 'verb', src: x, arity: a}, arity: a}
+        return {pos: 'noun', node: {k: 'val', v: x}}
       }
+      const m = open.match(/^(.+)\[$/)
+      if (m && !open.startsWith("'") && !open.startsWith('`') && open !== ':[') {
+        // projection: name[args]. If the word is a verb and some
+        // arguments are still missing, the projection is a verb.
+        const w = this.dict[m[1]]
+        if (isVerbVal(w)) {
+          const a = getArity(w)
+          const n = splitArgs(x[2]).length
+          if (a > n) return {pos: 'verb', node: {k: 'verb', src: x, arity: a - n}, arity: a - n}
+        }
+        // A full projection can give a verb too:  get[`f] 5
+        const e = this.evaluated(x, i, run)
+        if (e) return e
+      }
+      return {pos: 'noun', node: {k: 'val', v: x}}
+    }
+    // A function value in the tree (from the embedding API or from an
+    // unquote) is a verb, the same as a word that holds it.
+    const a = valueArity(x as ImpVal)
+    if (a !== null) return {pos: 'verb', node: {k: 'verb', src: x as ImpVal, arity: a}, arity: a}
+    return {pos: 'noun', node: {k: 'val', v: x as ImpVal}}
+  }
+
+  /** Is n known (at parse time) to give a dictionary? A word or get-word
+   *  that holds one, a :[ ] literal, or a group or projection that the
+   *  caller already ran (see Need) and that gave one. */
+  givesDict(n: Node): boolean {
+    switch (n.k) {
+      case 'ref':
+      case 'get': return this.dict[n.name]?.[0] === ImpT.DCT
+      case 'hold': return n.value?.[0] === ImpT.DCT
+      case 'val': return n.v[0] === ImpT.DCT || (ImpQ.isLst(n.v) && n.v[1].open === ':[')
+      default: return false
     }
   }
 
-  // Process segments with comma threading
-  // First segment transforms normally
-  let result = transformNoComma(segments[0], dict)
-
-  // Subsequent segments: check if they start with a verb (threading) or noun (arg separator)
-  for (let i = 1; i < segments.length; i++) {
-    const segment = segments[i]
-    if (segment.length === 0) {
-      throw "comma followed by nothing"
-    }
-
-    // Check if first item is a verb (for threading)
-    const firstItem = segment[0]
-    const isThreading = isRawSymbol(firstItem) &&
-                        isVerb(resolveSymbol(firstItem, dict) || firstItem)
-
-    if (!isThreading) {
-      // Not threading - this is argument separation (like `+ 1 2, 3 4`)
-      // Just append the comma and transformed segment to results
-      result.push(ImpC.sep(','))
-      const transformed = transformNoComma(segment, dict)
-      result.push(...transformed)
-      continue
-    }
-
-    // Threading case: verb takes previous result as first arg
-    const verbItem = firstItem
-    const val = resolveSymbol(verbItem, dict)
-    const resolved = val || verbItem
-
-    const arity = getArity(resolved)
-    const verbName = (verbItem[2] as symbol).description || '?'
-
-    if (arity === 1) {
-      // Arity-1: verb[prevResult]
-      if (segment.length > 1) {
-        throw `arity-1 verb ${verbName} after comma cannot have additional arguments`
-      }
-      // Wrap result in single M-expression
-      const mexpr = imp.lst({open: verbName + '[', close: ']'},
-                            result.length === 1 ? result : [imp.lst(undefined, result)])
-      result = [mexpr]
-    } else if (arity === 2) {
-      // Arity-2: verb[prevResult; restOfSegment]
-      const restItems = segment.slice(1)
-      const rightArg = transformNoComma(restItems, dict)
-
-      // Build M-expression: verb[prevResult; rightArg]
-      const args: ImpVal[] = []
-      // Add previous result
-      if (result.length === 1) {
-        args.push(result[0])
-      } else {
-        args.push(imp.lst(undefined, result))
-      }
-      args.push(ImpC.sep(';'))
-      // Add right argument
-      if (rightArg.length === 1) {
-        args.push(rightArg[0])
-      } else {
-        args.push(imp.lst(undefined, rightArg))
-      }
-
-      const mexpr = imp.lst({open: verbName + '[', close: ']'}, args)
-      result = [mexpr]
-    } else {
-      throw `comma-verb sequencing requires verb of arity 1 or 2, got arity ${arity}`
-    }
+  /** Classify the next item. Pass run = true only where the parser takes
+   *  the item as a term: at the start of a statement, after a dyad or
+   *  set-word, or as an argument of a prefix verb. Where it only looks
+   *  ahead (is a dyad or a postfix monad next?), the item can be the start
+   *  of the next statement, and that must not run before this statement
+   *  has run. So these look-aheads pass run = false. */
+  peekKind(run: boolean): Kind | null {
+    return this.done() ? null : this.kind(this.items[this.pos], this.pos, run)
   }
 
-  return result
+  /** For a ( ) group or a full projection: if the caller ran it, classify
+   *  it by its value. If its value decides the parse and run is true, ask
+   *  the caller to run it (throw NeedValue). Else return null, and the
+   *  caller guesses from the syntax. */
+  evaluated(x: ImpVal, i: number, run: boolean): Kind | null {
+    const h = this.values.get(x)
+    if (h) return h.value === undefined ? null : holdKind(h, this.dict)
+    if (run && this.needsValue(i)) throw new NeedValue(x, {k: 'val', v: x})
+    return null
+  }
+
+  /** Does the parse depend on whether item i is a verb? It does when a
+   *  term follows it: then item i is applied to that term (a verb) or the
+   *  two are separate statements (a noun). Running item i early does not
+   *  change the run order there: a function runs before its arguments,
+   *  and separate statements run left to right. When a dyad or nothing
+   *  follows, item i is run at the normal time. */
+  needsValue(i: number): boolean {
+    const nx = this.items[i + 1]
+    return nx !== undefined && !this.isDyadItem(i + 1)
+  }
+
+  /** Is item i an infix dyad? This uses the same classification as the
+   *  look-aheads (kind with run = false), so a group such as (+) counts. */
+  isDyadItem(i: number): boolean {
+    const k = this.kind(this.items[i], i, false)
+    return k.pos === 'verb' && k.arity === 2
+  }
+
+  /** Can the next item start an argument term? A dyad can start one
+   *  only in the first argument slot (before any argument). */
+  startsTerm(firstSlot: boolean): boolean {
+    const k = this.peekKind(true)   // an argument of a prefix verb
+    if (!k) return false
+    if (k.pos !== 'verb') return true
+    return k.arity !== 2 || firstSlot
+  }
+
+  // -- grammar --------------------------------------------------------------
+
+  /** expr := term [dyad expr] */
+  expr(): Node {
+    let left = this.term()
+    const k = this.peekKind(false)   // look-ahead: is a dyad next?
+    if (k && k.pos === 'verb' && k.arity === 2) {
+      this.pos++
+      if (this.done()) return {k: 'call', fn: k.node, args: [left]}   // 2 +  is +[2]
+      const right = this.expr()
+      return {k: 'call', fn: k.node, args: [left, right]}
+    }
+    return left
+  }
+
+  /** term := set-word expr | verb term* | noun postfix* */
+  term(): Node {
+    const k = this.peekKind(true)
+    if (!k) throw "unexpected end of input (missing argument?)"
+    this.pos++
+
+    if (k.pos === 'set') {
+      if (this.done()) throw `SET symbol ${k.name} has no right-hand side`
+      // A function literal right after a set-word is a value (a noun),
+      // not a verb:  f: {x + 1}. The rest of the expression is parsed
+      // as usual, so  f: {x + 1} type?  stores ifn!.
+      const next = this.items[this.pos]
+      if (!isHold(next) && ImpQ.isLst(next) && next[1].open === '{') this.valueAt.add(this.pos)
+      return {k: 'set', name: k.name, rhs: this.expr()}
+    }
+
+    if (k.pos === 'verb') {
+      // A raw verb (like ?) takes the next token as it is.
+      if (k.raw) {
+        const args: Node[] = []
+        if (!this.done() && !isHold(this.items[this.pos])) {
+          args.push({k: 'quote', v: this.items[this.pos++] as ImpVal})
+        }
+        return {k: 'call', fn: k.node, args}
+      }
+      const args: Node[] = []
+      const want = k.arity
+      while ((want === -1 || args.length < want) && this.startsTerm(args.length === 0)) {
+        args.push(this.term())
+      }
+      if (args.length === 0 && want !== 0) return k.node   // a verb as a value
+      // f g with no argument for g: composition
+      if (want === 1 && args.length === 1 && isBareVerb(args[0])) {
+        return {k: 'compose', f: k.node, g: args[0]}
+      }
+      return {k: 'call', fn: k.node, args}
+    }
+
+    // noun
+    let node = k.node
+    // dict`key indexing (only when the noun is known to give a dictionary)
+    if (this.givesDict(node)) {
+      while (!this.done()) {
+        const nx = this.items[this.pos]
+        if (isHold(nx)) break
+        const isKey = (ImpQ.isSym(nx) && nx[1].kind === SymT.BQT) || nx[0] === ImpT.SYMs
+        if (!isKey) break
+        this.pos++
+        node = {k: 'index', target: node, key: nx as ImpVal}
+      }
+    }
+    // postfix monads:  2 !  is  ![2]
+    while (true) {
+      const p = this.peekKind(false)   // look-ahead: a postfix monad?
+      if (!p || p.pos !== 'verb' || p.arity !== 1 || p.raw) break
+      this.pos++
+      const args: Node[] = [node]
+      // Extra nouns after a postfix monad are extra arguments. The
+      // evaluator reports them as a valence error:  2 ! 10
+      while (true) {
+        const q = this.peekKind(false)
+        if (!q || q.pos !== 'noun') break
+        this.pos++
+        args.push(q.node)
+      }
+      node = {k: 'call', fn: p.node, args}
+    }
+    return node
+  }
 }
 
-// Transform items without commas (helper for comma threading)
-function transformNoComma(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Two-pass transformation:
-  // Pass 1: PREFIX verbs (bind tighter, consume args eagerly)
-  //   ! 10 → ![10]
-  // Pass 2: INFIX and POSTFIX (left-to-right)
-  //   ![10] * 2 → *[![10]; 2]
-  const afterPrefix = transformPrefix(items, dict)
-  const afterInfix = transformInfixPostfix(afterPrefix, dict)
-  return afterInfix
+/** Parse the code of a ( ) group without running it, and return the
+ *  arity of its last statement if that statement gives a verb. */
+function groupVerbArity(items: ImpVal[], dict: WordDict, groups: GroupCache): number | null {
+  try {
+    let last: Node | null = null
+    for (const stmt of statements(items, () => dict, groups)) {
+      if (stmt.k !== 'need') last = stmt
+    }
+    return last ? staticVerbArity(last, dict) : null
+  } catch {
+    return null
+  }
 }
 
-// Phase 2: Transform to M-expressions
-// Coordinates the two-pass transformation
-function transformToMExpr(items: ImpVal[], dict: WordDict): ImpVal[] {
-  // Check if there are any commas in the sequence
-  const hasComma = items.some(item => item[0] === ImpT.SEP && item[2] === ',')
+/** Verb arity of a value, or null if it is not a function. */
+function valueArity(v: ImpVal): number | null {
+  return isVerbVal(v) ? getArity(v) : null
+}
 
-  if (hasComma) {
-    // Handle comma threading
-    return transformCommas(items, dict)
-  } else {
-    // No commas, use standard transformation
-    return transformNoComma(items, dict)
+/** Classify a hold by its value if the caller ran it, else by syntax. */
+function holdKind(h: Hold, dict: WordDict): Kind {
+  const a = h.value !== undefined ? valueArity(h.value) : staticVerbArity(h.src, dict)
+  return a === null ? {pos: 'noun', node: h} : {pos: 'verb', node: h, arity: a}
+}
+
+function isBareVerb(n: Node): boolean {
+  return n.k === 'verb' || n.k === 'compose'
+}
+
+/** If a node gives a verb, return its arity, else null.
+ *  Used to classify the value that a comma carries and the last
+ *  statement of a ( ) group. Words are looked up in dict (the
+ *  dictionary at parse time), because a word can hold a verb. */
+export function staticVerbArity(n: Node, dict: WordDict): number | null {
+  const sva = (m: Node) => staticVerbArity(m, dict)
+  switch (n.k) {
+    case 'verb': return n.arity
+    // A word gives the value it holds:  (:f) 5  and  :f, 5  are  f 5.
+    // (A get-word alone is still a noun: :f does not call f.)
+    case 'get':
+    case 'ref': {
+      const w = dict[n.name]
+      return isVerbVal(w) ? getArity(w) : null
+    }
+    // A set-word gives the value it stores:  f: {x + 1}, 5  is  f 5
+    case 'set': return sva(n.rhs)
+    // A function literal (stored by a set-word) is a verb if it uses x, y or z
+    case 'val': {
+      const v = n.v
+      if (isVerbVal(v)) return getArity(v)
+      if (ImpQ.isLst(v) && v[1].open === '{') {
+        const a = scanArity(v[2])
+        return a > 0 ? a : null
+      }
+      return null
+    }
+    case 'compose': return sva(n.g)
+    case 'hold': return n.value !== undefined ? valueArity(n.value) : sva(n.src)
+    case 'thread': return sva(n.body)
+    case 'call': {
+      const fa = sva(n.fn)
+      if (fa === null || fa === -1) return null
+      if (n.args.length > 0 && n.args.length < fa) return fa - n.args.length
+      return null
+    }
+    default: return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// Showing the syntax tree as M-expressions (for the imparse word)
+
+const SEMI = () => ImpC.sep(';')
+
+function joinArgs(args: ImpVal[]): ImpVal[] {
+  const out: ImpVal[] = []
+  args.forEach((a, i) => { if (i > 0) out.push(SEMI()); out.push(a) })
+  return out
+}
+
+/** Collect the function and all arguments of a call, merging partial
+ *  calls:  (+ 1, 2)  shows as  +[1 ; 2]. */
+function flattenCall(n: Node): {fn: Node, args: Node[]} {
+  if (n.k === 'hold') return flattenCall(n.src)
+  if (n.k === 'call') {
+    const inner = n.fn.k === 'call' || n.fn.k === 'hold' ? flattenCall(n.fn) : {fn: n.fn, args: []}
+    return {fn: inner.fn, args: [...inner.args, ...n.args]}
+  }
+  return {fn: n, args: []}
+}
+
+function fnName(fn: Node): string {
+  if (fn.k === 'verb') {
+    if (fn.name) return fn.name
+    if (fn.src) {
+      const m = ImpQ.isLst(fn.src) && fn.src[1].open.match(/^(.+)\[$/)
+      if (m) return m[1]
+    }
+  }
+  return ''
+}
+
+export function toMExpr(n: Node): ImpVal {
+  switch (n.k) {
+    case 'val': return n.v
+    case 'quote': return n.v
+    case 'ref': return ImpC.sym(Symbol(n.name), SymT.RAW)
+    case 'get': return imp.lst({open: 'get[', close: ']'}, [ImpC.sym(Symbol(n.name), SymT.BQT)])
+    case 'set':
+      return imp.lst({open: 'set[', close: ']'},
+        [ImpC.sym(Symbol(n.name), SymT.BQT), SEMI(), toMExpr(n.rhs)])
+    case 'verb': return n.name ? ImpC.sym(Symbol(n.name), SymT.RAW) : n.src!
+    case 'hold': return toMExpr(n.src)
+    case 'thread': return toMExpr(n.body)
+    case 'compose': return imp.lst({open: '(', close: ')'}, [toMExpr(n.f), toMExpr(n.g)])
+    case 'index': {
+      const t = toMExpr(n.target)
+      const name = ImpQ.isSym(t) ? t[2].description! : ''
+      return imp.lst({open: name + '[', close: ']'}, [n.key])
+    }
+    case 'call': {
+      const {fn, args} = flattenCall(n)
+      let name = fnName(fn)
+      let pre: Node[] = []
+      if (fn.k === 'verb' && !fn.name && fn.src && name) {
+        // projection with more arguments:  add[3] 5  shows as  add[3 ; 5]
+        pre = splitArgs((fn.src as ImpLst)[2]).map(chunk =>
+          ({k: 'val', v: chunk.length === 1 ? chunk[0] : ImpC.top(chunk)} as Node))
+      }
+      if (!name) name = toShowName(fn)
+      return imp.lst({open: name + '[', close: ']'}, joinArgs([...pre, ...args].map(toMExpr)))
+    }
+  }
+}
+
+// Fallback name for an anonymous verb, such as a function literal.
+function toShowName(fn: Node): string {
+  return impShow(toMExpr(fn))
+}
+
+// ---------------------------------------------------------------------------
+// Public entry point
+
+/** Parse a token tree and return it as M-expressions.
+ *  This is what the imparse word shows. It does not run anything,
+ *  so words that the code itself defines are not known yet. */
+export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
+  if (tree[0] !== ImpT.TOP && tree[0] !== ImpT.LST) return tree
+  const d = dict ?? {}
+  const out: ImpVal[] = []
+  for (const stmt of statements(tree[2] as ImpVal[], () => d)) {
+    if (stmt.k === 'need') continue   // imparse runs nothing
+    if (out.length) out.push(SEMI())
+    out.push(toMExpr(stmt))
+  }
+  return ImpC.top(out)
 }

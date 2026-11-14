@@ -1,23 +1,22 @@
+/** Implish evaluator
+ *
+ * Runs code right to left, as in K. The parser (im-parse.mts) builds a
+ * syntax tree for one statement at a time; this file runs that tree.
+ * See docs/evaluator.md for the rules.
+ */
 import * as imp from './imp-core.mjs'
 import {
-  END,
-  ImpLstA,
-  ImpP,
   ImpT,
   ImpVal,
   ImpQ,
   NIL,
   SymT,
-  TreeBuilder,
-  JSF,
   ImpJsf,
-  ImpJsfA,
   ImpIfn,
-  ImpIfnA,
-  ImpStr, ImpC, ImpTop, ImpErr, ImpLst, ImpDct
+  ImpC, ImpTop, ImpErr, ImpLst, ImpDct
 } from './imp-core.mjs'
 import {impShow} from './imp-show.mjs'
-import {imparse} from './im-parse.mjs'
+import {statements, readData, scanArity, splitArgs, formStrands, type Node} from './im-parse.mjs'
 import {
   createImpWords,
   setInputProvider as setInputProviderDefs,
@@ -55,529 +54,221 @@ export function resetWords() {
   impWords = createImpWords()
 }
 
-// Scan AST for implicit parameters x, y, z to determine function arity
-// Does NOT scan inside nested curly brace functions
-function scanArity(body: ImpVal[]): number {
-  let hasZ = false, hasY = false, hasX = false
-
-  function scan(x: ImpVal): void {
-    // If it's a RAW symbol, check if it's x, y, or z
-    if (ImpQ.isSym(x) && x[1].kind === SymT.RAW) {
-      let name = x[2].description!
-      if (name === 'z') hasZ = true
-      else if (name === 'y') hasY = true
-      else if (name === 'x') hasX = true
-    }
-    // If it's a GET symbol (:x, :y, :z), also count those
-    else if (ImpQ.isSym(x) && x[1].kind === SymT.GET) {
-      let name = x[2].description!
-      if (name === 'z') hasZ = true
-      else if (name === 'y') hasY = true
-      else if (name === 'x') hasX = true
-    }
-    // Recursively scan lists, but NOT curly brace lists (nested functions)
-    else if (ImpQ.isLst(x)) {
-      // Skip if this is a curly brace list (nested function)
-      if (x[1].open === '{') return
-      // Otherwise scan the contents
-      for (let item of x[2]) scan(item)
-    }
-    // Also scan TOP nodes
-    else if (ImpQ.isTop(x)) {
-      for (let item of x[2]) scan(item)
-    }
-  }
-
-  for (let item of body) scan(item)
-
-  if (hasZ) return 3
-  if (hasY) return 2
-  if (hasX) return 1
-  return 0
-}
-
-function wordClass(x:ImpVal) {
-    let [xt, _xa, _xv] = x
-    switch (xt) {
-      case ImpT.TOP: return ImpP.N
-      case ImpT.END: return ImpP.E
-      case ImpT.SEP: return ImpP.E  // Treat separator as end-like (stops collection)
-      case ImpT.INT: return ImpP.N
-      case ImpT.NUM: return ImpP.N
-      case ImpT.STR: return ImpP.N
-      case ImpT.MLS: return ImpP.N
-      case ImpT.SYM: return ImpP.N
-      case ImpT.LST: return ImpP.N
-      case ImpT.DCT: return ImpP.N
-      case ImpT.INTs: return ImpP.N
-      case ImpT.NUMs: return ImpP.N
-      case ImpT.SYMs: return ImpP.N
-      // -- resolved symbols:
-      case ImpT.JSF: return ImpP.V
-      case ImpT.IFN: return ImpP.V
-      case ImpT.NIL: return ImpP.N
-      default: throw "[wordClass] invalid argument:" + x }}
-
 export class ImpEvaluator {
   words: Record<string, ImpVal> = impWords
-  root: ImpVal[]
-  here: ImpVal[]
-  stack: [ImpVal[], number, ImpP[]][] = []
 
-  item: ImpVal | undefined = undefined
-  wc: ImpP | undefined = undefined
-  pos: number = 0
-  wcs: ImpP[] = [];
+  constructor(_root?: ImpVal[]) {}
 
-  constructor(root: ImpVal[]) {
-    this.here = this.root = root }
+  // -- running code ----------------------------------------------------------
 
-  enter = (xs:ImpLst|ImpTop): void => {
-    this.stack.push([this.here, this.pos, this.wcs])
-    this.pos=0; this.here=xs[2]; this.wcs=[]}
-
-  leave = (): void => {
-    const popped = this.stack.pop();
-    if (!popped) throw new Error("leave without matching enter");
-    [this.here, this.pos, this.wcs] = popped;
-  }
-  atEnd = (): boolean => this.pos >= this.here.length
-
-  /// sets this.item and this.wc
-  nextItem = (): ImpVal => {
-    let x = (this.pos >= this.here.length) ? END : this.here[this.pos++]
-    if (ImpQ.isSym(x)) {
-      // Check symbol kind - only RAW symbols are looked up
-      switch (x[1].kind) {
-        case SymT.RAW: {
-          // Normal symbol, so look it up
-          let name = x[2].description!
-          let w = this.words[name]
-
-          // If not found and ends with '/' or '\', try to create a fold/scan operator
-          if (!w && (name.endsWith('/') || name.endsWith('\\'))) {
-            let baseName = name.slice(0, -1)
-            let baseOp = this.words[baseName]
-
-            if (baseOp && (baseOp[0] === ImpT.JSF && baseOp[1].arity === 2)) {
-              // Create the fold or scan operator (don't cache it)
-              if (name.endsWith('/')) {
-                w = this.createFoldOperator(baseName, baseOp)
-              } else {
-                w = this.createScanOperator(baseName, baseOp)
-              }
-            }
-          }
-
-          if (w) x = w, this.wc = this.wordClass(w)
-          else throw "undefined word: " + name
-          break
-        }
-        case SymT.SET:  this.wc = ImpP.S; break  // set-word
-        case SymT.GET:  this.wc = ImpP.G; break  // get-word
-        case SymT.LIT:  this.wc = ImpP.Q; break  // lit-word (quote)
-        case SymT.BQT:  this.wc = ImpP.Q; break  // backtick (quote)
-        case SymT.MSG:  this.wc = ImpP.M; break  // message
-        case SymT.KW:   this.wc = ImpP.M; break  // keyword (treat as message)
-        case SymT.MSG2: this.wc = ImpP.M; break  // message2
-        case SymT.KW2:  this.wc = ImpP.M; break  // keyword2 (treat as message)
-        default: this.wc = ImpP.N; break  // other types are nouns
+  /** Run a list of tokens as code. Returns the value of each statement. */
+  runCode = async (items: ImpVal[]): Promise<ImpVal[]> => {
+    const results: ImpVal[] = []
+    for (const step of statements(items, () => this.words)) {
+      if (step.k === 'need') {
+        // The parser needs this value before it can go on (see Need).
+        step.hold.value = await this.evalNode(step.hold.src)
+        continue
       }
+      results.push(await this.evalNode(step))
     }
-    else this.wc = this.wordClass(x)
-    this.wcs.push(this.wc)
-    return this.item = x}
-
-  peek = (): {item: ImpVal, wc: ImpP}|null => {
-    if (this.atEnd()) return null
-    let [item, wc, pos] = [this.item, this.wc, this.pos]
-    this.nextItem()
-    let [peekItem, peekWC] = [this.item, this.wc]
-    // !! why does this give "TypeError: Cannot create property '2' on number '1'" ?!?
-    // [this.item, this.wc, this.pos] = [item, wc, pos]
-    this.item = item; this.wc = wc; this.pos = pos
-    if (!peekItem || !peekWC) return null
-    return {item: peekItem, wc: peekWC}}
-
-  modifyNoun = async (x: ImpVal): Promise<ImpVal> => {
-    // NOTE: imparse() now handles prefix/infix/postfix/comma threading
-    // This code ONLY runs for cases that imparse deliberately skipped:
-    // - Special symbols (SET, GET, LIT): 1 + a: 10, 2, + x: 5
-    //
-    // For all other cases, imparse transforms to M-expressions (+[2; 3])
-    // and the evaluator handles them via project() instead.
-    //
-    // TODO: Once imparse handles special symbols, this entire
-    // function can be deleted and eval can just handle M-expressions.
-
-    // Handle dictionary backtick indexing: d`key
-    let res = x
-    if (x[0] === ImpT.DCT) {
-      // Check if next item is a backtick symbol (or strand of backtick symbols)
-      while (true) {
-        let p = this.peek()
-        // Accept both single backtick symbols (ImpP.Q) and SYMs vectors (strands)
-        if (!p || (p.wc !== ImpP.Q && p.item[0] !== ImpT.SYMs)) break
-
-        let key = this.nextItem()
-
-        // Handle single backtick symbol or strand of symbols
-        const dct = (res as ImpDct)[2]
-        if (ImpQ.isSym(key)) {
-          const keyName = key[2].description || ''
-          const value = dct.get(keyName)
-          res = value !== undefined ? value : NIL
-        } else if (key[0] === ImpT.SYMs) {
-          // Vector of symbols - lookup each one
-          const results: ImpVal[] = []
-          for (const k of key[2]) {
-            const keyName = k.description || ''
-            const value = dct.get(keyName)
-            results.push(value !== undefined ? value : NIL)
-          }
-          res = imp.lst(undefined, results)
-        } else {
-          throw "dictionary keys must be backtick symbols"
-        }
-      }
-    }
-
-    // Check if next token is an arity-2 verb (works as infix operator)
-    while (true) {
-      let p = this.peek()
-      if (!p || p.wc !== ImpP.V) break
-
-      // Check if it's an arity-2 verb (can be used infix)
-      let arity = 0
-      if (p.item[0] === ImpT.JSF) {
-        arity = (p.item as ImpJsf)[1].arity
-      } else if (p.item[0] === ImpT.IFN) {
-        arity = (p.item as ImpIfn)[1].arity
-      }
-
-      if (arity !== 2) break  // Not an arity-2 verb, stop
-
-      // Consume the verb
-      let op = this.nextItem()
-
-      // Collect the right operand
-      // NOTE: imparse() prefix pass already transformed "a + ! b" → "+[a; ![b]]"
-      // So we only see simple nouns here (verbs are already applied)
-      let arg: ImpVal | null = null
-      try {
-        arg = await this.nextNounItem()
-      } catch (e) {
-        // If we can't get a right argument (e.g., hit END), create partial application
-        if (String(e).includes("unexpected end of input")) {
-          // Create partial application with left argument captured
-          if (op[0] === ImpT.IFN) {
-            return await this.applyIfn(op as ImpIfn, [res])
-          } else {
-            let originalFn = op as ImpJsf
-            let capturedArgs = [res]
-            return [ImpT.JSF, {
-              arity: 1,
-              sourceIfn: originalFn,
-              capturedArgs: capturedArgs,
-              sourceName: originalFn[1].sourceName
-            }, async (...remainingArgs: ImpVal[]) => {
-              return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-            }]
-          }
-        }
-        throw e
-      }
-
-      // Apply the arity-2 verb
-      if (op[0] === ImpT.IFN) {
-        res = await this.applyIfn(op as ImpIfn, [res, arg])
-      } else {
-        res = await (op as ImpJsf)[2].apply(this, [res, arg])
-      }
-    }
-    return res }
-
-
-  // Collect next noun - handles assignments, get-words, verbs, and regular nouns
-  private async nextNounItem(): Promise<ImpVal> {
-    let res = this.nextItem()
-    // Skip separators (commas are used to separate function arguments)
-    while (res[0] === ImpT.SEP && res[2] === ',') {
-      res = this.nextItem()
-    }
-    // Check for END (ran out of input)
-    if (res[0] === ImpT.END) {
-      throw "unexpected end of input (missing argument?)"
-    }
-    // Handle different word classes
-    if (this.wc === ImpP.S) {
-      // Assignment - evaluate and return the assigned value
-      return await this.doAssign(res)
-    } else if (this.wc === ImpP.G) {
-      // Get-word - look up and evaluate the variable
-      if (!ImpQ.isSym(res)) throw "get-word must be a symbol"
-      let varName = res[2].description!
-      let value = this.words[varName]
-      if (!value) throw "undefined word: " + varName
-      return await this.eval(value)
-    } else if (this.wc === ImpP.V) {
-      // Handle verb directly (e.g., `{x * 2} ! 10`)
-      if (res[0] === ImpT.JSF) {
-        res = this.modifyVerb(res as ImpJsf)
-      }
-      let args = []
-      // Get arity from function metadata
-      let arity = (res[1] as ImpJsfA | ImpIfnA).arity
-      // Collect arguments, stopping if we hit END
-      // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-      let eagerly = (arity === 1)
-      for (let i = 0; i < arity; i++) {
-        if (this.atEnd()) break
-        try {
-          args.push(await this.nextNoun(eagerly))
-        } catch (e) {
-          // If we can't get an argument (e.g., hit END), stop collecting
-          if (String(e).includes("unexpected end of input")) break
-          throw e
-        }
-      }
-      // Handle partial application
-      if (res[0] === ImpT.IFN) {
-        return await this.applyIfn(res as ImpIfn, args)
-      } else {
-        // JSF - check if we need partial application
-        if (args.length < arity) {
-          // Create partial application
-          let partialArity = arity - args.length
-          let capturedArgs = args
-          let originalFn = res as ImpJsf
-          return [ImpT.JSF, {
-            arity: partialArity,
-            sourceIfn: originalFn,
-            capturedArgs: capturedArgs,
-            sourceName: originalFn[1].sourceName
-          }, async (...remainingArgs: ImpVal[]) => {
-            return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-          }]
-        } else {
-          return await (res as ImpJsf)[2].apply(this, args)
-        }
-      }
-    } else if (this.wc !== ImpP.N && this.wc !== ImpP.Q) {
-      throw "expected a noun, got: " + impShow(res)
-    }
-    // Evaluate the noun (strands are already formed by imparse())
-    return await this.eval(res)
+    return results
   }
 
-  // Handle assignment - recursively processes chained assignments
-  doAssign = async (sym: ImpVal): Promise<ImpVal> => {
-    if (!ImpQ.isSym(sym)) throw "set-word must be a symbol"
-    let varName = sym[2].description!
-    let nextX = this.nextItem()
-    let value: ImpVal
-    // Handle based on word class
-    if (this.wc === ImpP.S) {
-      // Another set-word - recurse (enables a: b: 123)
-      value = await this.doAssign(nextX)
-    } else if (this.wc === ImpP.G) {
-      // Get-word - look up value without evaluation
-      if (!ImpQ.isSym(nextX)) throw "get-word must be a symbol"
-      let getVarName = nextX[2].description!
-      value = this.words[getVarName]
-      if (!value) throw "undefined word: " + getVarName
-    } else if (this.wc === ImpP.N) {
-      value = await this.eval(nextX)
-      // Apply infix operators (strands are already formed by imparse())
-      value = await this.modifyNoun(value)
-    } else if (this.wc === ImpP.V) {
-      // Apply verb modifiers (composition, etc.) only to JSF for now
-      if (nextX[0] === ImpT.JSF) {
-        nextX = this.modifyVerb(nextX as ImpJsf)
-      }
-      let args = []
-      // Get arity from function metadata
-      let arity = (nextX[1] as ImpJsfA | ImpIfnA).arity
-      // Collect arguments, stopping if we hit END
-      // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-      let eagerly = (arity === 1)
-      for (let i = 0; i < arity; i++) {
-        if (this.atEnd()) break
-        try {
-          args.push(await this.nextNoun(eagerly))
-        } catch (e) {
-          // If we can't get an argument (e.g., hit END), stop collecting
-          if (String(e).includes("unexpected end of input")) break
-          throw e
-        }
-      }
-      // Handle partial application
-      if (nextX[0] === ImpT.IFN) {
-        value = await this.applyIfn(nextX as ImpIfn, args)
-      } else {
-        // JSF - check if we need partial application
-        if (args.length < arity) {
-          // Create partial application
-          let partialArity = arity - args.length
-          let capturedArgs = args
-          let originalFn = nextX as ImpJsf
-          value = [ImpT.JSF, {
-            arity: partialArity,
-            sourceIfn: originalFn,
-            capturedArgs: capturedArgs,
-            sourceName: originalFn[1].sourceName
-          }, async (...remainingArgs: ImpVal[]) => {
-            return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-          }]
-        } else {
-          value = await (nextX as ImpJsf)[2].apply(this, args)
-        }
-      }
-    } else if (this.wc === ImpP.Q) {
-      value = nextX
-    } else {
-      throw "invalid expression after set-word"
-    }
-    this.words[varName] = value
-    return value
+  /** Run the items of a list (or TOP) as code; return all statement values. */
+  evalList = async (xs: ImpLst | ImpTop): Promise<ImpVal[]> =>
+    await this.runCode(xs[2])
+
+  /** Run the items of a list (or TOP) as code; return the last value. */
+  lastEval = async (xs: ImpLst | ImpTop): Promise<ImpVal> => {
+    const res = await this.evalList(xs)
+    return res.length ? res[res.length - 1] : NIL
   }
 
-  nextNoun = async (eagerly: boolean = false): Promise<ImpVal> => {
-    // Get next noun item
-    // If eagerly=true (for monadic functions), don't look ahead for infix operators
-    // If eagerly=false (default), apply infix operators via modifyNoun
-    let res = await this.nextNounItem()
-    if (!eagerly) {
-      res = await this.modifyNoun(res)
+  /** Look up a word. Fold (+/) and scan (+\) words are made on demand. */
+  lookup = (name: string): ImpVal => {
+    const w = this.words[name]
+    if (w !== undefined) return w
+    if (name.endsWith('/') || name.endsWith('\\')) {
+      const baseName = name.slice(0, -1)
+      const baseOp = this.words[baseName]
+      if (baseOp && baseOp[0] === ImpT.JSF && baseOp[1].arity === 2) {
+        return name.endsWith('/')
+          ? this.createFoldOperator(baseName, baseOp)
+          : this.createScanOperator(baseName, baseOp)
+      }
     }
-    return res
+    throw "undefined word: " + name
+  }
+
+  /** Run one syntax tree node. */
+  evalNode = async (n: Node): Promise<ImpVal> => {
+    switch (n.k) {
+      case 'val': return await this.eval(n.v)
+      case 'quote': return n.v   // a raw token, not run (the ? word)
+      case 'ref': return this.lookup(n.name)
+      case 'get': return this.lookup(n.name)
+      case 'set': {
+        const v = await this.evalNode(n.rhs)
+        this.words[n.name] = v
+        return v
+      }
+      case 'verb': return n.name !== undefined ? this.lookup(n.name) : await this.eval(n.src!)
+      case 'hold':
+        if (n.value === undefined) throw "internal error: comma value used before it was set"
+        return n.value
+      case 'thread': {
+        // The clause left of the comma runs first. Usually it already
+        // ran while the statement was parsed (see Need in im-parse).
+        if (n.hold.value === undefined) n.hold.value = await this.evalNode(n.left)
+        return await this.evalNode(n.body)
+      }
+      case 'compose': {
+        const f = await this.evalNode(n.f)
+        const g = await this.evalNode(n.g)
+        const arity = (g[1] as any)?.arity ?? 1
+        return imp.jsf(async (...xs: ImpVal[]) => await this.apply(f, [await this.apply(g, xs)]), arity)
+      }
+      case 'index': {
+        const t = await this.evalNode(n.target)
+        if (!ImpQ.isDct(t)) throw "only a dictionary can be indexed with `key"
+        return this.indexDict(t, n.key)
+      }
+      case 'call': {
+        const f = await this.evalNode(n.fn)
+        // Arguments run right to left, as in K.
+        const args: ImpVal[] = new Array(n.args.length)
+        for (let i = n.args.length - 1; i >= 0; i--) args[i] = await this.evalNode(n.args[i])
+        const name = n.fn.k === 'verb' ? n.fn.name : undefined
+        return await this.apply(f, args, name)
+      }
+    }
+  }
+
+  // -- applying functions ----------------------------------------------------
+
+  /** Make a partial application of a JSF. */
+  partial = (f: ImpJsf, captured: ImpVal[]): ImpJsf => [ImpT.JSF, {
+    arity: f[1].arity - captured.length,
+    sourceIfn: f,
+    capturedArgs: captured,
+    sourceName: f[1].sourceName
+  }, async (...rest: ImpVal[]) => await f[2].apply(this, [...captured, ...rest])]
+
+  /** Apply a function value to arguments. Too few arguments give a
+   *  partial application; too many give a valence error. */
+  apply = async (f: ImpVal, args: ImpVal[], name?: string): Promise<ImpVal> => {
+    if (f[0] === ImpT.IFN) {
+      if (args.length > f[1].arity) {
+        throw `[project] ${name ?? impShow(f)}: valence error: expected ${f[1].arity} args, got ${args.length}`
+      }
+      return await this.applyIfn(f, args)
+    }
+    if (f[0] === ImpT.JSF) {
+      const arity = f[1].arity
+      const label = name ?? f[1].sourceName ?? impShow(f)
+      if (arity === -1) return await f[2].apply(this, args)
+      if (args.length < arity) return this.partial(f, args)
+      if (args.length > arity) {
+        throw `[project] ${label}: valence error: expected ${arity} args, got ${args.length}`
+      }
+      return await f[2].apply(this, args)
+    }
+    throw "not a function: " + impShow(f)
   }
 
   // Execute an IFN with bound parameters
   applyIfn = async (fn: ImpIfn, args: ImpVal[]): Promise<ImpVal> => {
     // If fewer args than arity, return a partial application
     if (args.length < fn[1].arity) {
-      // Create a new function that captures the provided args
-      let partialArity = fn[1].arity - args.length
-      let capturedArgs = args
-      let originalFn = fn
-
-      // Wrap the original function with partial application logic
-      let jsf: ImpJsf = [ImpT.JSF, {
-        arity: partialArity,
-        sourceIfn: originalFn,
-        capturedArgs: capturedArgs
-      }, async (...remainingArgs: ImpVal[]) => {
-        return await this.applyIfn(originalFn, [...capturedArgs, ...remainingArgs])
-      }]
+      const captured = args
+      const jsf: ImpJsf = [ImpT.JSF, {
+        arity: fn[1].arity - args.length,
+        sourceIfn: fn,
+        capturedArgs: captured
+      }, async (...rest: ImpVal[]) => await this.applyIfn(fn, [...captured, ...rest])]
       return jsf
     }
-
     if (args.length !== fn[1].arity) {
       throw `IFN arity mismatch: expected ${fn[1].arity}, got ${args.length}`
     }
-
     // Save current word bindings for x, y, z
-    let savedX = this.words['x']
-    let savedY = this.words['y']
-    let savedZ = this.words['z']
-
-    // Bind parameters
-    if (args.length >= 1) this.words['x'] = args[0]
-    if (args.length >= 2) this.words['y'] = args[1]
-    if (args.length >= 3) this.words['z'] = args[2]
-
-    // Execute body
-    let body: ImpLst = imp.lst({open: '{', close: '}'}, fn[2])
-    let result = await this.lastEval(body)
-
-    // Restore word bindings
-    if (savedX !== undefined) this.words['x'] = savedX
-    else delete this.words['x']
-    if (savedY !== undefined) this.words['y'] = savedY
-    else delete this.words['y']
-    if (savedZ !== undefined) this.words['z'] = savedZ
-    else delete this.words['z']
-
-    return result
+    const saved = [this.words['x'], this.words['y'], this.words['z']]
+    const names = ['x', 'y', 'z']
+    args.forEach((a, i) => { this.words[names[i]] = a })
+    try {
+      return await this.lastEval(imp.lst({open: '{', close: '}'}, fn[2]))
+    } finally {
+      names.forEach((nm, i) => {
+        if (saved[i] !== undefined) this.words[nm] = saved[i]
+        else delete this.words[nm]
+      })
+    }
   }
 
-  wordClass = (x: ImpVal): ImpP => wordClass(x)
+  indexDict = (d: ImpDct, key: ImpVal): ImpVal => {
+    const dct = d[2]
+    if (ImpQ.isSym(key)) {
+      const v = dct.get(key[2].description || '')
+      return v !== undefined ? v : NIL
+    }
+    if (key[0] === ImpT.SYMs) {
+      return imp.lst(undefined, key[2].map(k => {
+        const v = dct.get(k.description || '')
+        return v !== undefined ? v : NIL
+      }))
+    }
+    throw "dictionary keys must be symbols"
+  }
+
+  // project a function:  name[arg; arg; ...]
+  project = async (sym: string, xs: ImpVal[]): Promise<ImpVal> => {
+    const f = this.lookup(sym)
+    const chunks = splitArgs(xs)
+
+    // Dictionary indexing:  d[`a]  d[`a `b]
+    if (f[0] === ImpT.DCT) {
+      const results: ImpVal[] = []
+      for (const chunk of chunks) {
+        const key = await this.lastEval(ImpC.top(chunk))
+        const v = this.indexDict(f as ImpDct, key)
+        if (key[0] === ImpT.SYMs) results.push(...(v as ImpLst)[2])
+        else results.push(v)
+      }
+      if (results.length === 0) return NIL
+      if (results.length === 1) return results[0]
+      return imp.lst(undefined, results)
+    }
+
+    if (f[0] !== ImpT.JSF && f[0] !== ImpT.IFN) throw "[project]: not a function: " + sym
+
+    // Lazy forms (ite, while, cond) get their argument code unevaluated.
+    if (f[0] === ImpT.JSF && f[1].lazy) {
+      return await this.apply(f, chunks.map(c => imp.lst(undefined, c)), sym)
+    }
+    // Arguments run right to left, as in K.
+    const args: ImpVal[] = new Array(chunks.length)
+    for (let i = chunks.length - 1; i >= 0; i--) args[i] = await this.lastEval(ImpC.top(chunks[i]))
+    return await this.apply(f, args, sym)
+  }
 
   // Evaluate quasiquoted expressions - walk the tree and evaluate unquoted items
   quasiquote = async (x: ImpVal): Promise<ImpVal> => {
-    // If it's a symbol with UNQ kind, evaluate it
     if (ImpQ.isSym(x) && x[1].kind === SymT.UNQ) {
-      // Look up the symbol (without the comma prefix)
-      let w = this.words[x[2].description!]
-      if (!w) throw "undefined word: " + x[2].description
-      let result = await this.eval(w)
+      const result = this.lookup(x[2].description!)
       // If the result is a LIT or BQT symbol, strip the quote marker
       if (ImpQ.isSym(result) && (result[1].kind === SymT.LIT || result[1].kind === SymT.BQT)) {
         return ImpC.sym(result[2], SymT.RAW)
       }
       return result
     }
-    // If it's a list, parse it first to form strands, then recursively quasiquote
     if (ImpQ.isLst(x)) {
-      // First parse to combine adjacent literals into strands
-      // Pass this.words so imparse can do full transformations
-      let refined = imparse(x, this.words)
-
-      // imparse might return TOP or LST - extract items appropriately
-      let items: ImpVal[]
-      let attrs: any
-      if (refined[0] === ImpT.TOP) {
-        items = refined[2] as ImpVal[]
-        attrs = x[1]  // Use original list's attrs (opener/closer)
-      } else {
-        items = refined[2] as ImpVal[]
-        attrs = refined[1]
-      }
-
-      let results: ImpVal[] = []
-      for (let item of items) {
-        results.push(await this.quasiquote(item))
-      }
-      // Strip the backtick from the opener to return an unquoted list
-      let newOpen = attrs.open.startsWith('`') ? attrs.open.slice(1) : attrs.open
-      return imp.lst({open: newOpen, close: attrs.close}, results)
+      const results: ImpVal[] = []
+      for (const item of formStrands(x[2])) results.push(await this.quasiquote(item))
+      const open = x[1].open.startsWith('`') ? x[1].open.slice(1) : x[1].open
+      return imp.lst({open, close: x[1].close}, results)
     }
-    // For all other values, return as-is
     return x
-  }
-
-  // keep the peeked-at item
-  keep = (p: {item: ImpVal, wc: ImpP}): void => { this.item = p.item; this.wc = p.wc; this.pos++ }
-
-  modifyVerb = (v0: ImpJsf): ImpJsf => {
-    let p, res = v0
-    while (true) {
-      p = this.peek()
-      if (!p) break
-      if (![ImpP.V, ImpP.A, ImpP.P].includes(p.wc)) break
-      this.keep(p)
-      switch (p.wc) {
-        case ImpP.V: // composition (v u) - handle async
-          if (res[1].arity as number !== 1) throw "composition requires arity 1"
-          let u = res[2] as JSF
-          let v = p.item[2] as JSF
-          res = imp.jsf(async (x) => {
-            let vResult = v(x)
-            // If v returns a Promise, await it
-            if (vResult instanceof Promise) vResult = await vResult
-            let uResult = u(vResult)
-            // If u returns a Promise, await it
-            if (uResult instanceof Promise) uResult = await uResult
-            return uResult
-          }, 1)
-          break
-        case ImpP.A: // TODO: adverb (v/)
-        case ImpP.P: // TODO: preposition (v -arg)
-        case ImpP.C: // TODO: conjunction (v &. u)
-      }
-    }
-    return res
   }
 
   // Create a fold operator from a dyadic function (JSF with arity 2 or JDY)
@@ -739,364 +430,62 @@ export class ImpEvaluator {
     }, 1)
   }
 
-  // evaluate a list
-  evalList = async (xs:ImpLst|ImpTop): Promise<ImpVal[]> => {
-    // First, parse/normalize the tree (strands + M-expressions)
-    xs = imparse(xs, this.words) as ImpLst|ImpTop
-    // walk from left to right, building up values to emit
-    let done = false, tb: TreeBuilder<ImpVal> = new TreeBuilder()
-    this.enter(xs)
-    while (!done) {
-      // Handle separators - check for comma-verb sequencing
-      this.nextItem()
-      while (this.item && this.item[0] === ImpT.SEP && !this.atEnd()) {
-        // NOTE: imparse() now handles comma threading for normal cases
-        // This code ONLY runs when imparse skipped transformation:
-        // - Special symbols (SET, GET, LIT): 2, + x: 10
-        //
-        // Check if this is a comma followed by a verb (sequencing operator)
-        if (this.item[2] === ',') {
-          let p = this.peek()
-          if (p && p.wc === ImpP.V && tb.root.length > 0) {
-            // Get the last emitted value
-            let lastVal = (tb.root as ImpVal[]).pop()!
-            // Consume the comma and get the verb
-            let op = this.nextItem()
-            let arity = 0
-            if (op[0] === ImpT.JSF) {
-              arity = (op as ImpJsf)[1].arity
-            } else if (op[0] === ImpT.IFN) {
-              arity = (op as ImpIfn)[1].arity
-            }
-
-            if (arity === 1) {
-              // Arity-1: apply verb to last value
-              if (op[0] === ImpT.IFN) {
-                lastVal = await this.applyIfn(op as ImpIfn, [lastVal])
-              } else {
-                lastVal = await (op as ImpJsf)[2].apply(this, [lastVal])
-              }
-            } else if (arity === 2) {
-              // Arity-2: collect right arg and apply
-              let arg = await this.nextNoun()
-              if (op[0] === ImpT.IFN) {
-                lastVal = await this.applyIfn(op as ImpIfn, [lastVal, arg])
-              } else {
-                lastVal = await (op as ImpJsf)[2].apply(this, [lastVal, arg])
-              }
-            } else {
-              throw `Comma-verb sequencing requires verb of arity 1 or 2, got arity ${arity}`
-            }
-            // Emit the modified value
-            tb.emit(lastVal)
-            // Continue with next item
-            this.nextItem()
-            continue
-          }
-        }
-        // Regular separator, just skip it
-        this.nextItem()
-      }
-      if (this.atEnd()) done = true
-      let x = this.item!
-      switch (this.wc) {
-      case ImpP.V: // verb
-          // Apply verb modifiers (composition, etc.) only to JSF for now
-          if (x[0] === ImpT.JSF) {
-            x = this.modifyVerb(x as ImpJsf)
-          }
-          let args = []
-          // Get arity from function metadata
-          let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-          // Collect arguments, stopping if we hit END or separator
-          // For monadic (arity-1) functions, collect eagerly (no lookahead for infix ops)
-          let eagerly = (arity === 1)
-          for (let i = 0; i < arity; i++) {
-            if (this.atEnd()) break
-            // Peek ahead to see if next is a separator - if so, stop collecting args
-            let nextPos = this.pos
-            if (nextPos < this.here.length && this.here[nextPos][0] === ImpT.SEP) break
-            try {
-              args.push(await this.nextNoun(eagerly))
-            } catch (e) {
-              // If we can't get an argument, stop collecting
-              if (String(e).includes("unexpected end of input") ||
-                  String(e).includes("expected a noun")) break
-              throw e
-            }
-          }
-          // Apply the verb and get result
-          let result: ImpVal
-          if (x[0] === ImpT.IFN) {
-            result = await this.applyIfn(x as ImpIfn, args)
-          } else {
-            // JSF - check if we need partial application
-            if (args.length < arity) {
-              // Create partial application
-              let partialArity = arity - args.length
-              let capturedArgs = args
-              let originalFn = x as ImpJsf
-              result = [ImpT.JSF, {
-                arity: partialArity,
-                sourceIfn: originalFn,
-                capturedArgs: capturedArgs,
-                sourceName: originalFn[1].sourceName
-              }, async (...remainingArgs: ImpVal[]) => {
-                return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-              }]
-            } else {
-              result = await (x as ImpJsf)[2].apply(this, args)
-            }
-          }
-          // Apply infix operators to the result (if any)
-          result = await this.modifyNoun(result)
-          tb.emit(result)
-          break
-        case ImpP.N:
-          // Evaluate the noun, then apply operators (strands are already formed by imparse())
-          x = await this.eval(x)
-          // Check if evaluation produced a verb (e.g., {x * 2} → IFN)
-          if (this.wordClass(x) === ImpP.V) {
-            // Only try to apply if there are more items (don't fail at END)
-            // This allows {x + 2} to return a function value instead of trying to collect args
-            if (!this.atEnd()) {
-              // Apply verb modifiers (composition, etc.) only to JSF for now
-              if (x[0] === ImpT.JSF) {
-                x = this.modifyVerb(x as ImpJsf)
-              }
-              let args = []
-              // Get arity from function metadata
-              let arity = (x[1] as ImpJsfA | ImpIfnA).arity
-              for (let i = 0; i < arity; i++) {
-                if (this.atEnd()) break  // Stop if we run out of arguments
-                try {
-                  args.push(await this.nextNoun())
-                } catch (e) {
-                  // If we can't get an argument (e.g., hit END), stop collecting
-                  if (String(e).includes("unexpected end of input")) break
-                  throw e
-                }
-              }
-              if (x[0] === ImpT.IFN) {
-                tb.emit(await this.applyIfn(x as ImpIfn, args))
-              } else {
-                tb.emit(await (x as ImpJsf)[2].apply(this, args))
-              }
-            } else {
-              // At end - just emit the verb as a value
-              tb.emit(x)
-            }
-          } else {
-            x = await this.modifyNoun(x)
-            tb.emit(x)
-          }
-          break
-        case ImpP.Q:
-          // Quotes (strands of backtick symbols are already formed by imparse())
-          tb.emit(x)
-          break
-        case ImpP.G: // get-word (return value without evaluation)
-          if (!ImpQ.isSym(x)) throw "get-word must be a symbol"
-          let varName = x[2].description!
-          let value = this.words[varName]
-          if (!value) throw "undefined word: " + varName
-          tb.emit(value)
-          break
-        case ImpP.S: // set-word (assignment)
-          tb.emit(await this.doAssign(x))
-          break
-        case ImpP.E:
-          break
-        default: throw "evalList: invalid word class: " + this.wc
-      }}
-    this.leave()
-    return tb.root as ImpVal[]}
-
-  // evaluate a list but return last expression
-  lastEval = async (xs:ImpLst|ImpTop): Promise<ImpVal> => {
-    let res = await this.evalList(xs)
-    return res.length ? res.pop()! : NIL }
-
-  // project a function
-  project = async (sym:string, xs: ImpVal[]): Promise<ImpVal> => {
-    let f: ImpVal | undefined = this.words[sym]
-    if (!f) throw "[project]: undefined word: " + sym
-
-    // Check if f is a dictionary - if so, handle dictionary indexing
-    if (f[0] === ImpT.DCT) {
-      const dct = (f as ImpDct)[2]
-      const results: ImpVal[] = []
-
-      // Collect all keys (handles both single keys and strands)
-      for (let x of xs) {
-        if (x[0] === ImpT.SEP) continue
-
-        // Evaluate the key expression
-        let key = await this.eval(x)
-
-        // Handle key as symbol or vector of symbols
-        if (ImpQ.isSym(key)) {
-          const keyName = key[2].description || ''
-          const value = dct.get(keyName)
-          results.push(value !== undefined ? value : NIL)
-        } else if (key[0] === ImpT.SYMs) {
-          // Vector of symbols - lookup each one
-          for (const k of key[2]) {
-            const keyName = k.description || ''
-            const value = dct.get(keyName)
-            results.push(value !== undefined ? value : NIL)
-          }
-        } else {
-          throw "dictionary keys must be symbols"
-        }
-      }
-
-      // Return single value or vector
-      if (results.length === 0) return NIL
-      if (results.length === 1) return results[0]
-      return imp.lst(undefined, results)
-    }
-
-    let args = [], arg = imp.lst()
-    for (let x of xs) {
-      if (x[0] === ImpT.SEP) { args.push(arg); arg = imp.lst() }
-      else imp.push(arg,x)}
-    args.push(arg)
-
-    // Special forms (ite, while, cond) need lazy evaluation - pass unevaluated args
-    let lazyEvalForms = ['ite', 'while', 'cond']
-    let evaluatedArgs = []
-    if (lazyEvalForms.includes(sym)) {
-      // Pass arguments as-is (unevaluated LST values)
-      evaluatedArgs = args
-    } else {
-      // Normal evaluation: evaluate all args first, then apply
-      for (let a of args) {
-        evaluatedArgs.push(await this.lastEval(a))
-      }
-    }
-
-    // Check if it's a user-defined function (IFN) or JavaScript function (JSF)
-    if (f[0] === ImpT.IFN) {
-      return await this.applyIfn(f as ImpIfn, evaluatedArgs)
-    } else if (f[0] === ImpT.JSF) {
-      // Check arity for JSF functions
-      const expectedArity = (f as ImpJsf)[1].arity
-      // Variadic functions have arity -1 and accept any number of arguments
-      if (expectedArity === -1) {
-        return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
-      } else if (evaluatedArgs.length < expectedArity) {
-        // Partial application - create a new function with captured arguments
-        let partialArity = expectedArity - evaluatedArgs.length
-        let capturedArgs = evaluatedArgs
-        let originalFn = f as ImpJsf
-        return [ImpT.JSF, {
-          arity: partialArity,
-          sourceIfn: originalFn,
-          capturedArgs: capturedArgs,
-          sourceName: originalFn[1].sourceName
-        }, async (...remainingArgs: ImpVal[]) => {
-          return await originalFn[2].apply(this, [...capturedArgs, ...remainingArgs])
-        }]
-      } else if (evaluatedArgs.length > expectedArity) {
-        throw `[project] ${sym}: valence error: expected ${expectedArity} args, got ${evaluatedArgs.length}`
-      }
-      return await (f as ImpJsf)[2].apply(this, evaluatedArgs)
-    } else {
-      throw "[project]: not a function: " + sym
-    }
-  }
-
-  // evaluate an expression
+  // evaluate a value (a token from the loader)
   eval = async (x: ImpVal): Promise<ImpVal> => {
     switch (x[0]) {
       case ImpT.TOP: return await this.lastEval(x)
       case ImpT.SEP: return NIL
-      case ImpT.NIL: return x
-      case ImpT.INT: return x
-      case ImpT.NUM: return x
-      case ImpT.STR: return x
-      case ImpT.MLS: return x
-      case ImpT.SYM: return x
-      case ImpT.INTs: return x
-      case ImpT.NUMs: return x
-      case ImpT.SYMs: return x
-      case ImpT.JSF: return x
-      case ImpT.IFN: return x
-      case ImpT.DCT: return x
-      case ImpT.LST:
-        let [_, a, v] = x
-        // Check if list is quoted (starts with ' or `)
-        let opener = a.open || '['
-        // Handle dictionary literals: :[`a 1; `b 2; `c `d]
-        if (opener === ':[') {
-          const dctMap = new Map<string, ImpVal>()
-          let i = 0
-          while (i < v.length) {
-            // Skip separators and commas
-            if (v[i][0] === ImpT.SEP) { i++; continue }
-            if (i >= v.length) break
-
-            // Get key (must be backtick symbol)
-            const keyItem = v[i]
-            if (!ImpQ.isSym(keyItem)) {
-              throw "dictionary keys must be backtick symbols"
-            }
-            if (keyItem[1].kind !== SymT.BQT) {
-              throw "dictionary keys must be backtick symbols (e.g., `a)"
-            }
-            const actualKeyName = keyItem[2].description || ''
-            i++
-
-            // Collect the value expression (everything until the next separator or end)
-            if (i >= v.length) throw "dictionary key without value"
-            const valueExprs: ImpVal[] = []
-            while (i < v.length && v[i][0] !== ImpT.SEP) {
-              valueExprs.push(v[i])
-              i++
-            }
-
-            // Evaluate the value expression as a TOP (sequence)
-            const value = await this.lastEval(ImpC.top(valueExprs))
-
-            dctMap.set(actualKeyName, value)
-          }
-          return imp.dct(dctMap)
+      case ImpT.LST: break
+      default: return x  // every other token is a value
+    }
+    const [_, a, v] = x as ImpLst
+    const opener = a.open || '['
+    // Dictionary literals: :[`a 1; `b 2]
+    if (opener === ':[') {
+      const dctMap = new Map<string, ImpVal>()
+      let i = 0
+      while (i < v.length) {
+        if (v[i][0] === ImpT.SEP) { i++; continue }
+        const keyItem = v[i]
+        if (!ImpQ.isSym(keyItem)) throw "dictionary keys must be backtick symbols"
+        if (keyItem[1].kind !== SymT.BQT) throw "dictionary keys must be backtick symbols (e.g., `a)"
+        const keyName = keyItem[2].description || ''
+        i++
+        if (i >= v.length) throw "dictionary key without value"
+        const valueExprs: ImpVal[] = []
+        while (i < v.length && !(v[i][0] === ImpT.SEP && v[i][2] !== ',')) {
+          valueExprs.push(v[i])
+          i++
         }
-        // Handle curly braces as function definitions
-        if (opener === '{') {
-          let arity = scanArity(v)
-          // Extract leading string as docstring
-          let doc: string | undefined
-          if (v.length > 0 && v[0][0] === ImpT.STR) {
-            doc = v[0][2] as string
-            v = v.slice(1)
-          }
-          return ImpC.ifn(arity, v, doc)
-        }
-        if (opener.startsWith("`")) {
-          // Backtick is quasiquotation - evaluate unquoted items
-          return await this.quasiquote(x)
-        }
-        if (opener.startsWith("'")) {
-          // Single quote strips one layer - return list with quote removed
-          let newOpen = opener.slice(1)
-          return imp.lst({open: newOpen, close: a.close}, v)
-        }
-        let m = opener.match(/^(.+)([[({])$/)
-        if (m) { let sym = m[1]; switch (m[2]) {
-          case '[': return await this.project(sym, v)
-          // case '(': TODO
-          // case '{': TODO
-          default: return imp.lst(a, await this.evalList(x))}}
-        else {
-          // For parentheses, return the last evaluated value (not wrapped in a list)
-          if (opener === '(') {
-            return await this.lastEval(x)
-          }
-          return imp.lst(a, await this.evalList(x))
-        }
-      default: throw "invalid imp value:" + JSON.stringify(x) }}}
+        dctMap.set(keyName, await this.lastEval(ImpC.top(valueExprs)))
+      }
+      return imp.dct(dctMap)
+    }
+    // Curly braces: function literal
+    if (opener === '{') {
+      let body = v
+      let doc: string | undefined
+      if (body.length > 0 && body[0][0] === ImpT.STR) {
+        doc = body[0][2] as string
+        body = body.slice(1)
+      }
+      return ImpC.ifn(scanArity(body), body, doc)
+    }
+    // Backtick: quasiquotation
+    if (opener.startsWith('`')) return await this.quasiquote(x)
+    // Single quote strips one layer
+    if (opener.startsWith("'")) return imp.lst({open: opener.slice(1), close: a.close}, v)
+    // Parentheses: run the code, return the last value
+    if (opener === '(') return await this.lastEval(x as ImpLst)
+    // Plain [ ]: a data block. It is not run.
+    if (opener === '[') return readData(x as ImpLst)
+    // name[ ... ]: projection (function call)
+    const m = opener.match(/^(.+)\[$/)
+    if (m) return await this.project(m[1], v)
+    // Other openers such as name( are not defined yet.
+    throw `unsupported list opener: ${opener}`
+  }
+}
 
 export let impEval = async (x: ImpTop | ImpErr): Promise<ImpVal> =>
-  ImpQ.isTop(x) ? await new ImpEvaluator(x[2]).eval(x) : x
+  ImpQ.isTop(x) ? await new ImpEvaluator().eval(x) : x

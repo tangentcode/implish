@@ -1,0 +1,308 @@
+#+title: issue 21: evaluate right to left (K style)
+#+tanco-format: 0.2
+
+Regression tests for https://github.com/tangentcode/implish/issues/21.
+See docs/evaluator.md for the rules.
+
+* TEST issue-21-lines : the two lines from the issue
+#+begin_src
+> rev x: 1 + ! 3 , + 10 * x
+13 22 31
+> a: 1 + ! 3 ; rev a + 10 * a
+13 22 31
+> a: 1 + ! 3 ; rev a , + 10 * a
+13 22 31
+#+end_src
+
+The third line failed before with "expected number or vector, got: LST".
+
+* TEST rtl-dyad-chain : a dyad takes everything to its right
+#+begin_src
+> 10 - 5 - 2
+7
+> 2 * 3 + 4
+14
+> (2 * 3) + 4
+10
+> imparse '[1 - 2 - 3]
+-[1 ; -[2 ; 3]]
+#+end_src
+
+* TEST rtl-prefix-term : a prefix verb takes only the next term
+#+begin_src
+> rev 1 2 3 + 10 20 30
+13 22 31
+> rev (1 2 3 + 10 20 30)
+33 22 11
+> 1 2 3 + 10 20 30, rev
+33 22 11
+> echo[1 + 2]
+3
+#+end_src
+
+To give a monad a whole expression, use ( ), [ ], or a comma.
+
+* TEST rtl-recursion : recursion needs brackets around the argument
+#+begin_src
+> fact: {ite[x < 2; 1; x * fact[x - 1]]}
+{ite[x < 2 ; 1 ; x * fact[x - 1]]}
+> fact 5
+120
+#+end_src
+
+=fact x - 1= would be =(fact x) - 1=, so the argument goes in brackets.
+
+* TEST rtl-set-word : a set-word takes everything to its right
+#+begin_src
+> x: 2 + 3 * 4
+14
+> 1 + y: 2 * 3
+7
+> y
+6
+#+end_src
+
+* TEST rtl-arg-order : arguments run right to left
+#+begin_src
+> x + x: 5
+10
+> o: 0
+0
+> +[o: o + 1; o: o * 10]
+1
+#+end_src
+
+The right argument runs first, so =x= has a value when the left side runs. In the projection, =o: o * 10= runs first (o is 0), then =o: o + 1=.
+
+* TEST comma-clause : a comma threads only the clause next to it
+#+begin_src
+> x: 5 ; 1 2, + 1
+2 3
+> x
+5
+> 7 ! 3, + 1
+Error: [project] !: valence error: expected 1 args, got 2
+> y: 9  z: ! 3, + 1
+1 2 3
+> y
+9
+> z
+0 1 2
+#+end_src
+
+In =y: 9  z: ! 3, + 1= the clause before the comma holds two statements (=y: 9= and =z: ! 3=). Only the last one is carried. In =7 ! 3= the =!= is postfix after =7=, so =3= is an extra argument.
+
+* TEST comma-partial : a comma can fill in missing arguments
+#+begin_src
+> + 1 2 3, 4 5 6
+5 7 9
+> g: {x + y * 2}
+{x + y * 2}
+> g 3, 5
+13
+> imparse '[+ 1, 2]
++[1 ; 2]
+#+end_src
+
+If the left clause gives a verb that still needs arguments, the clause on the right gives them.
+
+* TEST comma-errors : a comma needs a clause on both sides
+#+begin_src
+> , + 1
+Error: comma with nothing on its left
+> 1 ,
+Error: comma followed by nothing
+#+end_src
+
+* TEST data-block : [ ] blocks are data and are not run
+#+begin_src
+> [1 + 2]
+[1 + 2]
+> count [a b c]
+3
+> [1 2; 3 4]
+[1 2, 3 4]
+> [q: 1]
+[q: 1]
+> get[`q]
+?q
+> type? [undefined-word]
+lst!
+#+end_src
+
+Inside a block, numbers side by side form one strand, and =;= and =,= separate items.
+
+* TEST late-binding : each statement is parsed after the one before it runs
+#+begin_src
+> f: {x + 1}  f 5
+6
+#+end_src
+
+* TEST paren-verb : a group that gives a verb is a verb
+#+begin_src
+> (rev !) 5
+4 3 2 1 0
+> (+) 1, 2
+3
+#+end_src
+
+* TEST message-symbols : !foo is still a message symbol, ! 3 is iota
+#+begin_src
+> echo xmls '[!foo ! 3]
+<imp:lst open="[" close="]">
+  <imp:sym k="msg2" v="foo"/>
+  <imp:sym v="!"/>
+  <imp:int v="3"/>
+</imp:lst>
+#+end_src
+
+* TEST comma-set-verb : a set-word that stores a verb keeps it a verb
+#+begin_src
+> f: {x + 1}, 5
+6
+> f 10
+11
+> p: + 1, 2
+3
+> p 10
+11
+> (g: {x * 2}) 4
+8
+#+end_src
+
+The value of a set-word is the value it stores. If that value is a verb, the clause after the comma gives its arguments.
+
+* TEST nested-groups : deep nested ( ) groups parse in linear time
+#+begin_src
+> rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (rev (1 2 3)))))))))))))))))))))))))
+3 2 1
+#+end_src
+
+The parser parses each ( ) group at most once per statement. Before this fix, each level doubled the work: 20 levels took about 2.6 seconds, and 25 levels took about 30 times as long.
+
+* TEST comma-get-verb : a get-word of a verb is a verb in a group or a comma carry
+#+begin_src
+> f: {x + 1}
+{x + 1}
+> (:f) 5
+6
+> :f , 5
+6
+> :f
+{x + 1}
+> type? :f
+ifn!
+> add: {x + y}
+{x + y}
+> :add , 2 , 3
+5
+> n: 7
+7
+> (:n) , + 1
+8
+#+end_src
+
+The parser looks up the word of a get-word to find the arity of its value. A get-word alone, or as an argument, does not call the function.
+
+* TEST comma-defines-verb : a word that a comma clause defines is a verb in the next clause
+#+begin_src
+> f: {x + 1}, 5, f
+7
+#+end_src
+
+The clause left of a comma runs before the next clause is parsed. So the last =f= is known as a verb, and it applies to 6.
+
+* TEST projection-verb : a projection that gives a verb is a verb
+#+begin_src
+> f: {x + 1}
+{x + 1}
+> get[`f], 5
+6
+> (get[`f]) 5
+6
+> get[`f] 5
+6
+> echo[1] 2
+1
+2
+#+end_src
+
+When a term follows a ( ) group or a full projection, the parser runs it first. If its value is a verb, it applies to the term. If not, the two are separate statements.
+
+* TEST early-group-order : a group that a term follows runs when the parser reaches it
+#+begin_src
+> o: 0
+0
+> + (o: o + 1) (o: o * 10)
+11
+> o: 0
+0
+> (o: o + 1) + (o: o * 10)
+1
+#+end_src
+
+In the first line, the parse depends on whether =(o: o + 1)= is a verb, so it runs first. In the second line, a dyad follows the group, so the normal right-to-left order holds.
+
+* TEST early-group-boundary : a group at the start of the next statement waits for this one
+#+begin_src
+> echo "first" (echo "second") 3
+first
+second
+3
+> a: 0; a: 1 (a: 2) 3; a
+2
+#+end_src
+
+=echo "first"= is a full statement, so the parser only looks ahead at the group to check for a dyad or a postfix monad. That look-ahead does not run the group. The group runs after =echo "first"=, as the start of the next statement.
+
+* TEST grouped-dyad : a group that gives a dyad is infix and keeps right-to-left order
+#+begin_src
+> o: 0; (o: o + 1) (+) (o: o * 10)
+1
+> o: 0; (o: o + 1) + (o: o * 10)
+1
+#+end_src
+
+=(+)= is a dyad, so the group to its left is its left operand. It runs at the normal time (after the right operand), as with a plain =+=.
+
+* TEST help-raw-arg : ? gets its token as it is and never runs it
+#+begin_src
+> x: 0; ? (x: 1); x
+? expects a symbol or string
+0
+> ? rev
+reverse a list, vector, or string
+  arity: 1
+#+end_src
+
+* TEST dict-index-expr : backtick indexing works on any noun that gives a dictionary
+#+begin_src
+> d: :[`a 42]
+:[`a 42]
+> (:d)`a
+42
+> get[`d]`a
+42
+> d`a
+42
+> :[`b 7]`b
+7
+#+end_src
+
+A group or projection that a backtick symbol follows runs when the parser reaches it, so the parser knows that it gave a dictionary.
+
+* TEST set-literal-postfix : a function literal after a set-word is a noun in a normal expression
+#+begin_src
+> f: {x + 1} type?
+ifn!
+> f
+ifn!
+> g: {x + 1} show
+"{x + 1}"
+> g
+"{x + 1}"
+> k: {x * 2}
+{x * 2}
+> k 4
+8
+#+end_src
