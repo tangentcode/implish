@@ -254,3 +254,23 @@ second
 #+end_src
 
 =echo "first"= is a full statement, so the parser only looks ahead at the group to check for a dyad or a postfix monad. That look-ahead does not run the group. The group runs after =echo "first"=, as the start of the next statement.
+
+* TEST grouped-dyad : a group that gives a dyad is infix and keeps right-to-left order
+#+begin_src
+> o: 0; (o: o + 1) (+) (o: o * 10)
+1
+> o: 0; (o: o + 1) + (o: o * 10)
+1
+#+end_src
+
+=(+)= is a dyad, so the group to its left is its left operand. It runs at the normal time (after the right operand), as with a plain =+=.
+
+* TEST help-raw-arg : ? gets its token as it is and never runs it
+#+begin_src
+> x: 0; ? (x: 1); x
+? expects a symbol or string
+0
+> ? rev
+reverse a list, vector, or string
+  arity: 1
+#+end_src

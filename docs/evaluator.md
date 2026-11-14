@@ -254,7 +254,8 @@ happens before parsing.
   `add[3] 5` is `add[3; 5]`.
 - A dictionary word followed by a backtick symbol is an index:
   `` d`a ``.
-- The help word `?` takes the next token as it is: `? rev`.
+- The help word `?` takes the next token as it is and does not run
+  it: `? rev`. In `? (x: 1)` the group does not run.
 
 ## Syntax tree
 
@@ -263,6 +264,7 @@ The parser makes these nodes (see `Node` in im-parse.mts):
 | Node      | Meaning                                                 |
 |-----------|---------------------------------------------------------|
 | `val`     | a literal, or a list that `eval()` handles by its opener |
+| `quote`   | a token passed as it is and never run (the `?` word)    |
 | `ref`     | a word used as a noun                                   |
 | `get`     | `:foo`                                                  |
 | `set`     | `foo: expr`                                             |

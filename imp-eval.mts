@@ -105,6 +105,7 @@ export class ImpEvaluator {
   evalNode = async (n: Node): Promise<ImpVal> => {
     switch (n.k) {
       case 'val': return await this.eval(n.v)
+      case 'quote': return n.v   // a raw token, not run (the ? word)
       case 'ref': return this.lookup(n.name)
       case 'get': return this.lookup(n.name)
       case 'set': {

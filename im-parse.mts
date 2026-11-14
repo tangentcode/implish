@@ -50,6 +50,7 @@ export type Hold = {k: 'hold', src: Node, value?: ImpVal}
 
 export type Node =
   | {k: 'val', v: ImpVal}                     // literal, or source list that eval() handles
+  | {k: 'quote', v: ImpVal}                   // a token passed as it is, never run (? arg)
   | {k: 'ref', name: string}                  // a word used as a noun
   | {k: 'get', name: string}                  // :foo
   | {k: 'set', name: string, rhs: Node}       // foo: expr
@@ -413,26 +414,14 @@ export class Parser {
    *  follows, item i is run at the normal time. */
   needsValue(i: number): boolean {
     const nx = this.items[i + 1]
-    return nx !== undefined && !this.isDyadItem(nx)
+    return nx !== undefined && !this.isDyadItem(i + 1)
   }
 
-  /** Is x (by syntax and the dictionary) an infix dyad? */
-  isDyadItem(x: Item): boolean {
-    if (isHold(x)) return false
-    if (ImpQ.isSym(x) && x[1].kind === SymT.RAW) {
-      const w = this.dict[x[2].description!]
-      return isVerbVal(w) && getArity(w) === 2
-    }
-    if (ImpQ.isLst(x)) {
-      const open = x[1].open
-      if (open === '{') return scanArity(x[2]) === 2
-      const m = open.match(/^(.+)\[$/)
-      if (m && !open.startsWith("'") && !open.startsWith('`') && open !== ':[') {
-        const w = this.dict[m[1]]
-        return isVerbVal(w) && getArity(w) - splitArgs(x[2]).length === 2
-      }
-    }
-    return false
+  /** Is item i an infix dyad? This uses the same classification as the
+   *  look-aheads (kind with run = false), so a group such as (+) counts. */
+  isDyadItem(i: number): boolean {
+    const k = this.kind(this.items[i], i, false)
+    return k.pos === 'verb' && k.arity === 2
   }
 
   /** Can the next item start an argument term? A dyad can start one
@@ -488,7 +477,7 @@ export class Parser {
       if (k.raw) {
         const args: Node[] = []
         if (!this.done() && !isHold(this.items[this.pos])) {
-          args.push({k: 'val', v: this.items[this.pos++] as ImpVal})
+          args.push({k: 'quote', v: this.items[this.pos++] as ImpVal})
         }
         return {k: 'call', fn: k.node, args}
       }
@@ -642,6 +631,7 @@ function fnName(fn: Node): string {
 export function toMExpr(n: Node): ImpVal {
   switch (n.k) {
     case 'val': return n.v
+    case 'quote': return n.v
     case 'ref': return ImpC.sym(Symbol(n.name), SymT.RAW)
     case 'get': return imp.lst({open: 'get[', close: ']'}, [ImpC.sym(Symbol(n.name), SymT.BQT)])
     case 'set':
