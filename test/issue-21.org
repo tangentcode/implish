@@ -203,3 +203,42 @@ ifn!
 #+end_src
 
 The parser looks up the word of a get-word to find the arity of its value. A get-word alone, or as an argument, does not call the function.
+
+* TEST comma-defines-verb : a word that a comma clause defines is a verb in the next clause
+#+begin_src
+> f: {x + 1}, 5, f
+7
+#+end_src
+
+The clause left of a comma runs before the next clause is parsed. So the last =f= is known as a verb, and it applies to 6.
+
+* TEST projection-verb : a projection that gives a verb is a verb
+#+begin_src
+> f: {x + 1}
+{x + 1}
+> get[`f], 5
+6
+> (get[`f]) 5
+6
+> get[`f] 5
+6
+> echo[1] 2
+1
+2
+#+end_src
+
+When a term follows a ( ) group or a full projection, the parser runs it first. If its value is a verb, it applies to the term. If not, the two are separate statements.
+
+* TEST early-group-order : a group that a term follows runs when the parser reaches it
+#+begin_src
+> o: 0
+0
+> + (o: o + 1) (o: o * 10)
+11
+> o: 0
+0
+> (o: o + 1) + (o: o * 10)
+1
+#+end_src
+
+In the first line, the parse depends on whether =(o: o + 1)= is a verb, so it runs first. In the second line, a dyad follows the group, so the normal right-to-left order holds.

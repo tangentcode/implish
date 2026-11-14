@@ -120,6 +120,9 @@ becomes the first item of the clause on its right.
   application), the clause on the right gives those arguments.
 - A set-word gives the value it stores. So if it stores a verb, the
   clause on the right gives the arguments: `f: {x + 1}, 5` is 6.
+- The parser parses the clause on the right after the clause on the
+  left has run. So it sees words that the left clause defined:
+  `f: {x + 1}, 5, f` is 7.
 - A get-word gives the value of its word. If that value is a verb,
   `:f , 5` is `f 5`, and so is `(:f) 5`. A get-word alone does not
   call the function: `:f` gives `{x + 1}`.
@@ -176,6 +179,25 @@ x + x: 5               .: the right side runs first, so this is 10 :.
 
 The clause left of a comma always runs before the clause on its right.
 
+There is one more exception. The parser must know if a `( )` group or a
+full projection `f[...]` gives a verb when a term follows it: if it is a
+verb, it applies to that term, and if not, the two are separate
+statements. So the parser asks the evaluator to run the group or
+projection at that point, and then it goes on with the real value. This
+does not change the order in most code, because a function runs before
+its arguments and separate statements run left to right. It changes the
+order only when such a group is an argument of a prefix verb and another
+term follows it:
+
+```
+o: 0
++ (o: o + 1) (o: o * 10)    .: the left group runs first: 1 + 10 = 11 :.
+(o: o + 1) + (o: o * 10)    .: a dyad follows, so right to left: 1 :.
+```
+
+When a dyad or nothing follows a group, the group runs at the normal
+time, and the parser guesses from the code in the group if it is a verb.
+
 ### 8. Blocks: `[ ]` is data
 
 A `[ ]` block is data. It is not run. Inside a block:
@@ -220,7 +242,8 @@ happens before parsing.
   statement runs. A stored value is not run again: if `l` holds a list,
   `l` gives that list.
 - `name/` and `name\` are fold and scan verbs when `name` is a dyad.
-- A `( )` group whose last statement gives a verb is a verb.
+- A `( )` group or a full projection whose value is a verb is a verb
+  when a term follows it: `(rev !) 5`, ``get[`f] 5`` (see rule 7).
 - A projection `f[a]` of a verb that needs more arguments is a verb:
   `add[3] 5` is `add[3; 5]`.
 - A dictionary word followed by a backtick symbol is an index:

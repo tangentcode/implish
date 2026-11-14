@@ -64,8 +64,13 @@ export class ImpEvaluator {
   /** Run a list of tokens as code. Returns the value of each statement. */
   runCode = async (items: ImpVal[]): Promise<ImpVal[]> => {
     const results: ImpVal[] = []
-    for (const stmt of statements(items, () => this.words)) {
-      results.push(await this.evalNode(stmt))
+    for (const step of statements(items, () => this.words)) {
+      if (step.k === 'need') {
+        // The parser needs this value before it can go on (see Need).
+        step.hold.value = await this.evalNode(step.hold.src)
+        continue
+      }
+      results.push(await this.evalNode(step))
     }
     return results
   }
@@ -112,8 +117,9 @@ export class ImpEvaluator {
         if (n.value === undefined) throw "internal error: comma value used before it was set"
         return n.value
       case 'thread': {
-        // The clause left of the comma runs first.
-        n.hold.value = await this.evalNode(n.left)
+        // The clause left of the comma runs first. Usually it already
+        // ran while the statement was parsed (see Need in im-parse).
+        if (n.hold.value === undefined) n.hold.value = await this.evalNode(n.left)
         return await this.evalNode(n.body)
       }
       case 'compose': {

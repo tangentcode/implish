@@ -205,34 +205,72 @@ function splitCommas(items: ImpVal[]): ImpVal[][] {
   return out
 }
 
+/** A request from the parser to the caller: run hold.src now and put
+ *  the result in hold.value. The parser asks for this when the parse of
+ *  the rest of the statement depends on a value (is it a verb or not?).
+ *  A caller that does not run code (imparse) ignores the request, and
+ *  the parser then guesses from the syntax (staticVerbArity). */
+export type Need = {k: 'need', hold: Hold}
+export type Step = Node | Need
+
+/** Thrown inside the parser when it needs the value of an item. */
+class NeedValue {
+  constructor(public item: ImpVal, public node: Node) {}
+}
+
 /** Walk code one statement at a time.
  *  The generator yields each finished statement. The caller runs it
  *  (or not) before it asks for the next one, so words that a statement
- *  defines are known when the next statement is parsed. */
+ *  defines are known when the next statement is parsed.
+ *  It also yields Need requests (see Need). After each request, the
+ *  dictionary is read again, so the parse uses the new state. */
 export function* statements(items: ImpVal[], dict: () => WordDict,
-                            groups?: GroupCache): Generator<Node, void, void> {
-  // A caller that passes a cache keeps the dictionary fixed (see
-  // groupVerbArity). Otherwise the dictionary can change after each
-  // statement, so each statement gets a new cache.
+                            groups?: GroupCache): Generator<Step, void, void> {
+  // A caller that passes a cache keeps the dictionary fixed and runs
+  // nothing (see groupVerbArity). Otherwise the dictionary can change
+  // after each step, so the cache is cleared after each step.
   const shared = groups !== undefined
   let cache: GroupCache = groups ?? new Map()
+  const fresh = (): GroupCache => shared ? cache : (cache = new Map())
   for (const seg of splitStatements(formStrands(items))) {
     const clauses = splitCommas(seg)
-    let carry: Node | null = null
-    for (let ci = 0; ci < clauses.length; ci++) {
-      const clause = clauses[ci]
-      const isLast = ci === clauses.length - 1
+    clauses.forEach((clause, ci) => {
       if (clause.length === 0) {
         throw ci === 0 ? "comma with nothing on its left" : "comma followed by nothing"
       }
-      const p: Parser = new Parser(clause, dict(), carry, cache)
+    })
+    let carry: Hold | null = null
+    for (let ci = 0; ci < clauses.length; ci++) {
+      const isLast = ci === clauses.length - 1
+      const p: Parser = new Parser(clauses[ci], dict(), carry, cache)
       carry = null
       while (!p.done()) {
-        const stmt: Node = p.statement()
-        if (!isLast && p.done()) { carry = stmt; break }
+        const start = p.pos
+        let stmt: Node
+        try {
+          stmt = p.statement()
+        } catch (e) {
+          if (!(e instanceof NeedValue)) throw e
+          // Run the item, then parse the statement again with its value.
+          const hold: Hold = {k: 'hold', src: e.node}
+          yield {k: 'need', hold}
+          p.values.set(e.item, hold)
+          p.dict = dict()
+          p.groups = fresh()
+          p.pos = start
+          continue
+        }
+        if (!isLast && p.done()) {
+          // The clause left of a comma runs before the next clause is
+          // parsed, so the next clause sees its value and its effects.
+          carry = {k: 'hold', src: stmt}
+          yield {k: 'need', hold: carry}
+          fresh()
+          break
+        }
         yield stmt
         p.dict = dict()  // pick up words the last statement defined
-        if (!shared) p.groups = cache = new Map()
+        p.groups = fresh()
       }
     }
   }
@@ -252,18 +290,18 @@ export class Parser {
   items: Item[]
   pos = 0
   dict: WordDict
-  carry: Node | null
   hold: Hold | null = null
   groups: GroupCache
+  /** Values of items that the caller ran during the parse (see Need). */
+  values = new Map<ImpVal, Hold>()
 
-  constructor(clause: ImpVal[], dict: WordDict, carry: Node | null = null,
+  constructor(clause: ImpVal[], dict: WordDict, carry: Hold | null = null,
               groups: GroupCache = new Map()) {
     this.dict = dict
     this.groups = groups
-    this.carry = carry
     if (carry) {
-      this.hold = {k: 'hold', src: carry}
-      this.items = [this.hold, ...clause]
+      this.hold = carry
+      this.items = [carry, ...clause]
     } else {
       this.items = clause
     }
@@ -275,17 +313,16 @@ export class Parser {
   statement(): Node {
     const startedWithHold = this.pos === 0 && this.hold !== null
     const node = this.expr()
-    if (startedWithHold) return {k: 'thread', left: this.carry!, hold: this.hold!, body: node}
+    if (startedWithHold) return {k: 'thread', left: this.hold!.src, hold: this.hold!, body: node}
     return node
   }
 
   // -- classification -------------------------------------------------------
 
-  kind(x: Item): Kind {
-    if (isHold(x)) {
-      const a = staticVerbArity(x.src, this.dict)
-      return a === null ? {pos: 'noun', node: x} : {pos: 'verb', node: x, arity: a}
-    }
+  /** Classify an item: is it a verb (and with which arity), a noun, or a
+   *  set-word? i is the position of the item in this.items. */
+  kind(x: Item, i: number): Kind {
+    if (isHold(x)) return holdKind(x, this.dict)
     if (ImpQ.isSym(x)) {
       const name = x[2].description!
       switch (x[1].kind) {
@@ -314,7 +351,10 @@ export class Parser {
         return {pos: 'noun', node: {k: 'val', v: x}}
       }
       if (open === '(') {
-        // A group whose last statement is a verb is a verb:  (rev !) 5
+        // A group whose value is a verb is a verb:  (rev !) 5
+        const e = this.evaluated(x, i)
+        if (e) return e
+        // Not run (see needsValue): guess from the code in the group.
         let a = this.groups.get(x)
         if (a === undefined) {
           a = groupVerbArity(x[2], this.dict, this.groups)
@@ -333,6 +373,9 @@ export class Parser {
           const n = splitArgs(x[2]).length
           if (a > n) return {pos: 'verb', node: {k: 'verb', src: x, arity: a - n}, arity: a - n}
         }
+        // A full projection can give a verb too:  get[`f] 5
+        const e = this.evaluated(x, i)
+        if (e) return e
       }
       return {pos: 'noun', node: {k: 'val', v: x}}
     }
@@ -340,7 +383,47 @@ export class Parser {
   }
 
   peekKind(): Kind | null {
-    return this.done() ? null : this.kind(this.items[this.pos])
+    return this.done() ? null : this.kind(this.items[this.pos], this.pos)
+  }
+
+  /** For a ( ) group or a full projection: if the caller ran it, classify
+   *  it by its value. If its value decides the parse, ask the caller to
+   *  run it (throw NeedValue). Else return null. */
+  evaluated(x: ImpVal, i: number): Kind | null {
+    const h = this.values.get(x)
+    if (h) return h.value === undefined ? null : holdKind(h, this.dict)
+    if (this.needsValue(i)) throw new NeedValue(x, {k: 'val', v: x})
+    return null
+  }
+
+  /** Does the parse depend on whether item i is a verb? It does when a
+   *  term follows it: then item i is applied to that term (a verb) or the
+   *  two are separate statements (a noun). Running item i early does not
+   *  change the run order there: a function runs before its arguments,
+   *  and separate statements run left to right. When a dyad or nothing
+   *  follows, item i is run at the normal time. */
+  needsValue(i: number): boolean {
+    const nx = this.items[i + 1]
+    return nx !== undefined && !this.isDyadItem(nx)
+  }
+
+  /** Is x (by syntax and the dictionary) an infix dyad? */
+  isDyadItem(x: Item): boolean {
+    if (isHold(x)) return false
+    if (ImpQ.isSym(x) && x[1].kind === SymT.RAW) {
+      const w = this.dict[x[2].description!]
+      return isVerbVal(w) && getArity(w) === 2
+    }
+    if (ImpQ.isLst(x)) {
+      const open = x[1].open
+      if (open === '{') return scanArity(x[2]) === 2
+      const m = open.match(/^(.+)\[$/)
+      if (m && !open.startsWith("'") && !open.startsWith('`') && open !== ':[') {
+        const w = this.dict[m[1]]
+        return isVerbVal(w) && getArity(w) - splitArgs(x[2]).length === 2
+      }
+    }
+    return false
   }
 
   /** Can the next item start an argument term? A dyad can start one
@@ -451,11 +534,24 @@ export class Parser {
 function groupVerbArity(items: ImpVal[], dict: WordDict, groups: GroupCache): number | null {
   try {
     let last: Node | null = null
-    for (const stmt of statements(items, () => dict, groups)) last = stmt
+    for (const stmt of statements(items, () => dict, groups)) {
+      if (stmt.k !== 'need') last = stmt
+    }
     return last ? staticVerbArity(last, dict) : null
   } catch {
     return null
   }
+}
+
+/** Verb arity of a value, or null if it is not a function. */
+function valueArity(v: ImpVal): number | null {
+  return isVerbVal(v) ? getArity(v) : null
+}
+
+/** Classify a hold by its value if the caller ran it, else by syntax. */
+function holdKind(h: Hold, dict: WordDict): Kind {
+  const a = h.value !== undefined ? valueArity(h.value) : staticVerbArity(h.src, dict)
+  return a === null ? {pos: 'noun', node: h} : {pos: 'verb', node: h, arity: a}
 }
 
 function isBareVerb(n: Node): boolean {
@@ -489,7 +585,7 @@ export function staticVerbArity(n: Node, dict: WordDict): number | null {
       return null
     }
     case 'compose': return sva(n.g)
-    case 'hold': return sva(n.src)
+    case 'hold': return n.value !== undefined ? valueArity(n.value) : sva(n.src)
     case 'thread': return sva(n.body)
     case 'call': {
       const fa = sva(n.fn)
@@ -582,6 +678,7 @@ export function imparse(tree: ImpVal, dict?: WordDict): ImpVal {
   const d = dict ?? {}
   const out: ImpVal[] = []
   for (const stmt of statements(tree[2] as ImpVal[], () => d)) {
+    if (stmt.k === 'need') continue   // imparse runs nothing
     if (out.length) out.push(SEMI())
     out.push(toMExpr(stmt))
   }

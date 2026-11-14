@@ -183,6 +183,7 @@ Code is read left to right but runs right to left, as in K. Full rules: `docs/ev
 - A comma ends a clause. The left clause runs first, and its value becomes the first item of the right clause: `! 10, * 2, + 1`. It carries only the last statement on its left and never crosses `;`.
 - `;`, `|` and newlines end a statement. Two terms side by side with no verb between them are two statements.
 - Arguments of a call run right to left.
+- The parser asks the evaluator for a value when the parse depends on it: the clause left of a comma runs before the next clause is parsed, and a `( )` group or full projection that a term follows runs when the parser reaches it (so `(:f) 5` and ``get[`f] 5`` apply f).
 - `[ ]` blocks are data and are not run. `( )` runs code. `.|` is kept free.
 
 ### Important Patterns
