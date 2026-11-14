@@ -245,6 +245,10 @@ happens before parsing.
 
 - A plain word whose value is a function (JSF or IFN) is a verb. Its
   arity comes from the function. Arity -1 means variadic.
+- A function value (JSF or IFN) in the token tree itself is a verb
+  too, with its own arity. It can come from the embedding API or from
+  an unquote: `` r: :rev  `[,r 1 2 3] `` gives a list that runs as
+  `rev 1 2 3`.
 - Any other plain word is a noun. Its value is looked up when the
   statement runs. A stored value is not run again: if `l` holds a list,
   `l` gives that list.

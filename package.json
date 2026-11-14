@@ -7,7 +7,7 @@
     "build": "tsc",
     "build:core": "tsc",
     "watch": "tsc --watch",
-    "test": "tsc && node test/run-org-tests.mjs",
+    "test": "tsc && node test/run-org-tests.mjs && node test/api-tests.mjs",
     "dev": "vite",
     "preview": "vite preview",
     "repl": "node dist/imp-cmd.mjs"

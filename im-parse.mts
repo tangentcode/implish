@@ -385,6 +385,10 @@ export class Parser {
       }
       return {pos: 'noun', node: {k: 'val', v: x}}
     }
+    // A function value in the tree (from the embedding API or from an
+    // unquote) is a verb, the same as a word that holds it.
+    const a = valueArity(x as ImpVal)
+    if (a !== null) return {pos: 'verb', node: {k: 'verb', src: x as ImpVal, arity: a}, arity: a}
     return {pos: 'noun', node: {k: 'val', v: x as ImpVal}}
   }
 
@@ -396,7 +400,7 @@ export class Parser {
       case 'ref':
       case 'get': return this.dict[n.name]?.[0] === ImpT.DCT
       case 'hold': return n.value?.[0] === ImpT.DCT
-      case 'val': return ImpQ.isLst(n.v) && n.v[1].open === ':['
+      case 'val': return n.v[0] === ImpT.DCT || (ImpQ.isLst(n.v) && n.v[1].open === ':[')
       default: return false
     }
   }
@@ -584,6 +588,7 @@ export function staticVerbArity(n: Node, dict: WordDict): number | null {
     // A function literal (stored by a set-word) is a verb if it uses x, y or z
     case 'val': {
       const v = n.v
+      if (isVerbVal(v)) return getArity(v)
       if (ImpQ.isLst(v) && v[1].open === '{') {
         const a = scanArity(v[2])
         return a > 0 ? a : null

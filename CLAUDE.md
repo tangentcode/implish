@@ -45,6 +45,8 @@ npm test
 node test/run-org-tests.mjs test/issue-21.org
 ```
 
+`test/api-tests.mjs` tests the embedding API (token trees made in JavaScript, for example with a function value in them); `npm test` runs it after the org tests.
+
 `test/run-org-tests.mjs` feeds each test's `> ` lines to the quiet REPL and compares the output. Each test starts from a fresh state (`/reset`). Headings marked TODO are not run. Put regression tests for issue N in `test/issue-N.org`.
 
 The REPL supports a `-q` or `--quiet` flag that suppresses the prompt, making it easier to pipe test cases and compare outputs.
