@@ -274,3 +274,35 @@ second
 reverse a list, vector, or string
   arity: 1
 #+end_src
+
+* TEST dict-index-expr : backtick indexing works on any noun that gives a dictionary
+#+begin_src
+> d: :[`a 42]
+:[`a 42]
+> (:d)`a
+42
+> get[`d]`a
+42
+> d`a
+42
+> :[`b 7]`b
+7
+#+end_src
+
+A group or projection that a backtick symbol follows runs when the parser reaches it, so the parser knows that it gave a dictionary.
+
+* TEST set-literal-postfix : a function literal after a set-word is a noun in a normal expression
+#+begin_src
+> f: {x + 1} type?
+ifn!
+> f
+ifn!
+> g: {x + 1} show
+"{x + 1}"
+> g
+"{x + 1}"
+> k: {x * 2}
+{x * 2}
+> k 4
+8
+#+end_src

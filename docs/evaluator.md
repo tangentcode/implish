@@ -105,8 +105,9 @@ rev x: 1 + ! 3         .: x is 1 2 3, the result is 3 2 1 :.
 a: b: 5                .: both are 5 :.
 ```
 
-A function literal right after a set-word is a value, not a call:
-`f: {x + 1}` stores the function.
+A function literal right after a set-word is a value (a noun), not a
+verb: `f: {x + 1}` stores the function. The rest of the expression is
+parsed as usual, so `f: {x + 1} type?` stores `ifn!`.
 
 ### 5. The comma
 
@@ -252,8 +253,8 @@ happens before parsing.
   when a term follows it: `(rev !) 5`, ``get[`f] 5`` (see rule 7).
 - A projection `f[a]` of a verb that needs more arguments is a verb:
   `add[3] 5` is `add[3; 5]`.
-- A dictionary word followed by a backtick symbol is an index:
-  `` d`a ``.
+- A noun that gives a dictionary, followed by a backtick symbol, is an
+  index: `` d`a ``, `` (:d)`a ``, `` get[`d]`a ``, `` :[`b 7]`b ``.
 - The help word `?` takes the next token as it is and does not run
   it: `? rev`. In `? (x: 1)` the group does not run.
 

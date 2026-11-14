@@ -295,6 +295,8 @@ export class Parser {
   groups: GroupCache
   /** Values of items that the caller ran during the parse (see Need). */
   values = new Map<ImpVal, Hold>()
+  /** Positions of function literals that a set-word stores as values. */
+  valueAt = new Set<number>()
 
   constructor(clause: ImpVal[], dict: WordDict, carry: Hold | null = null,
               groups: GroupCache = new Map()) {
@@ -325,6 +327,7 @@ export class Parser {
    *  true, the parser may ask the caller to run a group or projection to
    *  learn its value (see evaluated). */
   kind(x: Item, i: number, run: boolean): Kind {
+    if (this.valueAt.has(i)) return {pos: 'noun', node: {k: 'val', v: x as ImpVal}}
     if (isHold(x)) return holdKind(x, this.dict)
     if (ImpQ.isSym(x)) {
       const name = x[2].description!
@@ -383,6 +386,19 @@ export class Parser {
       return {pos: 'noun', node: {k: 'val', v: x}}
     }
     return {pos: 'noun', node: {k: 'val', v: x as ImpVal}}
+  }
+
+  /** Is n known (at parse time) to give a dictionary? A word or get-word
+   *  that holds one, a :[ ] literal, or a group or projection that the
+   *  caller already ran (see Need) and that gave one. */
+  givesDict(n: Node): boolean {
+    switch (n.k) {
+      case 'ref':
+      case 'get': return this.dict[n.name]?.[0] === ImpT.DCT
+      case 'hold': return n.value?.[0] === ImpT.DCT
+      case 'val': return ImpQ.isLst(n.v) && n.v[1].open === ':['
+      default: return false
+    }
   }
 
   /** Classify the next item. Pass run = true only where the parser takes
@@ -456,19 +472,11 @@ export class Parser {
 
     if (k.pos === 'set') {
       if (this.done()) throw `SET symbol ${k.name} has no right-hand side`
-      // A function literal right after a set-word is a value: f: {x + 1}
+      // A function literal right after a set-word is a value (a noun),
+      // not a verb:  f: {x + 1}. The rest of the expression is parsed
+      // as usual, so  f: {x + 1} type?  stores ifn!.
       const next = this.items[this.pos]
-      if (!isHold(next) && ImpQ.isLst(next) && next[1].open === '{') {
-        this.pos++
-        let rhs: Node = {k: 'val', v: next}
-        const after = this.peekKind(false)
-        if (after && after.pos === 'verb' && after.arity === 2) {
-          this.pos++
-          rhs = this.done() ? {k: 'call', fn: after.node, args: [rhs]}
-                            : {k: 'call', fn: after.node, args: [rhs, this.expr()]}
-        }
-        return {k: 'set', name: k.name, rhs}
-      }
+      if (!isHold(next) && ImpQ.isLst(next) && next[1].open === '{') this.valueAt.add(this.pos)
       return {k: 'set', name: k.name, rhs: this.expr()}
     }
 
@@ -496,8 +504,8 @@ export class Parser {
 
     // noun
     let node = k.node
-    // dict`key indexing (only when the word holds a dictionary now)
-    if (node.k === 'ref' && this.dict[node.name]?.[0] === ImpT.DCT) {
+    // dict`key indexing (only when the noun is known to give a dictionary)
+    if (this.givesDict(node)) {
       while (!this.done()) {
         const nx = this.items[this.pos]
         if (isHold(nx)) break
