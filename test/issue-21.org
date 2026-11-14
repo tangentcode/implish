@@ -242,3 +242,15 @@ When a term follows a ( ) group or a full projection, the parser runs it first. 
 #+end_src
 
 In the first line, the parse depends on whether =(o: o + 1)= is a verb, so it runs first. In the second line, a dyad follows the group, so the normal right-to-left order holds.
+
+* TEST early-group-boundary : a group at the start of the next statement waits for this one
+#+begin_src
+> echo "first" (echo "second") 3
+first
+second
+3
+> a: 0; a: 1 (a: 2) 3; a
+2
+#+end_src
+
+=echo "first"= is a full statement, so the parser only looks ahead at the group to check for a dyad or a postfix monad. That look-ahead does not run the group. The group runs after =echo "first"=, as the start of the next statement.

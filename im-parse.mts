@@ -320,8 +320,10 @@ export class Parser {
   // -- classification -------------------------------------------------------
 
   /** Classify an item: is it a verb (and with which arity), a noun, or a
-   *  set-word? i is the position of the item in this.items. */
-  kind(x: Item, i: number): Kind {
+   *  set-word? i is the position of the item in this.items. If run is
+   *  true, the parser may ask the caller to run a group or projection to
+   *  learn its value (see evaluated). */
+  kind(x: Item, i: number, run: boolean): Kind {
     if (isHold(x)) return holdKind(x, this.dict)
     if (ImpQ.isSym(x)) {
       const name = x[2].description!
@@ -352,7 +354,7 @@ export class Parser {
       }
       if (open === '(') {
         // A group whose value is a verb is a verb:  (rev !) 5
-        const e = this.evaluated(x, i)
+        const e = this.evaluated(x, i, run)
         if (e) return e
         // Not run (see needsValue): guess from the code in the group.
         let a = this.groups.get(x)
@@ -374,7 +376,7 @@ export class Parser {
           if (a > n) return {pos: 'verb', node: {k: 'verb', src: x, arity: a - n}, arity: a - n}
         }
         // A full projection can give a verb too:  get[`f] 5
-        const e = this.evaluated(x, i)
+        const e = this.evaluated(x, i, run)
         if (e) return e
       }
       return {pos: 'noun', node: {k: 'val', v: x}}
@@ -382,17 +384,24 @@ export class Parser {
     return {pos: 'noun', node: {k: 'val', v: x as ImpVal}}
   }
 
-  peekKind(): Kind | null {
-    return this.done() ? null : this.kind(this.items[this.pos], this.pos)
+  /** Classify the next item. Pass run = true only where the parser takes
+   *  the item as a term: at the start of a statement, after a dyad or
+   *  set-word, or as an argument of a prefix verb. Where it only looks
+   *  ahead (is a dyad or a postfix monad next?), the item can be the start
+   *  of the next statement, and that must not run before this statement
+   *  has run. So these look-aheads pass run = false. */
+  peekKind(run: boolean): Kind | null {
+    return this.done() ? null : this.kind(this.items[this.pos], this.pos, run)
   }
 
   /** For a ( ) group or a full projection: if the caller ran it, classify
-   *  it by its value. If its value decides the parse, ask the caller to
-   *  run it (throw NeedValue). Else return null. */
-  evaluated(x: ImpVal, i: number): Kind | null {
+   *  it by its value. If its value decides the parse and run is true, ask
+   *  the caller to run it (throw NeedValue). Else return null, and the
+   *  caller guesses from the syntax. */
+  evaluated(x: ImpVal, i: number, run: boolean): Kind | null {
     const h = this.values.get(x)
     if (h) return h.value === undefined ? null : holdKind(h, this.dict)
-    if (this.needsValue(i)) throw new NeedValue(x, {k: 'val', v: x})
+    if (run && this.needsValue(i)) throw new NeedValue(x, {k: 'val', v: x})
     return null
   }
 
@@ -429,7 +438,7 @@ export class Parser {
   /** Can the next item start an argument term? A dyad can start one
    *  only in the first argument slot (before any argument). */
   startsTerm(firstSlot: boolean): boolean {
-    const k = this.peekKind()
+    const k = this.peekKind(true)   // an argument of a prefix verb
     if (!k) return false
     if (k.pos !== 'verb') return true
     return k.arity !== 2 || firstSlot
@@ -440,7 +449,7 @@ export class Parser {
   /** expr := term [dyad expr] */
   expr(): Node {
     let left = this.term()
-    const k = this.peekKind()
+    const k = this.peekKind(false)   // look-ahead: is a dyad next?
     if (k && k.pos === 'verb' && k.arity === 2) {
       this.pos++
       if (this.done()) return {k: 'call', fn: k.node, args: [left]}   // 2 +  is +[2]
@@ -452,7 +461,7 @@ export class Parser {
 
   /** term := set-word expr | verb term* | noun postfix* */
   term(): Node {
-    const k = this.peekKind()
+    const k = this.peekKind(true)
     if (!k) throw "unexpected end of input (missing argument?)"
     this.pos++
 
@@ -463,7 +472,7 @@ export class Parser {
       if (!isHold(next) && ImpQ.isLst(next) && next[1].open === '{') {
         this.pos++
         let rhs: Node = {k: 'val', v: next}
-        const after = this.peekKind()
+        const after = this.peekKind(false)
         if (after && after.pos === 'verb' && after.arity === 2) {
           this.pos++
           rhs = this.done() ? {k: 'call', fn: after.node, args: [rhs]}
@@ -511,14 +520,14 @@ export class Parser {
     }
     // postfix monads:  2 !  is  ![2]
     while (true) {
-      const p = this.peekKind()
+      const p = this.peekKind(false)   // look-ahead: a postfix monad?
       if (!p || p.pos !== 'verb' || p.arity !== 1 || p.raw) break
       this.pos++
       const args: Node[] = [node]
       // Extra nouns after a postfix monad are extra arguments. The
       // evaluator reports them as a valence error:  2 ! 10
       while (true) {
-        const q = this.peekKind()
+        const q = this.peekKind(false)
         if (!q || q.pos !== 'noun') break
         this.pos++
         args.push(q.node)

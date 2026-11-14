@@ -198,6 +198,12 @@ o: 0
 When a dyad or nothing follows a group, the group runs at the normal
 time, and the parser guesses from the code in the group if it is a verb.
 
+The parser runs a group early only when it takes the group as a term:
+at the start of a statement, after a dyad or set-word, or as an argument
+of a prefix verb. When it only looks ahead past the end of a statement
+(to check for a dyad or a postfix monad), it does not run the group. So
+in `echo "first" (echo "second") 3`, "first" prints before "second".
+
 ### 8. Blocks: `[ ]` is data
 
 A `[ ]` block is data. It is not run. Inside a block:
